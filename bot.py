@@ -14,21 +14,16 @@ tree = app_commands.CommandTree(bot)
 user_active_keys = {}
 
 class RedeemModal(ui.Modal, title="🔑 Activar tu Clave"):
-    key_input = ui.TextInput(
-        label="Escribe tu clave aquí",
-        placeholder="Ej: XBKX9IOOBAFVRUJWJ9UUSEN7",
-        required=True,
-        max_length=32
-    )
-    async def on_submit(self, interaction: discord.Interaction):
+    key_input = ui.TextInput(label="Clave", max_length=32, required=True)
+    async def on_submit(self, interaction):
         clave = self.key_input.value.strip()
         hwid = f"user_{interaction.user.id}"
         try:
-            res = requests.post(f"{API_URL}/redeem", json={"key": clave, "hwid": hwid})
+            res = requests.post(f"{API_URL}/redeem", json={"key": clave, "hwid": hwid}, timeout=10)
             data = res.json()
             if data.get("ok"):
                 user_active_keys[interaction.user.id] = clave
-                await interaction.response.send_message("✅ Clave activada correctamente! Ahora usa View Script.", ephemeral=True)
+                await interaction.response.send_message("✅ Clave activada!", ephemeral=True)
             else:
                 await interaction.response.send_message(f"❌ {data.get('msg')}", ephemeral=True)
         except:
@@ -41,78 +36,64 @@ class PanelView(ui.View):
         self.script_name = script_name
 
     @ui.button(label="📜 View Script", style=discord.ButtonStyle.primary)
-    async def view_script(self, interaction: discord.Interaction, button: ui.Button):
+    async def view_script(self, interaction, button):
         if interaction.user.id not in user_active_keys:
-            embed = discord.Embed(title="❌ You Need a Key!!", description="Anda comprala en ticket 🎟️", color=0xFF0000)
-            await interaction.response.send_message(embed=embed, ephemeral=True)
+            await interaction.response.send_message("❌ Necesitas clave, compra en ticket 🎟️", ephemeral=True)
             return
         clave = user_active_keys[interaction.user.id]
         hwid = f"user_{interaction.user.id}"
         try:
-            res = requests.post(f"{API_URL}/get-script", json={"key": clave, "hwid": hwid})
+            res = requests.post(f"{API_URL}/get-script", json={"key": clave, "hwid": hwid}, timeout=10)
             data = res.json()
             if data.get("ok"):
                 codigo = f"""```lua
--- 📜 {self.script_name}
+-- {self.script_name}
 script_key = "{clave}"
-
 loadstring(game:HttpGet("{API_URL.replace('/api','')}/api/verify?key={clave}&hwid={hwid}"))()
 ```"""
                 await interaction.response.send_message(f"✅ Tu código:\n{codigo}", ephemeral=True)
             else:
-                await interaction.response.send_message(f"❌ {data.get('msg')}", ephemeral=True)
+                await interaction.response.send_message("❌ Clave inválida", ephemeral=True)
         except:
             await interaction.response.send_message("❌ Error", ephemeral=True)
 
     @ui.button(label="🔑 Redeem Key", style=discord.ButtonStyle.success)
-    async def redeem_key(self, interaction: discord.Interaction, button: ui.Button):
+    async def redeem(self, interaction, button):
         await interaction.response.send_modal(RedeemModal())
 
-    @ui.button(label="📊 Key Info", style=discord.ButtonStyle.secondary)
-    async def key_info(self, interaction: discord.Interaction, button: ui.Button):
-        if interaction.user.id not in user_active_keys:
-            await interaction.response.send_message("❌ You Need a Key!! Anda comprala en ticket 🎟️", ephemeral=True)
-            return
-        await interaction.response.send_message(f"🔑 Clave: `{user_active_keys[interaction.user.id]}`", ephemeral=True)
-
     @ui.button(label="⚙️ Reset HWID", style=discord.ButtonStyle.danger)
-    async def reset_hwid(self, interaction: discord.Interaction, button: ui.Button):
+    async def reset(self, interaction, button):
         if interaction.user.id not in user_active_keys:
-            await interaction.response.send_message("❌ You Need a Key!! Anda comprala en ticket 🎟️", ephemeral=True)
+            await interaction.response.send_message("❌ Sin clave activa", ephemeral=True)
             return
         clave = user_active_keys[interaction.user.id]
         try:
-            requests.post(f"{API_URL}/reset-hwid", json={"key": clave})
+            requests.post(f"{API_URL}/reset-hwid", json={"key": clave}, timeout=10)
             del user_active_keys[interaction.user.id]
             await interaction.response.send_message("✅ HWID restablecido", ephemeral=True)
         except:
             await interaction.response.send_message("❌ Error", ephemeral=True)
 
-@tree.command(name="panel", description="Abre el panel del script")
-async def panel(interaction: discord.Interaction, script: str = "Kz's Duels"):
+@tree.command(name="panel", description="Abrir panel del script")
+async def panel(interaction, script: str = "Kz's Duels"):
     if not interaction.user.guild_permissions.administrator:
-        await interaction.response.send_message("❌ Solo administradores pueden usar este comando", ephemeral=True)
+        await interaction.response.send_message("❌ Solo admins", ephemeral=True)
         return
-    embed = discord.Embed(
-        title=f"⚔️ {script}",
-        description="**Kz's Duels** no es solo otro script — es tu camino directo a la cima.\nOlvídate de mecánicas injustas o demoras molestas. Aquí cada partida está optimizada para que solo tu habilidad decida el resultado.\n\nDisfruta de una ventaja táctica real con fluidez impecable y respuesta instantánea, manteniéndote siempre un paso adelante de tu rival. ¡No juegues en desventaja — juega con **Kz's**!",
-        color=0x5865F2
-    )
-    embed.set_footer(text="Luau Protect • Sistema de protección")
-    await interaction.response.send_message(embed=embed, view=PanelView(script_id=1, script_name=script))
+    embed = discord.Embed(title=f"⚔️ {script}", description="Sistema de protección activo", color=0x5865F2)
+    await interaction.response.send_message(embed=embed, view=PanelView(1, script))
 
-@tree.command(name="generatekey", description="Genera una nueva clave")
-@app_commands.describe(duracion="Duración en horas (0 = permanente)")
-async def generatekey(interaction: discord.Interaction, duracion: int = 0):
+@tree.command(name="generatekey", description="Generar clave")
+@app_commands.describe(duracion="Horas (0 = permanente)")
+async def generatekey(interaction, duracion: int = 0):
     if not interaction.user.guild_permissions.administrator:
-        await interaction.response.send_message("❌ Solo administradores", ephemeral=True)
+        await interaction.response.send_message("❌ Solo admins", ephemeral=True)
         return
     try:
-        res = requests.post(f"{API_URL}/generate-key", json={"duration": duracion})
+        res = requests.post(f"{API_URL}/generate-key", json={"duration": duracion}, timeout=10)
         data = res.json()
         if data.get("success"):
-            tiempo = "Permanente" if duracion == 0 else f"{duracion} horas"
-            await interaction.response.send_message(f"✅ Clave: `{data['key']}`\n⏱️ Validez: {tiempo}", ephemeral=True)
+            tiempo = "Permanente" if duracion == 0 else f"{duracion}h"
+            await interaction.response.send_message(f"✅ Clave: `{data['key']}`\n⏱️ {tiempo}", ephemeral=True)
         else:
             await interaction.response.send_message("❌ Error", ephemeral=True)
     except:
@@ -121,7 +102,6 @@ async def generatekey(interaction: discord.Interaction, duracion: int = 0):
 @bot.event
 async def on_ready():
     await tree.sync()
-    print(f"✅ Bot listo: {bot.user}")
+    print(f"✅ Bot conectado como {bot.user}")
 
 bot.run(BOT_TOKEN)
-        

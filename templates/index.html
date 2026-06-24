@@ -1,0 +1,124 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="container mx-auto px-4 py-6 max-w-6xl">
+    <!-- Encabezado -->
+    <div class="flex flex-col md:flex-row justify-between items-center mb-8 gap-4">
+        <div class="flex items-center gap-3">
+            <i class="fa fa-shield text-3xl text-primary"></i>
+            <h1 class="text-3xl font-bold"><span class="text-white">Luau</span> <span class="text-accent">Protect</span></h1>
+        </div>
+        <div class="flex items-center gap-4">
+            <a href="https://discord.com/api/oauth2/authorize?client_id=1519073151856803930&permissions=274877992000&scope=bot%20applications.commands" target="_blank" class="bg-primary hover:bg-primary/90 px-5 py-2 rounded-lg font-medium flex items-center gap-2">
+                <i class="fa fa-plus"></i> Invite Bot
+            </a>
+            <div class="flex items-center gap-3 bg-card px-4 py-2 rounded-lg border border-secondary">
+                <div class="w-10 h-10 rounded-full bg-gray-600 flex items-center justify-center">
+                    <i class="fa fa-user"></i>
+                </div>
+                <div>
+                    <p class="font-semibold">{{ user.username }}</p>
+                    <p class="text-xs text-gray-400">ID: {{ user.discord_id }}</p>
+                </div>
+                <a href="/logout" class="text-red-400 hover:text-red-300 ml-2" title="Cerrar sesión">
+                    <i class="fa fa-sign-out"></i>
+                </a>
+            </div>
+        </div>
+    </div>
+
+    <!-- Menú de pestañas -->
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+        <a href="/" class="bg-primary/20 border border-primary text-primary rounded-xl p-4 text-center font-semibold flex flex-col items-center gap-2 hover:bg-primary/30 transition">
+            <i class="fa fa-code text-2xl"></i>
+            Scripts
+        </a>
+        <a href="#" class="bg-secondary border border-gray-700 rounded-xl p-4 text-center font-semibold text-gray-300 flex flex-col items-center gap-2 hover:bg-secondary/80 transition">
+            <i class="fa fa-desktop text-2xl"></i>
+            Panels
+        </a>
+        <a href="/keys" class="bg-secondary border border-gray-700 rounded-xl p-4 text-center font-semibold text-gray-300 flex flex-col items-center gap-2 hover:bg-secondary/80 transition">
+            <i class="fa fa-key text-2xl"></i>
+            Keys
+        </a>
+        <a href="/hwid-bans" class="bg-secondary border border-gray-700 rounded-xl p-4 text-center font-semibold text-gray-300 flex flex-col items-center gap-2 hover:bg-secondary/80 transition">
+            <i class="fa fa-ban text-2xl"></i>
+            HWID Bans
+        </a>
+    </div>
+
+    <!-- Subir Script -->
+    <div class="bg-card rounded-xl p-6 border border-secondary mb-8">
+        <h2 class="text-2xl font-bold mb-5">📤 Upload / Edit Script</h2>
+        <div class="space-y-4">
+            <div>
+                <label class="block text-sm font-medium mb-2">Nombre del Script</label>
+                <input type="text" id="scriptName" placeholder="Ej: Universal Hub v2" class="w-full bg-secondary border border-gray-700 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-primary">
+            </div>
+            <div>
+                <label class="block text-sm font-medium mb-2">Código Lua</label>
+                <textarea id="scriptContent" rows="16" placeholder="Pega aquí todo el código de tu script..." class="w-full bg-secondary border border-gray-700 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-primary font-mono text-sm"></textarea>
+            </div>
+            <button onclick="guardarScript()" class="bg-primary hover:bg-primary/90 px-6 py-2.5 rounded-lg font-medium transition">💾 Guardar Script</button>
+        </div>
+    </div>
+
+    <!-- Lista de scripts -->
+    <div class="bg-card rounded-xl p-6 border border-secondary">
+        <h3 class="text-xl font-semibold mb-4">📋 Scripts Guardados</h3>
+        {% if scripts %}
+        <div class="overflow-x-auto">
+            <table class="w-full text-sm">
+                <thead>
+                    <tr class="border-b border-gray-700">
+                        <th class="text-left p-3">ID</th>
+                        <th class="text-left p-3">Nombre</th>
+                        <th class="text-left p-3">Fecha</th>
+                        <th class="text-left p-3">Acciones</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for s in scripts %}
+                    <tr class="border-b border-gray-700 hover:bg-secondary/40">
+                        <td class="p-3">{{ s.id }}</td>
+                        <td class="p-3 font-medium">{{ s.name }}</td>
+                        <td class="p-3 text-gray-400">{{ s.created_at.strftime('%d/%m/%Y %H:%M') }}</td>
+                        <td class="p-3">
+                            <button onclick="cargarScript({{ s.id }})" class="text-accent hover:text-accent/80 mr-3">Editar</button>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <p class="text-gray-400 italic">No hay scripts guardados todavía.</p>
+        {% endif %}
+    </div>
+</div>
+
+<script>
+function guardarScript() {
+    const nombre = document.getElementById('scriptName').value.trim();
+    const codigo = document.getElementById('scriptContent').value.trim();
+    if (!nombre || !codigo) {
+        alert('⚠️ Completa el nombre y el código');
+        return;
+    }
+    fetch('/api/upload-script', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({name: nombre, content: codigo})
+    })
+    .then(r => r.json())
+    .then(res => {
+        if (res.success) {
+            alert('✅ Script guardado correctamente');
+            location.reload();
+        } else {
+            alert('❌ Error al guardar');
+        }
+    })
+    .catch(() => alert('❌ Error de conexión'));
+}
+</script>
+{% endblock %}

@@ -1,9 +1,9 @@
-                <!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="es">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>PolSec | Panel</title>
+    <title>ProtectorScripts | Panel</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
     <script>
@@ -25,10 +25,11 @@
     <button onclick="toggleSidebar()" class="md:hidden fixed top-4 left-4 z-50 bg-card p-2 rounded"><i class="fa fa-bars"></i></button>
     <div class="flex h-screen">
         <aside id="sidebar" class="sidebar fixed md:static w-64 bg-sidebar border-r border-border z-40">
-            <div class="p-4 border-b border-border"><div class="bg-gradient-to-r from-primary to-blue-400 p-3 rounded text-center text-xl font-bold">PolSec</div></div>
+            <div class="p-4 border-b border-border"><div class="bg-gradient-to-r from-primary to-blue-400 p-3 rounded text-center text-xl font-bold">ProtectorScripts</div></div>
             <nav class="p-3 space-y-2">
                 <div class="text-xs text-textMuted uppercase mt-4 mb-2 px-2">Gestión</div>
                 <a href="/scripts" class="flex items-center gap-2 p-2 rounded {% if request.path == '/scripts' %}bg-primary/20 text-primary{% else %}hover:bg-card{% endif %}"><i class="fa fa-code"></i> Scripts</a>
+                <a href="/protector" class="flex items-center gap-2 p-2 rounded {% if request.path == '/protector' %}bg-primary/20 text-primary{% else %}hover:bg-card{% endif %}"><i class="fa fa-shield-alt"></i> Protector Script</a>
                 <a href="/panels" class="flex items-center gap-2 p-2 rounded {% if request.path == '/panels' %}bg-primary/20 text-primary{% else %}hover:bg-card{% endif %}"><i class="fa fa-layer-group"></i> Paneles</a>
                 <a href="/keys" class="flex items-center gap-2 p-2 rounded {% if request.path == '/keys' %}bg-primary/20 text-primary{% else %}hover:bg-card{% endif %}"><i class="fa fa-key"></i> Claves</a>
                 {% if user.is_admin %}
@@ -36,7 +37,7 @@
                 {% endif %}
             </nav>
             <div class="absolute bottom-0 left-0 right-0 p-3 border-t border-border flex justify-between items-center">
-                <span class="text-sm">{{ user.username }}</span>
+                <span class="text-sm">{{ user.discord_username }}</span>
                 <a href="/logout" class="text-red-400 text-sm">Salir</a>
             </div>
         </aside>
@@ -50,4 +51,3 @@
     </script>
 </body>
 </html>
- 

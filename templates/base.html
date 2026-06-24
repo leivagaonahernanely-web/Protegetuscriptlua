@@ -2,8 +2,8 @@
 <html lang="es">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>LuauProtect Clone</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>LuauProtect</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
     <script>
@@ -22,12 +22,62 @@
             }
         }
     </script>
+    <style>
+        /* Menú lateral para móvil */
+        .sidebar {
+            position: fixed;
+            top: 0;
+            left: 0;
+            height: 100vh;
+            width: 250px;
+            transform: translateX(-100%);
+            transition: transform 0.3s ease;
+            z-index: 50;
+            overflow-y: auto;
+        }
+        .sidebar.open {
+            transform: translateX(0);
+        }
+        .overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.6);
+            z-index: 40;
+            display: none;
+        }
+        .overlay.active {
+            display: block;
+        }
+        @media (min-width: 768px) {
+            .sidebar {
+                position: static;
+                transform: none;
+                height: auto;
+            }
+            .overlay {
+                display: none !important;
+            }
+            .menu-toggle {
+                display: none;
+            }
+        }
+    </style>
 </head>
 <body class="bg-dark text-gray-100 min-h-screen">
-<div class="flex h-screen">
-    <aside class="w-64 bg-sidebar border-r border-border p-4 flex flex-col justify-between">
+
+<!-- Botón abrir menú (solo móvil) -->
+<button id="menuToggle" class="menu-toggle fixed top-3 left-3 z-[60] bg-card p-2 rounded shadow">
+    <i class="fa fa-bars text-xl"></i>
+</button>
+
+<!-- Fondo oscuro al abrir menú -->
+<div id="overlay" class="overlay"></div>
+
+<div class="flex flex-col md:flex-row">
+    <!-- Menú lateral -->
+    <aside id="sidebar" class="sidebar bg-sidebar border-r border-border p-4 flex flex-col justify-between">
         <div>
-            <div class="text-2xl font-bold text-center mb-8 text-primary">🛡️ LuauProtect</div>
+            <div class="text-2xl font-bold text-center mb-6 mt-2 text-primary">🛡️ LuauProtect</div>
             <nav class="space-y-1">
                 <a href="/" class="flex items-center gap-3 p-2.5 rounded {% if request.path == '/' %}bg-primary/20 text-primary{% else %}hover:bg-card{% endif %}">
                     <i class="fa fa-home w-5"></i> Dashboard
@@ -51,9 +101,33 @@
             <a href="/logout" class="text-red-400 text-sm mt-1 inline-block">Cerrar sesión</a>
         </div>
     </aside>
-    <main class="flex-1 p-6 overflow-auto">
+
+    <!-- Contenido principal -->
+    <main class="flex-1 p-4 md:p-6 mt-14 md:mt-0 w-full">
         {% block content %}{% endblock %}
     </main>
 </div>
+
+<script>
+    const sidebar = document.getElementById('sidebar');
+    const overlay = document.getElementById('overlay');
+    const toggleBtn = document.getElementById('menuToggle');
+
+    function openMenu() {
+        sidebar.classList.add('open');
+        overlay.classList.add('active');
+        document.body.style.overflow = 'hidden';
+    }
+
+    function closeMenu() {
+        sidebar.classList.remove('open');
+        overlay.classList.remove('active');
+        document.body.style.overflow = '';
+    }
+
+    toggleBtn.addEventListener('click', () => sidebar.classList.contains('open') ? closeMenu() : openMenu());
+    overlay.addEventListener('click', closeMenu);
+</script>
+
 </body>
 </html>

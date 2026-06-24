@@ -3,23 +3,203 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>LuaProtect - Protege tus Scripts</title>
+    <title>LuauProtect Pro - Protege tus Scripts</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
     <style>
-        *{margin:0;padding:0;box-sizing:border-box;font-family:Arial,sans-serif}
-        body{background:#121212;color:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;padding:20px}
-        .card{background:#1e1e1e;padding:40px;border-radius:12px;text-align:center;max-width:500px;width:100%;box-shadow:0 0 20px rgba(0,0,0,0.3)}
-        h1{color:#4ea8de;margin-bottom:20px}
-        p{color:#ccc;margin-bottom:30px;line-height:1.6}
-        .btn{display:inline-block;padding:14px 28px;background:#5865f2;color:#fff;border-radius:8px;text-decoration:none;font-weight:bold;transition:0.2s}
-        .btn:hover{background:#4752c4}
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            background: #0a0e17;
+            font-family: 'Inter', sans-serif;
+            color: #e8edf5;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+            background-image: radial-gradient(ellipse at 30% 20%, rgba(88, 101, 242, 0.08) 0%, transparent 60%),
+                              radial-gradient(ellipse at 70% 80%, rgba(88, 101, 242, 0.05) 0%, transparent 60%);
+        }
+        .container {
+            max-width: 800px;
+            width: 100%;
+            background: #141b26;
+            border: 1px solid #1e2a3a;
+            border-radius: 24px;
+            padding: 50px 40px;
+            text-align: center;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6);
+            position: relative;
+            overflow: hidden;
+        }
+        .container::before {
+            content: '';
+            position: absolute;
+            top: -50%;
+            left: -50%;
+            width: 200%;
+            height: 200%;
+            background: radial-gradient(circle at 50% 0%, rgba(88, 101, 242, 0.03) 0%, transparent 70%);
+            pointer-events: none;
+        }
+        .badge {
+            display: inline-block;
+            background: rgba(88, 101, 242, 0.15);
+            color: #5865F2;
+            padding: 6px 18px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+            letter-spacing: 0.5px;
+            margin-bottom: 24px;
+            border: 1px solid rgba(88, 101, 242, 0.2);
+        }
+        h1 {
+            font-size: 48px;
+            font-weight: 800;
+            margin-bottom: 8px;
+            background: linear-gradient(135deg, #e8edf5 0%, #8892a0 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        h1 .highlight {
+            background: linear-gradient(135deg, #5865F2 0%, #4752c4 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        .subtitle {
+            font-size: 18px;
+            color: #8892a0;
+            margin-bottom: 16px;
+            font-weight: 300;
+        }
+        .description {
+            color: #a0a8b4;
+            line-height: 1.7;
+            margin-bottom: 36px;
+            max-width: 550px;
+            margin-left: auto;
+            margin-right: auto;
+            font-size: 15px;
+        }
+        .features {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+            gap: 16px;
+            margin-bottom: 40px;
+            text-align: left;
+        }
+        .feature-item {
+            background: #0a0e17;
+            border: 1px solid #1e2a3a;
+            border-radius: 12px;
+            padding: 16px;
+            transition: all 0.2s;
+        }
+        .feature-item:hover {
+            border-color: #2a3a50;
+            transform: translateY(-2px);
+        }
+        .feature-item i {
+            color: #5865F2;
+            font-size: 20px;
+            margin-bottom: 8px;
+            display: block;
+        }
+        .feature-item h4 {
+            font-size: 14px;
+            font-weight: 600;
+            margin-bottom: 4px;
+        }
+        .feature-item p {
+            font-size: 12px;
+            color: #8892a0;
+            line-height: 1.4;
+        }
+        .btn-login {
+            display: inline-flex;
+            align-items: center;
+            gap: 12px;
+            padding: 16px 40px;
+            background: #5865F2;
+            color: #fff;
+            border-radius: 14px;
+            font-weight: 600;
+            font-size: 16px;
+            text-decoration: none;
+            transition: all 0.2s;
+            border: none;
+            cursor: pointer;
+            box-shadow: 0 8px 30px rgba(88, 101, 242, 0.3);
+        }
+        .btn-login:hover {
+            background: #4752c4;
+            transform: translateY(-2px);
+            box-shadow: 0 12px 40px rgba(88, 101, 242, 0.4);
+        }
+        .btn-login i {
+            font-size: 20px;
+        }
+        .footer-text {
+            margin-top: 30px;
+            font-size: 13px;
+            color: #4a5568;
+        }
+        .footer-text a {
+            color: #5865F2;
+            text-decoration: none;
+        }
+        @media (max-width: 640px) {
+            .container { padding: 30px 20px; }
+            h1 { font-size: 32px; }
+            .features { grid-template-columns: 1fr 1fr; }
+        }
     </style>
 </head>
 <body>
-    <div class="card">
-        <h1>LuaProtect</h1>
-        <p>Sistema profesional para proteger tus scripts de Roblox, controlar accesos y distribuir solo a usuarios autorizados.</p>
-        <a href="/login" class="btn">Iniciar sesión con Discord</a>
+    <div class="container">
+        <div class="badge"><i class="fas fa-shield-alt"></i> Protección Avanzada</div>
+        <h1>Luau<span class="highlight">Protect</span></h1>
+        <p class="subtitle">Protege tus scripts de Roblox con seguridad de nivel empresarial</p>
+        <p class="description">
+            Sistema profesional para proteger tus scripts, controlar accesos, gestionar licencias 
+            y distribuir solo a usuarios autorizados con HWID locking.
+        </p>
+
+        <div class="features">
+            <div class="feature-item">
+                <i class="fas fa-code"></i>
+                <h4>Scripts Protegidos</h4>
+                <p>Ofuscación y compresión avanzada</p>
+            </div>
+            <div class="feature-item">
+                <i class="fas fa-key"></i>
+                <h4>Licencias</h4>
+                <p>Claves únicas con expiración</p>
+            </div>
+            <div class="feature-item">
+                <i class="fas fa-fingerprint"></i>
+                <h4>HWID Lock</h4>
+                <p>Bloqueo por hardware ID</p>
+            </div>
+            <div class="feature-item">
+                <i class="fas fa-robot"></i>
+                <h4>Bot de Discord</h4>
+                <p>Gestión desde tu servidor</p>
+            </div>
+        </div>
+
+        <a href="/login" class="btn-login">
+            <i class="fab fa-discord"></i> Iniciar sesión con Discord
+        </a>
+        <p class="footer-text">
+            ¿Tienes una cuenta? <a href="/login">Inicia sesión</a> · 
+            <a href="https://discord.gg/tu-servidor" target="_blank">Soporte</a>
+        </p>
     </div>
 </body>
-</html>
- 
+                                           </html>

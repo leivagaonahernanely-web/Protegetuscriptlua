@@ -3,19 +3,261 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Loader - {{ script.name }}</title>
+    <title>Loader - {{ script.name }} | LuauProtect Pro</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
     <style>
-        *{margin:0;padding:0;box-sizing:border-box;font-family:monospace}
-        body{background:#121212;color:#eee;padding:30px}
-        pre{background:#1e1e1e;padding:20px;border-radius:8px;overflow-x:auto;white-space:pre-wrap;word-wrap:break-word}
-        h2{color:#4ea8de;margin-bottom:15px}
-        button{margin-top:15px;padding:10px 20px;background:#5865f2;color:#fff;border:none;border-radius:4px;cursor:pointer}
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            background: #0a0e17;
+            font-family: 'Inter', sans-serif;
+            color: #e8edf5;
+            min-height: 100vh;
+            padding: 40px 20px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        .container {
+            max-width: 900px;
+            width: 100%;
+            background: #141b26;
+            border: 1px solid #1e2a3a;
+            border-radius: 20px;
+            padding: 40px;
+            box-shadow: 0 12px 48px rgba(0, 0, 0, 0.5);
+        }
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            flex-wrap: wrap;
+            gap: 16px;
+            margin-bottom: 24px;
+        }
+        .header h2 {
+            font-size: 24px;
+            font-weight: 700;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .header h2 i {
+            color: #5865F2;
+        }
+        .script-info {
+            display: flex;
+            gap: 16px;
+            flex-wrap: wrap;
+            font-size: 14px;
+            color: #8892a0;
+        }
+        .script-info span {
+            background: #0a0e17;
+            padding: 4px 14px;
+            border-radius: 20px;
+            border: 1px solid #1e2a3a;
+        }
+        .script-info code {
+            color: #5865F2;
+            font-family: 'JetBrains Mono', monospace;
+        }
+        .code-wrapper {
+            background: #0a0e17;
+            border: 1px solid #1e2a3a;
+            border-radius: 12px;
+            overflow: hidden;
+            margin-bottom: 20px;
+        }
+        .code-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px 20px;
+            background: #0f141e;
+            border-bottom: 1px solid #1e2a3a;
+            font-size: 13px;
+            color: #8892a0;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+        .code-header .lang {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .code-header .lang i {
+            color: #5865F2;
+        }
+        .code-header .actions {
+            display: flex;
+            gap: 8px;
+        }
+        .btn-copy, .btn-download {
+            padding: 6px 16px;
+            border-radius: 8px;
+            border: none;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.15s;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .btn-copy {
+            background: #1e2a3a;
+            color: #e8edf5;
+        }
+        .btn-copy:hover {
+            background: #2a3a50;
+        }
+        .btn-copy.copied {
+            background: #10b981;
+            color: #fff;
+        }
+        .btn-download {
+            background: #5865F2;
+            color: #fff;
+        }
+        .btn-download:hover {
+            background: #4752c4;
+        }
+        pre {
+            padding: 24px;
+            margin: 0;
+            overflow-x: auto;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 14px;
+            line-height: 1.7;
+            color: #e8edf5;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+        pre .comment { color: #4a5568; }
+        pre .string { color: #10b981; }
+        pre .keyword { color: #5865F2; }
+        pre .function { color: #f59e0b; }
+        .footer-actions {
+            display: flex;
+            gap: 12px;
+            flex-wrap: wrap;
+            margin-top: 8px;
+        }
+        .btn-back {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            color: #8892a0;
+            text-decoration: none;
+            font-size: 14px;
+            transition: color 0.15s;
+        }
+        .btn-back:hover {
+            color: #e8edf5;
+        }
+        .toast {
+            position: fixed;
+            bottom: 24px;
+            right: 24px;
+            padding: 12px 24px;
+            border-radius: 12px;
+            background: #141b26;
+            border: 1px solid #1e2a3a;
+            color: #e8edf5;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+            z-index: 100;
+            transform: translateY(100px);
+            opacity: 0;
+            transition: all 0.3s ease;
+            font-size: 14px;
+        }
+        .toast.show {
+            transform: translateY(0);
+            opacity: 1;
+        }
+        .toast.success { border-color: #10b981; }
+        @media (max-width: 640px) {
+            .container { padding: 20px; }
+            .header h2 { font-size: 18px; }
+            .code-header { flex-direction: column; align-items: stretch; }
+            pre { font-size: 12px; padding: 16px; }
+        }
     </style>
 </head>
 <body>
-    <h2>Loader para: {{ script.name }}</h2>
-    <pre id="codigo">{{ loader }}</pre>
-    <button onclick="navigator.clipboard.writeText(document.getElementById('codigo').textContent)">Copiar al portapapeles</button>
+    <div class="container">
+        <div class="header">
+            <h2><i class="fas fa-code"></i> Loader: {{ script.name }}</h2>
+            <div class="script-info">
+                <span>Hash: <code>{{ script.hash_id }}</code></span>
+                <span>Versión: <code>v{{ script.version }}</code></span>
+                <span>Estado: <code style="color: {% if script.active %}#10b981{% else %}#ef4444{% endif %};">{% if script.active %}Activo{% else %}Inactivo{% endif %}</code></span>
+            </div>
+        </div>
+
+        <div class="code-wrapper">
+            <div class="code-header">
+                <div class="lang">
+                    <i class="fas fa-terminal"></i> Lua (Roblox)
+                </div>
+                <div class="actions">
+                    <button id="copyBtn" class="btn-copy"><i class="fas fa-copy"></i> Copiar</button>
+                    <button id="downloadBtn" class="btn-download"><i class="fas fa-download"></i> Descargar</button>
+                </div>
+            </div>
+            <pre id="codigo">{{ loader }}</pre>
+        </div>
+
+        <div class="footer-actions">
+            <a href="/dashboard" class="btn-back"><i class="fas fa-arrow-left"></i> Volver al Dashboard</a>
+            <span style="color: #4a5568; font-size: 13px; margin-left: auto;">
+                <i class="fas fa-shield-alt"></i> Protegido con LuauProtect Pro
+            </span>
+        </div>
+    </div>
+
+    <div id="toast" class="toast"></div>
+
+    <script>
+        const codigoElement = document.getElementById('codigo');
+        const copyBtn = document.getElementById('copyBtn');
+        const downloadBtn = document.getElementById('downloadBtn');
+        const toast = document.getElementById('toast');
+
+        function showToast(message, type = 'success') {
+            toast.textContent = message;
+            toast.className = 'toast ' + type;
+            setTimeout(() => toast.classList.add('show'), 10);
+            setTimeout(() => toast.classList.remove('show'), 3000);
+        }
+
+        copyBtn.addEventListener('click', async () => {
+            try {
+                await navigator.clipboard.writeText(codigoElement.textContent);
+                copyBtn.innerHTML = '<i class="fas fa-check"></i> Copiado';
+                copyBtn.classList.add('copied');
+                showToast('✅ Loader copiado al portapapeles', 'success');
+                setTimeout(() => {
+                    copyBtn.innerHTML = '<i class="fas fa-copy"></i> Copiar';
+                    copyBtn.classList.remove('copied');
+                }, 2000);
+            } catch {
+                showToast('❌ Error al copiar', 'error');
+            }
+        });
+
+        downloadBtn.addEventListener('click', () => {
+            const blob = new Blob([codigoElement.textContent], { type: 'text/plain;charset=utf-8' });
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(blob);
+            a.download = 'loader_{{ script.hash_id }}.lua';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(a.href);
+            showToast('✅ Loader descargado', 'success');
+        });
+    </script>
 </body>
 </html>
- 

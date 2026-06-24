@@ -3,6 +3,7 @@ from flask_sqlalchemy import SQLAlchemy
 from flask_login import LoginManager, UserMixin, login_user, login_required, current_user, logout_user
 from flask_cors import CORS
 from authlib.integrations.flask_client import OAuth
+import os  # ✅ IMPORTACIÓN OBLIGATORIA PARA RAILWAY
 import hashlib
 import random
 import datetime
@@ -20,15 +21,15 @@ app.config['PERMANENT_SESSION_LIFETIME'] = datetime.timedelta(days=30)
 app.config['SESSION_COOKIE_SECURE'] = True
 app.config['SESSION_COOKIE_HTTPONLY'] = True
 
-# ✅ DATOS DE TU APP + DOMINIO RAILWAY
+# ✅ DATOS DE TU APP
 app.config['DISCORD_CLIENT_ID'] = "1519073151856803930"
 app.config['DISCORD_CLIENT_SECRET'] = "G-oqtu7gXsc0VmbjYpzBUHbvj55z7e0z"
 app.config['DISCORD_REDIRECT_URI'] = "https://protegetuscriptlua-production.up.railway.app/callback"
 
-# ✅ TU ID DE DISCORD PARA ADMIN
+# ✅ TU ID DE DISCORD ADMIN
 ADMIN_DISCORD_ID = "1501316920975036611"
 
-# ✅ DOMINIO PRINCIPAL
+# ✅ DOMINIO DE RAILWAY
 DOMINIO = "https://protegetuscriptlua-production.up.railway.app"
 
 db = SQLAlchemy(app)
@@ -136,7 +137,7 @@ def logout():
     session.clear()
     return redirect(url_for('login'))
 
-# ---------------------- RUTAS PRINCIPALES ----------------------
+# ---------------------- RUTAS ----------------------
 @app.route('/')
 @login_required
 def index():

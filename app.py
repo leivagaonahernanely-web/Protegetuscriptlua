@@ -3,14 +3,14 @@ from flask_sqlalchemy import SQLAlchemy
 from flask_login import LoginManager, UserMixin, login_user, login_required, current_user, logout_user
 from flask_cors import CORS
 from authlib.integrations.flask_client import OAuth
-import os  # ✅ IMPORTACIÓN OBLIGATORIA PARA RAILWAY
+import os
 import hashlib
 import random
 import datetime
 import zlib
 import base64
 
-# ---------------------- CONFIGURACIÓN ----------------------
+# ---------------------- CONFIGURACIÓN GENERAL ----------------------
 app = Flask(__name__)
 CORS(app)
 
@@ -21,17 +21,16 @@ app.config['PERMANENT_SESSION_LIFETIME'] = datetime.timedelta(days=30)
 app.config['SESSION_COOKIE_SECURE'] = True
 app.config['SESSION_COOKIE_HTTPONLY'] = True
 
-# ✅ DATOS DE TU APP
+# Discord OAuth
 app.config['DISCORD_CLIENT_ID'] = "1519073151856803930"
 app.config['DISCORD_CLIENT_SECRET'] = "G-oqtu7gXsc0VmbjYpzBUHbvj55z7e0z"
 app.config['DISCORD_REDIRECT_URI'] = "https://protegetuscriptlua-production.up.railway.app/callback"
 
-# ✅ TU ID DE DISCORD ADMIN
+# Datos de tu sistema
 ADMIN_DISCORD_ID = "1501316920975036611"
-
-# ✅ DOMINIO DE RAILWAY
 DOMINIO = "https://protegetuscriptlua-production.up.railway.app"
 
+# Inicializar base de datos y sesiones
 db = SQLAlchemy(app)
 login_manager = LoginManager(app)
 login_manager.login_view = 'login'
@@ -47,7 +46,7 @@ discord = oauth.register(
     client_kwargs={'scope': 'identify'}
 )
 
-# ---------------------- BASE DE DATOS ----------------------
+# ---------------------- MODELOS DE BASE DE DATOS ----------------------
 class User(UserMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
     discord_id = db.Column(db.String(20), unique=True, nullable=False)
@@ -95,10 +94,11 @@ class BannedHWID(db.Model):
 def load_user(user_id):
     return User.query.get(int(user_id))
 
+# Crear tablas al iniciar
 with app.app_context():
     db.create_all()
 
-# ---------------------- INICIO DE SESIÓN ----------------------
+# ---------------------- RUTAS DE INICIO DE SESIÓN ----------------------
 @app.route('/login')
 def login():
     if current_user.is_authenticated:
@@ -137,7 +137,7 @@ def logout():
     session.clear()
     return redirect(url_for('login'))
 
-# ---------------------- RUTAS ----------------------
+# ---------------------- RUTAS PRINCIPALES DEL PANEL ----------------------
 @app.route('/')
 @login_required
 def index():
@@ -176,7 +176,7 @@ def users():
         return redirect(url_for('scripts'))
     return render_template('users.html', users=User.query.all(), user=current_user)
 
-# ---------------------- API Y PROTECCIÓN ----------------------
+# ---------------------- API DE PROTECCIÓN Y GESTIÓN ----------------------
 @app.route('/api/verify')
 def verify():
     key = request.args.get('key', '').strip()
@@ -194,7 +194,7 @@ def verify():
 
     if hwid:
         hwid_hash = hashlib.sha256(hwid.encode()).hexdigest()
-        if BannedHWID.query.filter_by(owner_id=key_obj.owner_id, hwid_hash=hwid_hash).first():
+        if BannedHWID.query.filter_by(hwid_hash=hwid_hash).first():
             return Response("return error('HWID baneado')", mimetype='text/plain', status=403)
         if key_obj.hwid and key_obj.hwid != hwid_hash:
             return Response("return error('HWID no coincide')", mimetype='text/plain', status=403)
@@ -202,11 +202,11 @@ def verify():
             key_obj.hwid = hwid_hash
             db.session.commit()
 
-    panel = Panel.query.filter_by(id=key_obj.panel_id, owner_id=key_obj.owner_id).first()
+    panel = Panel.query.filter_by(id=key_obj.panel_id).first()
     if not panel:
         return Response("return error('Panel no encontrado')", mimetype='text/plain', status=404)
 
-    script = Script.query.filter_by(id=panel.script_id, owner_id=key_obj.owner_id).first()
+    script = Script.query.filter_by(id=panel.script_id).first()
     if not script or script.killswitch:
         return Response("return error('Script desactivado')", mimetype='text/plain', status=403)
 
@@ -279,6 +279,17 @@ def toggle_kill(script_id):
     db.session.commit()
     return jsonify({"success": True, "estado": script.killswitch})
 
+@app.route('/api/create-panel', methods=['POST'])
+@login_required
+def create_panel():
+    data = request.get_json()
+    if not data or 'title' not in data or 'script_id' not in data:
+        return jsonify({"success": False, "error": "Faltan datos"})
+    nuevo = Panel(owner_id=current_user.id, title=data['title'], script_id=data['script_id'])
+    db.session.add(nuevo)
+    db.session.commit()
+    return jsonify({"success": True, "id": nuevo.id})
+
 @app.route('/api/generate-key', methods=['POST'])
 @login_required
 def gen_key():
@@ -290,6 +301,30 @@ def gen_key():
     db.session.add(nueva)
     db.session.commit()
     return jsonify({"success": True, "key": clave})
+
+@app.route('/api/toggle-key/<int:key_id>', methods=['POST'])
+@login_required
+def toggle_key(key_id):
+    key = Key.query.get_or_404(key_id)
+    if key.owner_id != current_user.id and not current_user.is_admin:
+        return jsonify({"success": False, "error": "Sin permiso"})
+    key.active = not key.active
+    db.session.commit()
+    return jsonify({"success": True, "active": key.active})
+
+@app.route('/api/reset-hwid', methods=['POST'])
+def reset_hwid():
+    data = request.get_json()
+    if not data or 'key' not in data:
+        return jsonify({"success": False, "error": "Clave requerida"})
+    
+    key = Key.query.filter_by(key=data['key'].strip(), active=True).first()
+    if not key:
+        return jsonify({"success": False, "error": "Clave no válida o inactiva"})
+    
+    key.hwid = None
+    db.session.commit()
+    return jsonify({"success": True, "message": "HWID restablecido correctamente"})
 
 # ---------------------- INICIAR SERVIDOR ----------------------
 if __name__ == '__main__':

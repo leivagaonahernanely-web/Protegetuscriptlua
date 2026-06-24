@@ -362,7 +362,7 @@ local Players = game:GetService("Players")
 
 -- Obtener datos
 local script_key = getgenv().script_key or ""
-local hwid = tostring({}):gsub("table: ", "")
+local hwid = tostring({{}}):gsub("table: ", "")
 local url = "{dominio}/scripts/hosted/{hash_script}.lua?key="..HttpService:UrlEncode(script_key).."&hwid="..HttpService:UrlEncode(hwid)
 
 -- Anti-detección

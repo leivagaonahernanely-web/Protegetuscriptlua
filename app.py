@@ -2,13 +2,18 @@ from flask import Flask, render_template, request, jsonify, redirect, url_for, f
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import LoginManager, UserMixin, login_user, login_required, current_user, logout_user
 from flask_cors import CORS
-import os, hashlib, random, datetime
+import os
+import hashlib
+import random
+import datetime
+import zlib
+import base64
 
+# ---------------------- CONFIGURACIÓN BÁSICA ----------------------
 app = Flask(__name__)
 CORS(app)
 
-# Configuración
-app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'LUAU_PROTECT_2026_SECURE_KEY_987XYZ')
+app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'PROTECT_2026_SECURE_KEY_987XYZ')
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///luau_protect.db'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['PERMANENT_SESSION_LIFETIME'] = datetime.timedelta(days=30)
@@ -17,7 +22,7 @@ db = SQLAlchemy(app)
 login_manager = LoginManager(app)
 login_manager.login_view = 'login'
 
-# ---------------------- MODELOS ----------------------
+# ---------------------- MODELOS DE BASE DE DATOS ----------------------
 class User(UserMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
     discord_id = db.Column(db.String(20), unique=True, nullable=False)
@@ -30,6 +35,10 @@ class Script(db.Model):
     content = db.Column(db.Text, nullable=False)
     file_hash = db.Column(db.String(128), unique=True, nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.datetime.utcnow)
+    killswitch = db.Column(db.Boolean, default=False)
+    trial_mode = db.Column(db.Boolean, default=False)
+    anti_bypass = db.Column(db.Boolean, default=False)
+    key_duration = db.Column(db.Integer, default=86400)
 
 class Panel(db.Model):
     id = db.Column(db.Integer, primary_key=True)
@@ -58,6 +67,7 @@ class BannedHWID(db.Model):
 def load_user(user_id):
     return User.query.get(int(user_id))
 
+# Crear tablas y usuario admin inicial
 with app.app_context():
     db.create_all()
     if not User.query.filter_by(discord_id='1501316920975036611').first():
@@ -69,21 +79,21 @@ with app.app_context():
         db.session.add(admin)
         db.session.commit()
 
-# ---------------------- RUTA PÚBLICA (IGUAL A LA IMAGEN) ----------------------
+# ---------------------- RUTA PÚBLICA: SOLO MUESTRA EL LOADER ----------------------
 @app.route('/scripts/hosted/<file_hash>.lua', methods=['GET'])
 def hosted_script(file_hash):
     script = Script.query.filter_by(file_hash=file_hash).first()
     if not script:
         return Response("-- Script no encontrado", mimetype='text/plain', status=404)
 
-    # ✅ EXACTAMENTE LO QUE SE VE EN LA IMAGEN, NADA MÁS
+    # Exactamente igual a la imagen, nada más
     codigo = f'''script_key = "KEY"  -- Paste your key here or if the script is free put trial
 
 loadstring(game:HttpGet("https://{request.host}/api/verify?key="..script_key.."&hwid="..getgenv().HWID))()'''
 
     return Response(codigo, mimetype='text/plain; charset=utf-8')
 
-# ---------------------- VERIFICACIÓN: NUNCA DEVUELVE EL CÓDIGO FUENTE ----------------------
+# ---------------------- VERIFICACIÓN: NUNCA DEVUELVE CÓDIGO LEGIBLE ----------------------
 @app.route('/api/verify', methods=['GET'])
 def verify():
     clave = request.args.get('key', '').strip()
@@ -92,7 +102,6 @@ def verify():
     if not clave:
         return Response("return error('Missing key')", mimetype='text/plain', status=403)
 
-    # Validar clave
     key = Key.query.filter_by(key=clave, active=True).first()
     if not key:
         return Response("return error('Invalid or inactive key')", mimetype='text/plain', status=403)
@@ -100,7 +109,7 @@ def verify():
     if key.expires_at and key.expires_at < datetime.datetime.utcnow():
         return Response("return error('Key expired')", mimetype='text/plain', status=403)
 
-    # Validar HWID
+    # Verificar HWID
     if hwid:
         hwid_hash = hashlib.sha256(hwid.encode()).hexdigest()
         if BannedHWID.query.filter_by(hwid_hash=hwid_hash).first():
@@ -120,30 +129,37 @@ def verify():
     if not script:
         return Response("return error('Script not found')", mimetype='text/plain', status=404)
 
-    # 🔐 REGLA DEFINITIVA: EJECUTA, PERO NUNCA DEVUELVE EL CÓDIGO FUENTE
-    # Solo enviamos la lógica de ejecución, el contenido real se procesa en memoria
-    return Response('''
-local function run()
-    -- El código original se ejecuta internamente, no se muestra
-    local load = loadstring or load
-    if not load then return error("Executor not supported") end
-    -- Solo el ejecutor verá el código, nunca el usuario en texto plano
-end
-run()
-collectgarbage()
-''', mimetype='text/plain; charset=utf-8')
+    # Killswitch
+    if script.killswitch:
+        return Response("return error('Script disabled by admin')", mimetype='text/plain', status=403)
 
-# ---------------------- RUTAS DE ADMINISTRACIÓN ----------------------
+    # 🔐 Solo enviamos datos comprimidos + codificados, NADA LEGIBLE
+    comprimido = zlib.compress(script.content.encode('utf-8'), 9)
+    codificado = base64.b64encode(comprimido).decode('utf-8')
+
+    ejecutable = f'''
+local d="{codificado}"
+local gs = game:GetService("HttpService")
+local f = loadstring or load
+if f then
+    f(gs:Decompress(gs:Base64Decode(d)))()
+end
+d=nil collectgarbage()
+'''
+
+    return Response(ejecutable, mimetype='text/plain; charset=utf-8')
+
+# ---------------------- RUTAS DE AUTENTICACIÓN ----------------------
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if current_user.is_authenticated:
-        return redirect(url_for('index'))
+        return redirect(url_for('scripts_page'))
     if request.method == 'POST':
         discord_id = request.form.get('discord_id', '').strip()
         user = User.query.filter_by(discord_id=discord_id).first()
         if user:
             login_user(user, remember=True)
-            return redirect(url_for('index'))
+            return redirect(url_for('scripts_page'))
         flash('ID no autorizado o incorrecto', 'danger')
     return render_template('login.html')
 
@@ -153,33 +169,43 @@ def logout():
     logout_user()
     return redirect(url_for('login'))
 
-@app.route('/', methods=['GET'])
+# ---------------------- RUTAS DEL PANEL ----------------------
+@app.route('/')
 @login_required
 def index():
-    scripts = Script.query.order_by(Script.created_at.desc()).all()
-    return render_template('index.html', scripts=scripts, user=current_user)
+    return redirect(url_for('scripts_page'))
 
-@app.route('/panels', methods=['GET'])
+@app.route('/scripts')
 @login_required
-def panels():
-    all_panels = Panel.query.all()
-    scripts = Script.query.all()
-    return render_template('panels.html', panels=all_panels, scripts=scripts, user=current_user)
+def scripts_page():
+    return render_template('scripts.html', scripts=Script.query.all(), user=current_user)
 
-@app.route('/keys', methods=['GET'])
+@app.route('/panels')
 @login_required
-def keys():
-    all_keys = Key.query.order_by(Key.created_at.desc()).all()
-    panels = Panel.query.all()
-    return render_template('keys.html', keys=all_keys, panels=panels, user=current_user)
+def panels_page():
+    return render_template('panels.html', panels=Panel.query.all(), scripts=Script.query.all(), user=current_user)
 
-@app.route('/hwid-bans', methods=['GET'])
+@app.route('/keys')
 @login_required
-def hwid_bans():
-    bans = BannedHWID.query.order_by(BannedHWID.banned_at.desc()).all()
-    return render_template('hwid_bans.html', bans=bans, user=current_user)
+def keys_page():
+    return render_template('keys.html', keys=Key.query.all(), panels=Panel.query.all(), user=current_user)
 
-# ---------------------- API ----------------------
+@app.route('/hwid-bans')
+@login_required
+def hwid_bans_page():
+    return render_template('hwid_bans.html', bans=BannedHWID.query.all(), user=current_user)
+
+@app.route('/vault')
+@login_required
+def vault_page():
+    return render_template('vault.html', user=current_user)
+
+@app.route('/ads')
+@login_required
+def ads_page():
+    return render_template('ads.html', user=current_user)
+
+# ---------------------- API PARA ACCIONES ----------------------
 @app.route('/api/upload-script', methods=['POST'])
 @login_required
 def upload_script():
@@ -200,6 +226,23 @@ def upload_script():
     url_final = f"https://{request.host}/scripts/hosted/{file_hash}.lua"
     return jsonify({"success": True, "id": nuevo.id, "url": url_final})
 
+@app.route('/api/update-script/<int:script_id>', methods=['POST'])
+@login_required
+def update_script(script_id):
+    script = Script.query.get_or_404(script_id)
+    data = request.get_json()
+
+    script.killswitch = data.get('killswitch', False)
+    script.trial_mode = data.get('trial_mode', False)
+    script.anti_bypass = data.get('anti_bypass', False)
+    script.key_duration = int(data.get('key_duration', 86400))
+
+    if data.get('content'):
+        script.content = data['content']
+
+    db.session.commit()
+    return jsonify({"success": True})
+
 @app.route('/api/create-panel', methods=['POST'])
 @login_required
 def create_panel():
@@ -207,8 +250,7 @@ def create_panel():
     nuevo = Panel(
         title=data['title'],
         description=data.get('description', ''),
-        script_id=data['script_id'],
-        reset_cooldown=int(data.get('cooldown', 86400))
+        script_id=data['script_id']
     )
     db.session.add(nuevo)
     db.session.commit()
@@ -221,6 +263,7 @@ def generate_key():
     duracion = int(data.get('duration', 0))
     clave = ''.join(random.choices("ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789", k=16))
     expira = datetime.datetime.utcnow() + datetime.timedelta(hours=duracion) if duracion > 0 else None
+
     nueva = Key(
         key=clave,
         panel_id=data['panel_id'],
@@ -266,6 +309,6 @@ def ban_hwid():
         db.session.commit()
     return jsonify({"success": True})
 
+# ---------------------- INICIO DEL SERVIDOR ----------------------
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=int(os.getenv('PORT', 8080)))
- 

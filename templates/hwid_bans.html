@@ -1,42 +1,55 @@
 {% extends "base.html" %}
 {% block content %}
-<div class="container mx-auto px-4 py-6 max-w-6xl">
-    <div class="flex flex-col md:flex-row justify-between items-center mb-8 gap-4">
-        <div class="flex items-center gap-3">
-            <i class="fa fa-shield text-3xl text-primary"></i>
-            <h1 class="text-3xl font-bold"><span class="text-white">Luau</span> <span class="text-accent">Protect</span></h1>
-        </div>
-        <div class="flex items-center gap-4">
-            <a href="/" class="bg-secondary hover:bg-secondary/80 px-4 py-2 rounded-lg">← Volver</a>
-        </div>
+<div class="container mx-auto px-4 py-8 max-w-6xl">
+    <div class="flex justify-between items-center mb-6">
+        <h2 class="text-2xl font-bold">🚫 HWID Baneados</h2>
+        <a href="/" class="bg-secondary px-4 py-2 rounded-lg">← Volver</a>
     </div>
 
-    <div class="bg-card rounded-xl p-6 border border-secondary">
-        <h2 class="text-2xl font-bold mb-5">🚫 HWID Baneados</h2>
-        {% if bans %}
-        <div class="overflow-x-auto">
-            <table class="w-full text-sm">
-                <thead>
-                    <tr class="border-b border-gray-700">
-                        <th class="text-left p-3">Hash HWID</th>
-                        <th class="text-left p-3">Motivo</th>
-                        <th class="text-left p-3">Fecha</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for b in bans %}
-                    <tr class="border-b border-gray-700 hover:bg-secondary/40">
-                        <td class="p-3 font-mono text-xs max-w-[180px] truncate">{{ b.hwid_hash }}</td>
-                        <td class="p-3">{{ b.reason }}</td>
-                        <td class="p-3 text-gray-400">{{ b.banned_at.strftime('%d/%m/%Y %H:%M') }}</td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
+    <div class="bg-card p-6 rounded-xl border border-secondary/70 overflow-x-auto">
+        <div class="mb-4">
+            <input type="text" id="hwidInput" placeholder="Ingresar HWID para banear" class="w-full bg-secondary border border-gray-700 rounded-lg px-4 py-2 mb-3">
+            <input type="text" id="motivoInput" placeholder="Motivo (opcional)" class="w-full bg-secondary border border-gray-700 rounded-lg px-4 py-2 mb-3">
+            <button onclick="banearHWID()" class="bg-red-600 hover:bg-red-500 px-5 py-2 rounded-lg">🚫 Banear HWID</button>
         </div>
+
+        {% if bans %}
+        <table class="w-full text-sm">
+            <thead>
+                <tr class="border-b border-gray-700">
+                    <th class="text-left p-2">Hash HWID</th>
+                    <th class="text-left p-2">Motivo</th>
+                    <th class="text-left p-2">Fecha</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for b in bans %}
+                <tr class="border-b border-gray-700/50">
+                    <td class="p-2 font-mono text-xs">{{ b.hwid_hash[:20] }}...</td>
+                    <td class="p-2">{{ b.reason }}</td>
+                    <td class="p-2">{{ b.banned_at.strftime('%d/%m/%Y') }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
         {% else %}
-        <p class="text-gray-400 italic">No hay HWID baneados.</p>
+        <p class="text-gray-400">No hay HWID baneados.</p>
         {% endif %}
     </div>
 </div>
+
+<script>
+function banearHWID() {
+    const hwid = document.getElementById('hwidInput').value.trim();
+    const motivo = document.getElementById('motivoInput').value.trim();
+    if (!hwid) return alert('Ingresa el HWID');
+    fetch('/api/ban-hwid', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({hwid: hwid, reason: motivo})
+    })
+    .then(r => r.json())
+    .then(d => { if (d.success) { alert('✅ HWID baneado'); location.reload(); } });
+}
+</script>
 {% endblock %}

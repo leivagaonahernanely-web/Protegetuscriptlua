@@ -1,23 +1,11 @@
 {% extends "base.html" %}
 {% block content %}
-<div class="flex items-center justify-center min-h-screen px-4">
-    <div class="bg-card p-10 rounded-xl border border-border w-full max-w-md text-center shadow-lg">
-        <div class="mb-6">
-            <i class="fa-brands fa-discord text-5xl text-primary mb-4"></i>
-            <h2 class="text-3xl font-bold">Bienvenido a PolSec</h2>
-            <p class="text-textMuted mt-2">Inicia sesión con tu cuenta de Discord</p>
-        </div>
-        {% with messages = get_flashed_messages() %}
-            {% if messages %}
-                <div class="mb-4 p-3 bg-red-500/20 border border-red-500/30 rounded text-red-300">
-                    {{ messages[0] }}
-                </div>
-            {% endif %}
-        {% endwith %}
-        <a href="/login" class="w-full bg-primary hover:bg-primary/90 text-white px-6 py-3 rounded-lg font-medium inline-flex items-center justify-center gap-2 transition-all">
-            <i class="fa-brands fa-discord"></i>
-            Iniciar sesión con Discord
-        </a>
+<div class="flex items-center justify-center h-[80vh]">
+    <div class="bg-card p-8 rounded-xl border border-border w-full max-w-md text-center">
+        <i class="fa-brands fa-discord text-5xl text-primary mb-4"></i>
+        <h2 class="text-2xl font-bold mb-2">Iniciar Sesión</h2>
+        <p class="text-textMuted mb-6">Usa tu cuenta de Discord</p>
+        <a href="/login" class="w-full bg-primary hover:bg-primary/90 text-white py-2 rounded-lg inline-block">Continuar con Discord</a>
     </div>
 </div>
 {% endblock %}

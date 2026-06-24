@@ -2,132 +2,508 @@
 <html lang="es">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>LuauProtect</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}LuauProtect Pro{% endblock %}</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
     <script>
         tailwind.config = {
             theme: {
                 extend: {
                     colors: {
-                        dark: '#0A0E17',
-                        sidebar: '#10141D',
-                        card: '#151A25',
-                        border: '#222834',
+                        dark: '#0a0e17',
+                        sidebar: '#0f141e',
+                        card: '#141b26',
+                        cardHover: '#1a2332',
+                        border: '#1e2a3a',
                         primary: '#5865F2',
-                        textMuted: '#949BA4'
+                        primaryHover: '#4752c4',
+                        textMuted: '#8892a0',
+                        success: '#10b981',
+                        danger: '#ef4444',
+                        warning: '#f59e0b',
+                    },
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                    },
+                    boxShadow: {
+                        glow: '0 0 40px rgba(88, 101, 242, 0.15)',
+                        card: '0 4px 24px rgba(0, 0, 0, 0.4)',
                     }
                 }
             }
         }
     </script>
     <style>
-        /* Menú lateral para móvil */
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            background: #0a0e17;
+            font-family: 'Inter', sans-serif;
+            color: #e8edf5;
+            min-height: 100vh;
+        }
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #0f141e;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #1e2a3a;
+            border-radius: 8px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #2a3a50;
+        }
         .sidebar {
             position: fixed;
             top: 0;
             left: 0;
             height: 100vh;
-            width: 250px;
+            width: 260px;
+            background: #0f141e;
+            border-right: 1px solid #1e2a3a;
             transform: translateX(-100%);
-            transition: transform 0.3s ease;
+            transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
             z-index: 50;
             overflow-y: auto;
+            padding: 24px 16px;
+            display: flex;
+            flex-direction: column;
         }
         .sidebar.open {
             transform: translateX(0);
         }
+        .sidebar .logo {
+            font-size: 22px;
+            font-weight: 800;
+            color: #5865F2;
+            padding: 8px 12px;
+            margin-bottom: 32px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .sidebar .logo span {
+            background: #5865F2;
+            color: #fff;
+            font-size: 10px;
+            font-weight: 700;
+            padding: 2px 10px;
+            border-radius: 20px;
+            letter-spacing: 0.5px;
+        }
+        .nav-item {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            padding: 10px 14px;
+            border-radius: 10px;
+            color: #8892a0;
+            font-weight: 500;
+            font-size: 14px;
+            transition: all 0.15s ease;
+            text-decoration: none;
+            margin-bottom: 2px;
+        }
+        .nav-item:hover {
+            background: #141b26;
+            color: #e8edf5;
+        }
+        .nav-item.active {
+            background: #141b26;
+            color: #5865F2;
+        }
+        .nav-item i {
+            width: 20px;
+            font-size: 16px;
+        }
+        .nav-item .badge {
+            margin-left: auto;
+            background: #1e2a3a;
+            padding: 2px 10px;
+            border-radius: 20px;
+            font-size: 11px;
+            color: #8892a0;
+        }
+        .user-section {
+            margin-top: auto;
+            padding-top: 20px;
+            border-top: 1px solid #1e2a3a;
+        }
+        .user-info {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 8px 4px;
+        }
+        .user-avatar {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            background: #1e2a3a;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 600;
+            color: #5865F2;
+            font-size: 16px;
+            overflow: hidden;
+        }
+        .user-avatar img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+        .user-name {
+            font-weight: 600;
+            font-size: 14px;
+            color: #e8edf5;
+        }
+        .user-email {
+            font-size: 12px;
+            color: #8892a0;
+        }
+        .logout-btn {
+            color: #8892a0;
+            font-size: 13px;
+            padding: 6px 12px;
+            border-radius: 6px;
+            transition: all 0.15s;
+            text-decoration: none;
+        }
+        .logout-btn:hover {
+            color: #ef4444;
+            background: #1e2a3a;
+        }
         .overlay {
             position: fixed;
             inset: 0;
-            background: rgba(0,0,0,0.6);
+            background: rgba(0, 0, 0, 0.7);
+            backdrop-filter: blur(4px);
             z-index: 40;
             display: none;
         }
         .overlay.active {
             display: block;
         }
+        .menu-toggle {
+            position: fixed;
+            top: 16px;
+            left: 16px;
+            z-index: 60;
+            background: #141b26;
+            border: 1px solid #1e2a3a;
+            color: #e8edf5;
+            padding: 10px 14px;
+            border-radius: 10px;
+            cursor: pointer;
+            display: none;
+            transition: all 0.15s;
+        }
+        .menu-toggle:hover {
+            background: #1a2332;
+        }
         @media (min-width: 768px) {
             .sidebar {
-                position: static;
-                transform: none;
-                height: auto;
+                transform: translateX(0) !important;
+                position: sticky;
+                top: 0;
+                height: 100vh;
             }
             .overlay {
                 display: none !important;
             }
             .menu-toggle {
-                display: none;
+                display: none !important;
+            }
+            main {
+                margin-left: 0;
             }
         }
+        @media (max-width: 767px) {
+            .menu-toggle {
+                display: block;
+            }
+            main {
+                padding-top: 70px;
+            }
+        }
+        .card {
+            background: #141b26;
+            border: 1px solid #1e2a3a;
+            border-radius: 16px;
+            padding: 24px;
+            transition: all 0.2s;
+            box-shadow: 0 4px 24px rgba(0, 0, 0, 0.3);
+        }
+        .card:hover {
+            border-color: #2a3a50;
+        }
+        .btn-primary {
+            background: #5865F2;
+            color: #fff;
+            padding: 10px 20px;
+            border-radius: 10px;
+            font-weight: 600;
+            border: none;
+            cursor: pointer;
+            transition: all 0.15s;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .btn-primary:hover {
+            background: #4752c4;
+            transform: translateY(-1px);
+            box-shadow: 0 8px 30px rgba(88, 101, 242, 0.3);
+        }
+        .btn-danger {
+            background: #ef4444;
+            color: #fff;
+            padding: 8px 16px;
+            border-radius: 8px;
+            font-weight: 600;
+            border: none;
+            cursor: pointer;
+            transition: all 0.15s;
+        }
+        .btn-danger:hover {
+            background: #dc2626;
+        }
+        .btn-success {
+            background: #10b981;
+            color: #fff;
+            padding: 8px 16px;
+            border-radius: 8px;
+            font-weight: 600;
+            border: none;
+            cursor: pointer;
+            transition: all 0.15s;
+        }
+        .btn-success:hover {
+            background: #059669;
+        }
+        input, textarea, select {
+            background: #0a0e17;
+            border: 1px solid #1e2a3a;
+            border-radius: 10px;
+            padding: 12px 16px;
+            color: #e8edf5;
+            width: 100%;
+            transition: all 0.15s;
+            font-size: 14px;
+        }
+        input:focus, textarea:focus, select:focus {
+            outline: none;
+            border-color: #5865F2;
+            box-shadow: 0 0 0 3px rgba(88, 101, 242, 0.15);
+        }
+        input::placeholder, textarea::placeholder {
+            color: #4a5568;
+        }
+        .stat-card {
+            background: #141b26;
+            border: 1px solid #1e2a3a;
+            border-radius: 16px;
+            padding: 20px 24px;
+            transition: all 0.2s;
+        }
+        .stat-card:hover {
+            border-color: #2a3a50;
+            transform: translateY(-2px);
+        }
+        .stat-number {
+            font-size: 28px;
+            font-weight: 700;
+            color: #e8edf5;
+        }
+        .stat-label {
+            font-size: 13px;
+            color: #8892a0;
+            font-weight: 500;
+        }
+        .stat-icon {
+            font-size: 24px;
+            color: #5865F2;
+            opacity: 0.7;
+        }
+        .table-container {
+            overflow-x: auto;
+            border-radius: 12px;
+            border: 1px solid #1e2a3a;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        th {
+            text-align: left;
+            padding: 14px 16px;
+            background: #0f141e;
+            color: #8892a0;
+            font-weight: 600;
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            border-bottom: 1px solid #1e2a3a;
+        }
+        td {
+            padding: 12px 16px;
+            border-bottom: 1px solid #1a2332;
+            font-size: 14px;
+        }
+        tr:hover td {
+            background: #0f141e;
+        }
+        .code-block {
+            background: #0a0e17;
+            border: 1px solid #1e2a3a;
+            border-radius: 10px;
+            padding: 16px;
+            font-family: 'Courier New', monospace;
+            font-size: 13px;
+            overflow-x: auto;
+            color: #e8edf5;
+        }
+        .toast {
+            position: fixed;
+            bottom: 24px;
+            right: 24px;
+            padding: 16px 24px;
+            border-radius: 12px;
+            background: #141b26;
+            border: 1px solid #1e2a3a;
+            color: #e8edf5;
+            box-shadow: 0 8px 40px rgba(0, 0, 0, 0.5);
+            z-index: 100;
+            max-width: 400px;
+            transform: translateY(100px);
+            opacity: 0;
+            transition: all 0.3s ease;
+            backdrop-filter: blur(10px);
+        }
+        .toast.show {
+            transform: translateY(0);
+            opacity: 1;
+        }
+        .toast.success { border-color: #10b981; }
+        .toast.error { border-color: #ef4444; }
     </style>
+    {% block extra_css %}{% endblock %}
 </head>
-<body class="bg-dark text-gray-100 min-h-screen">
+<body>
 
-<!-- Botón abrir menú (solo móvil) -->
-<button id="menuToggle" class="menu-toggle fixed top-3 left-3 z-[60] bg-card p-2 rounded shadow">
-    <i class="fa fa-bars text-xl"></i>
+<button id="menuToggle" class="menu-toggle">
+    <i class="fas fa-bars"></i>
 </button>
-
-<!-- Fondo oscuro al abrir menú -->
 <div id="overlay" class="overlay"></div>
 
-<div class="flex flex-col md:flex-row">
-    <!-- Menú lateral -->
-    <aside id="sidebar" class="sidebar bg-sidebar border-r border-border p-4 flex flex-col justify-between">
+<div class="flex min-h-screen">
+    <aside id="sidebar" class="sidebar">
         <div>
-            <div class="text-2xl font-bold text-center mb-6 mt-2 text-primary">🛡️ LuauProtect</div>
-            <nav class="space-y-1">
-                <a href="/" class="flex items-center gap-3 p-2.5 rounded {% if request.path == '/' %}bg-primary/20 text-primary{% else %}hover:bg-card{% endif %}">
-                    <i class="fa fa-home w-5"></i> Dashboard
+            <div class="logo">
+                <i class="fas fa-shield-alt"></i>
+                LuauProtect
+                <span>Pro</span>
+            </div>
+            <nav>
+                <a href="/dashboard" class="nav-item {% if request.path == '/dashboard' %}active{% endif %}">
+                    <i class="fas fa-th-large"></i> Dashboard
                 </a>
-                <a href="/scripts" class="flex items-center gap-3 p-2.5 rounded {% if '/scripts' in request.path %}bg-primary/20 text-primary{% else %}hover:bg-card{% endif %}">
-                    <i class="fa fa-code w-5"></i> Scripts
+                <a href="/scripts" class="nav-item {% if '/scripts' in request.path %}active{% endif %}">
+                    <i class="fas fa-code"></i> Scripts
+                    <span class="badge">{{ scripts_count|default(0) }}</span>
                 </a>
-                <a href="/panels" class="flex items-center gap-3 p-2.5 rounded {% if '/panels' in request.path %}bg-primary/20 text-primary{% else %}hover:bg-card{% endif %}">
-                    <i class="fa fa-layer-group w-5"></i> Panels
+                <a href="/licenses" class="nav-item {% if '/licenses' in request.path %}active{% endif %}">
+                    <i class="fas fa-key"></i> Licencias
+                    <span class="badge">{{ licenses_count|default(0) }}</span>
                 </a>
-                <a href="/keys" class="flex items-center gap-3 p-2.5 rounded {% if '/keys' in request.path %}bg-primary/20 text-primary{% else %}hover:bg-card{% endif %}">
-                    <i class="fa fa-key w-5"></i> Keys
+                <a href="/hwid-bans" class="nav-item {% if '/hwid-bans' in request.path %}active{% endif %}">
+                    <i class="fas fa-ban"></i> HWID Bans
                 </a>
-                <a href="/hwid-bans" class="flex items-center gap-3 p-2.5 rounded {% if '/hwid-bans' in request.path %}bg-primary/20 text-primary{% else %}hover:bg-card{% endif %}">
-                    <i class="fa fa-ban w-5"></i> HWID Bans
+                <a href="/logs" class="nav-item {% if '/logs' in request.path %}active{% endif %}">
+                    <i class="fas fa-history"></i> Logs
                 </a>
+                {% if user.is_admin %}
+                <a href="/admin" class="nav-item {% if '/admin' in request.path %}active{% endif %}">
+                    <i class="fas fa-crown"></i> Admin
+                    <span class="badge">👑</span>
+                </a>
+                {% endif %}
             </nav>
         </div>
-        <div class="border-t border-border pt-4 mt-6">
-            <p class="text-sm font-medium">{{ user.username }}</p>
-            <a href="/logout" class="text-red-400 text-sm mt-1 inline-block">Cerrar sesión</a>
+        <div class="user-section">
+            <div class="user-info">
+                <div class="user-avatar">
+                    {% if user.avatar %}
+                        <img src="{{ user.avatar }}" alt="{{ user.username }}">
+                    {% else %}
+                        {{ user.username[:2].upper() }}
+                    {% endif %}
+                </div>
+                <div>
+                    <div class="user-name">{{ user.username }}</div>
+                    <div class="user-email">{{ user.email|default('Usuario') }}</div>
+                </div>
+            </div>
+            <div style="display: flex; gap: 8px; margin-top: 12px;">
+                <a href="/logout" class="logout-btn"><i class="fas fa-sign-out-alt"></i> Cerrar sesión</a>
+            </div>
         </div>
     </aside>
 
-    <!-- Contenido principal -->
-    <main class="flex-1 p-4 md:p-6 mt-14 md:mt-0 w-full">
+    <main class="flex-1 p-4 md:p-8 w-full">
         {% block content %}{% endblock %}
     </main>
 </div>
+
+<div id="toast" class="toast"></div>
 
 <script>
     const sidebar = document.getElementById('sidebar');
     const overlay = document.getElementById('overlay');
     const toggleBtn = document.getElementById('menuToggle');
 
-    function openMenu() {
-        sidebar.classList.add('open');
-        overlay.classList.add('active');
-        document.body.style.overflow = 'hidden';
+    function toggleMenu() {
+        sidebar.classList.toggle('open');
+        overlay.classList.toggle('active');
+        document.body.style.overflow = sidebar.classList.contains('open') ? 'hidden' : '';
     }
 
-    function closeMenu() {
-        sidebar.classList.remove('open');
-        overlay.classList.remove('active');
-        document.body.style.overflow = '';
+    toggleBtn.addEventListener('click', toggleMenu);
+    overlay.addEventListener('click', toggleMenu);
+
+    function showToast(message, type = 'success') {
+        const toast = document.getElementById('toast');
+        toast.textContent = message;
+        toast.className = 'toast ' + type;
+        setTimeout(() => toast.classList.add('show'), 10);
+        setTimeout(() => toast.classList.remove('show'), 4000);
     }
 
-    toggleBtn.addEventListener('click', () => sidebar.classList.contains('open') ? closeMenu() : openMenu());
-    overlay.addEventListener('click', closeMenu);
+    // Flash messages desde Flask
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+            {% for category, message in messages %}
+                showToast('{{ message }}', '{{ category }}');
+            {% endfor %}
+        {% endif %}
+    {% endwith %}
+
+    // Cerrar sidebar al hacer clic en un enlace (móvil)
+    document.querySelectorAll('.nav-item').forEach(item => {
+        item.addEventListener('click', () => {
+            if (window.innerWidth < 768) toggleMenu();
+        });
+    });
 </script>
-
+{% block extra_js %}{% endblock %}
 </body>
-</html>
+    </html> 

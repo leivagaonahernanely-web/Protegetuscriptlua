@@ -1,175 +1,126 @@
-from flask import Flask, render_template, request, jsonify, redirect, url_for
-from flask_sqlalchemy import SQLAlchemy
-from flask_cors import CORS
-from flask_login import LoginManager, UserMixin, login_user, login_required, current_user
-import os, hashlib, random, datetime
+import discord
+from discord import app_commands, ui
+import requests
+import os
 
-app = Flask(__name__)
-CORS(app)
+API_URL = os.getenv("API_URL", "https://protegetuscriptlua-production.up.railway.app/api")
+BOT_TOKEN = os.getenv("BOT_TOKEN")
 
-app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'protector_roblox_2026_89x7Qw2zR9pLm5sKj')
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///luau_protect.db'
-app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+intents = discord.Intents.default()
+intents.message_content = True
+bot = discord.Client(intents=intents)
+tree = app_commands.CommandTree(bot)
 
-db = SQLAlchemy(app)
-login_manager = LoginManager(app)
-login_manager.login_view = 'login'
+user_active_keys = {}
 
-# Modelos
-class User(UserMixin, db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    discord_id = db.Column(db.String(20), unique=True, nullable=False)
-    username = db.Column(db.String(80))
-    is_admin = db.Column(db.Boolean, default=False)
+class RedeemModal(ui.Modal, title="🔑 Activar tu Clave"):
+    key_input = ui.TextInput(
+        label="Escribe tu clave aquí",
+        placeholder="Ej: XBKX9IOOBAFVRUJWJ9UUSEN7",
+        required=True,
+        max_length=32
+    )
+    async def on_submit(self, interaction: discord.Interaction):
+        clave = self.key_input.value.strip()
+        hwid = f"user_{interaction.user.id}"
+        try:
+            res = requests.post(f"{API_URL}/redeem", json={"key": clave, "hwid": hwid})
+            data = res.json()
+            if data.get("ok"):
+                user_active_keys[interaction.user.id] = clave
+                await interaction.response.send_message("✅ Clave activada correctamente! Ahora usa View Script.", ephemeral=True)
+            else:
+                await interaction.response.send_message(f"❌ {data.get('msg')}", ephemeral=True)
+        except:
+            await interaction.response.send_message("❌ Error de conexión", ephemeral=True)
 
-class Script(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String(100), nullable=False)
-    content = db.Column(db.Text, nullable=False)
-    created_at = db.Column(db.DateTime, default=datetime.datetime.utcnow)
+class PanelView(ui.View):
+    def __init__(self, script_id: int, script_name: str):
+        super().__init__(timeout=None)
+        self.script_id = script_id
+        self.script_name = script_name
 
-class Key(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    key = db.Column(db.String(32), unique=True, nullable=False)
-    script_id = db.Column(db.Integer, db.ForeignKey('script.id'))
-    hwid = db.Column(db.String(64))
-    expires_at = db.Column(db.DateTime)
-    active = db.Column(db.Boolean, default=True)
-    created_at = db.Column(db.DateTime, default=datetime.datetime.utcnow)
+    @ui.button(label="📜 View Script", style=discord.ButtonStyle.primary)
+    async def view_script(self, interaction: discord.Interaction, button: ui.Button):
+        if interaction.user.id not in user_active_keys:
+            embed = discord.Embed(title="❌ You Need a Key!!", description="Anda comprala en ticket 🎟️", color=0xFF0000)
+            await interaction.response.send_message(embed=embed, ephemeral=True)
+            return
+        clave = user_active_keys[interaction.user.id]
+        hwid = f"user_{interaction.user.id}"
+        try:
+            res = requests.post(f"{API_URL}/get-script", json={"key": clave, "hwid": hwid})
+            data = res.json()
+            if data.get("ok"):
+                codigo = f"""```lua
+-- 📜 {self.script_name}
+script_key = "{clave}"
 
-class BannedHWID(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    hwid = db.Column(db.String(64), unique=True, nullable=False)
-    reason = db.Column(db.String(200))
+loadstring(game:HttpGet("{API_URL.replace('/api','')}/api/verify?key={clave}&hwid={hwid}"))()
+```"""
+                await interaction.response.send_message(f"✅ Tu código:\n{codigo}", ephemeral=True)
+            else:
+                await interaction.response.send_message(f"❌ {data.get('msg')}", ephemeral=True)
+        except:
+            await interaction.response.send_message("❌ Error", ephemeral=True)
 
-@login_manager.user_loader
-def load_user(user_id):
-    return User.query.get(int(user_id))
+    @ui.button(label="🔑 Redeem Key", style=discord.ButtonStyle.success)
+    async def redeem_key(self, interaction: discord.Interaction, button: ui.Button):
+        await interaction.response.send_modal(RedeemModal())
 
-with app.app_context():
-    db.create_all()
-    # Tu usuario admin
-    if not User.query.filter_by(discord_id='1501316920975036611').first():
-        admin = User(discord_id='1501316920975036611', username='hx_xitnotping', is_admin=True)
-        db.session.add(admin)
-        db.session.commit()
+    @ui.button(label="📊 Key Info", style=discord.ButtonStyle.secondary)
+    async def key_info(self, interaction: discord.Interaction, button: ui.Button):
+        if interaction.user.id not in user_active_keys:
+            await interaction.response.send_message("❌ You Need a Key!! Anda comprala en ticket 🎟️", ephemeral=True)
+            return
+        await interaction.response.send_message(f"🔑 Clave: `{user_active_keys[interaction.user.id]}`", ephemeral=True)
 
-# Rutas del panel
-@app.route('/')
-@login_required
-def index():
-    scripts = Script.query.all()
-    return render_template('index.html', scripts=scripts)
+    @ui.button(label="⚙️ Reset HWID", style=discord.ButtonStyle.danger)
+    async def reset_hwid(self, interaction: discord.Interaction, button: ui.Button):
+        if interaction.user.id not in user_active_keys:
+            await interaction.response.send_message("❌ You Need a Key!! Anda comprala en ticket 🎟️", ephemeral=True)
+            return
+        clave = user_active_keys[interaction.user.id]
+        try:
+            requests.post(f"{API_URL}/reset-hwid", json={"key": clave})
+            del user_active_keys[interaction.user.id]
+            await interaction.response.send_message("✅ HWID restablecido", ephemeral=True)
+        except:
+            await interaction.response.send_message("❌ Error", ephemeral=True)
 
-@app.route('/keys')
-@login_required
-def keys():
-    keys = Key.query.all()
-    return render_template('keys.html', keys=keys)
+@tree.command(name="panel", description="Abre el panel del script")
+async def panel(interaction: discord.Interaction, script: str = "Kz's Duels"):
+    if not interaction.user.guild_permissions.administrator:
+        await interaction.response.send_message("❌ Solo administradores pueden usar este comando", ephemeral=True)
+        return
+    embed = discord.Embed(
+        title=f"⚔️ {script}",
+        description="**Kz's Duels** no es solo otro script — es tu camino directo a la cima.\nOlvídate de mecánicas injustas o demoras molestas. Aquí cada partida está optimizada para que solo tu habilidad decida el resultado.\n\nDisfruta de una ventaja táctica real con fluidez impecable y respuesta instantánea, manteniéndote siempre un paso adelante de tu rival. ¡No juegues en desventaja — juega con **Kz's**!",
+        color=0x5865F2
+    )
+    embed.set_footer(text="Luau Protect • Sistema de protección")
+    await interaction.response.send_message(embed=embed, view=PanelView(script_id=1, script_name=script))
 
-@app.route('/hwid-bans')
-@login_required
-def hwid_bans():
-    bans = BannedHWID.query.all()
-    return render_template('hwid_bans.html', bans=bans)
+@tree.command(name="generatekey", description="Genera una nueva clave")
+@app_commands.describe(duracion="Duración en horas (0 = permanente)")
+async def generatekey(interaction: discord.Interaction, duracion: int = 0):
+    if not interaction.user.guild_permissions.administrator:
+        await interaction.response.send_message("❌ Solo administradores", ephemeral=True)
+        return
+    try:
+        res = requests.post(f"{API_URL}/generate-key", json={"duration": duracion})
+        data = res.json()
+        if data.get("success"):
+            tiempo = "Permanente" if duracion == 0 else f"{duracion} horas"
+            await interaction.response.send_message(f"✅ Clave: `{data['key']}`\n⏱️ Validez: {tiempo}", ephemeral=True)
+        else:
+            await interaction.response.send_message("❌ Error", ephemeral=True)
+    except:
+        await interaction.response.send_message("❌ Error de conexión", ephemeral=True)
 
-# API
-@app.route('/api/upload-script', methods=['POST'])
-@login_required
-def upload_script():
-    data = request.get_json()
-    nuevo = Script(name=data['name'], content=data['content'])
-    db.session.add(nuevo)
-    db.session.commit()
-    return jsonify({"success": True, "id": nuevo.id})
+@bot.event
+async def on_ready():
+    await tree.sync()
+    print(f"✅ Bot listo: {bot.user}")
 
-@app.route('/api/generate-key', methods=['POST'])
-@login_required
-def generate_key():
-    data = request.get_json() or {}
-    duracion = int(data.get('duration', 0))
-    script_id = data.get('script_id')
-    clave = ''.join(random.choices("ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789", k=16))
-    expira = None
-    if duracion > 0:
-        expira = datetime.datetime.utcnow() + datetime.timedelta(hours=duracion)
-    nueva = Key(key=clave, script_id=script_id, expires_at=expira, active=True)
-    db.session.add(nueva)
-    db.session.commit()
-    return jsonify({"success": True, "key": clave})
-
-@app.route('/api/redeem', methods=['POST'])
-def redeem_key():
-    data = request.get_json()
-    clave = data.get('key')
-    hwid = data.get('hwid')
-    if not clave or not hwid:
-        return jsonify({"ok": False, "msg": "Faltan datos"})
-    reg = Key.query.filter_by(key=clave, active=True).first()
-    if not reg:
-        return jsonify({"ok": False, "msg": "Clave inválida"})
-    if reg.expires_at and reg.expires_at < datetime.datetime.utcnow():
-        return jsonify({"ok": False, "msg": "Clave expirada"})
-    hwid_hash = hashlib.sha256(hwid.encode()).hexdigest()
-    if not reg.hwid:
-        reg.hwid = hwid_hash
-        db.session.commit()
-        return jsonify({"ok": True, "msg": "✅ Activada"})
-    if reg.hwid == hwid_hash:
-        return jsonify({"ok": True, "msg": "✅ Ya activada"})
-    return jsonify({"ok": False, "msg": "❌ HWID no coincide"})
-
-@app.route('/api/verify', methods=['POST'])
-def verify():
-    data = request.get_json()
-    clave = data.get('key')
-    hwid = data.get('hwid')
-    if not clave or not hwid:
-        return jsonify({"ok": False, "mensaje": "Sin datos"})
-    reg = Key.query.filter_by(key=clave, active=True).first()
-    if not reg:
-        return jsonify({"ok": False, "mensaje": "Clave inválida"})
-    if reg.expires_at and reg.expires_at < datetime.datetime.utcnow():
-        return jsonify({"ok": False, "mensaje": "Clave expirada"})
-    hwid_hash = hashlib.sha256(hwid.encode()).hexdigest()
-    if reg.hwid and reg.hwid != hwid_hash:
-        return jsonify({"ok": False, "mensaje": "❌ Equipo no autorizado"})
-    return jsonify({"ok": True, "mensaje": "✅ Acceso permitido", "script": reg.script.content if reg.script else ""})
-
-@app.route('/api/get-script', methods=['POST'])
-def get_script():
-    data = request.get_json()
-    clave = data.get('key')
-    hwid = data.get('hwid')
-    if not clave or not hwid:
-        return jsonify({"ok": False})
-    reg = Key.query.filter_by(key=clave, active=True).first()
-    if not reg or reg.hwid != hashlib.sha256(hwid.encode()).hexdigest():
-        return jsonify({"ok": False})
-    return jsonify({"ok": True, "script": reg.script.content if reg.script else ""})
-
-@app.route('/api/reset-hwid', methods=['POST'])
-def reset_hwid():
-    data = request.get_json()
-    clave = data.get('key')
-    reg = Key.query.filter_by(key=clave).first()
-    if reg:
-        reg.hwid = None
-        db.session.commit()
-        return jsonify({"success": True})
-    return jsonify({"success": False})
-
-@app.route('/api/blacklist', methods=['POST'])
-def blacklist():
-    data = request.get_json()
-    clave = data.get('key')
-    reg = Key.query.filter_by(key=clave).first()
-    if reg:
-        reg.active = False
-        db.session.commit()
-        return jsonify({"success": True})
-    return jsonify({"success": False})
-
-if __name__ == '__main__':
-    port = int(os.environ.get('PORT', 8080))
-    app.run(host='0.0.0.0', port=port)
+bot.run(BOT_TOKEN)

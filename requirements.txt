@@ -5,3 +5,4 @@ Flask-CORS==4.0.0
 Authlib==1.2.1
 requests==2.31.0
 gunicorn==21.2.0
+discord.py==2.3.2

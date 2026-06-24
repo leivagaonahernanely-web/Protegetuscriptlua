@@ -21,12 +21,12 @@ app.config['PERMANENT_SESSION_LIFETIME'] = datetime.timedelta(days=30)
 app.config['SESSION_COOKIE_SECURE'] = False
 app.config['SESSION_COOKIE_HTTPONLY'] = True
 
-# ✅ DATOS CORRECTOS SIN ERRORES
+# ✅ DATOS DE TU APP
 app.config['DISCORD_CLIENT_ID'] = "1519073151856803930"
 app.config['DISCORD_CLIENT_SECRET'] = "G-oqtu7gXsc0VmbjYpzBUHbvj55z7e0z"
 app.config['DISCORD_REDIRECT_URI'] = "http://localhost:8080/callback"
 
-# ✅ TU ID DE DISCORD (ADMIN)
+# ✅ TU ID DE DISCORD PARA ADMIN
 ADMIN_DISCORD_ID = "1501316920975036611"
 
 db = SQLAlchemy(app)
@@ -134,7 +134,7 @@ def logout():
     session.clear()
     return redirect(url_for('login'))
 
-# ---------------------- RUTAS PRINCIPALES ----------------------
+# ---------------------- RUTAS ----------------------
 @app.route('/')
 @login_required
 def index():
@@ -173,7 +173,7 @@ def users():
         return redirect(url_for('scripts'))
     return render_template('users.html', users=User.query.all(), user=current_user)
 
-# ---------------------- PROTECCIÓN Y API ----------------------
+# ---------------------- API Y PROTECCIÓN ----------------------
 @app.route('/api/verify')
 def verify():
     key = request.args.get('key', '').strip()
@@ -242,7 +242,7 @@ def protect_script():
 local KEY = "PONER_AQUI_TU_CLAVE"
 local DOMINIO = "http://localhost:8080"
 
-local hwid = game:GetService("HttpService"):UrlEncode(tostring({}):gsub("table: ", ""))
+local hwid = game:GetService("HttpService"):UrlEncode(tostring({{}}):gsub("table: ", ""))
 local res = game:GetService("HttpService"):GetAsync(DOMINIO.."/api/verify?key="..KEY.."&hwid="..hwid, true)
 if res:sub(1,5) == "return" then error(res:match("error%('(.+)'%)") or "Error", 0) end
 loadstring(res)()
@@ -260,7 +260,7 @@ def hosted_script(file_hash):
     script = Script.query.filter_by(file_hash=file_hash).first()
     if not script:
         return Response("-- Script no encontrado", mimetype='text/plain', status=404)
-    return Response(f"loadstring(game:HttpGet('http://localhost:8080/api/verify?key=YOUR_KEY&hwid='..tostring({}):gsub('table: ','')))()", mimetype='text/plain')
+    return Response(f"loadstring(game:HttpGet('http://localhost:8080/api/verify?key=YOUR_KEY&hwid='..tostring({{}}):gsub('table: ','')))()", mimetype='text/plain')
 
 @app.route('/api/toggle-kill/<int:script_id>', methods=['POST'])
 @login_required

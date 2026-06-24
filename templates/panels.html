@@ -1,20 +1,47 @@
 {% extends "base.html" %}
 {% block content %}
-<div class="mb-6">
-    <h1 class="text-2xl font-bold">📦 Paneles</h1>
-    <p class="text-textMuted">Asigna scripts a tus paneles</p>
-</div>
-<form id="formPanel" class="bg-card p-5 rounded-xl border border-border mb-6">
+<h1 class="text-2xl font-bold mb-6">🖥️ Paneles</h1>
+
+<div class="bg-card p-5 rounded-xl border border-border mb-6">
     <h3 class="font-semibold mb-3">Crear nuevo panel</h3>
-    <div class="space-y-3">
-        <input type="text" id="title" placeholder="Nombre del panel" class="w-full bg-dark border border-border rounded p-2">
-        <select id="script_id" class="w-full bg-dark border border-border rounded p-2">
+    <div class="space-y-4">
+        <input type="text" id="panelName" placeholder="Nombre del panel" class="w-full bg-dark border border-border rounded p-2.5">
+        <select id="scriptId" class="w-full bg-dark border border-border rounded p-2.5">
             <option value="">Seleccionar script</option>
             {% for s in scripts %}
             <option value="{{ s.id }}">{{ s.name }}</option>
             {% endfor %}
         </select>
-        <button type="submit" class="w-full bg-primary hover:bg-primary/90 p-2 rounded">Crear Panel</button>
+        <button onclick="crearPanel()" class="w-full bg-primary hover:bg-primary/90 p-2.5 rounded">Crear Panel</button>
     </div>
-</form>
+</div>
+
+{% if panels %}
+<div class="grid md:grid-cols-2 gap-4">
+    {% for p in panels %}
+    <div class="bg-card p-4 rounded-xl border border-border">
+        <h3 class="font-semibold text-lg">{{ p.name }}</h3>
+        <p class="text-sm text-textMuted">Script ID: {{ p.script_id }}</p>
+    </div>
+    {% endfor %}
+</div>
+{% else %}
+<p class="text-center text-textMuted py-10">No hay paneles creados</p>
+{% endif %}
+
+<script>
+async function crearPanel() {
+    const nombre = document.getElementById('panelName').value.trim();
+    const scriptId = document.getElementById('scriptId').value;
+    if (!nombre || !scriptId) return alert('Completa todos los campos');
+    const res = await fetch('/api/create-panel', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({name: nombre, script_id: scriptId})
+    });
+    const data = await res.json();
+    if (data.success) location.reload();
+    else alert('Error: ' + data.error);
+}
+</script>
 {% endblock %}

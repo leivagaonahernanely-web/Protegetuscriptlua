@@ -1,11 +1,32 @@
 {% extends "base.html" %}
+{% block title %}Iniciar Sesión - LuauProtect Pro{% endblock %}
+
 {% block content %}
-<div class="flex items-center justify-center h-[80vh]">
-    <div class="bg-card p-8 rounded-xl border border-border w-full max-w-md text-center">
-        <i class="fa-brands fa-discord text-5xl text-primary mb-4"></i>
-        <h2 class="text-2xl font-bold mb-2">Iniciar Sesión</h2>
-        <p class="text-textMuted mb-6">Usa tu cuenta de Discord</p>
-        <a href="/login" class="w-full bg-primary hover:bg-primary/90 text-white py-2 rounded-lg inline-block">Continuar con Discord</a>
+<div class="flex items-center justify-center min-h-[80vh]">
+    <div class="card w-full max-w-md text-center p-10">
+        <div class="flex justify-center mb-6">
+            <div class="w-20 h-20 rounded-full bg-primary/10 flex items-center justify-center">
+                <i class="fa-brands fa-discord text-5xl text-primary"></i>
+            </div>
+        </div>
+        <h2 class="text-3xl font-bold mb-2">Bienvenido</h2>
+        <p class="text-textMuted mb-8">Inicia sesión con tu cuenta de Discord para acceder al panel de control.</p>
+
+        <a href="/login" class="btn-primary w-full justify-center text-lg py-3">
+            <i class="fa-brands fa-discord"></i> Continuar con Discord
+        </a>
+
+        <div class="mt-6 flex items-center gap-3 text-xs text-textMuted">
+            <span class="flex-1 h-px bg-border"></span>
+            <span>Protegido con LuauProtect Pro</span>
+            <span class="flex-1 h-px bg-border"></span>
+        </div>
+
+        <div class="mt-4 flex justify-center gap-6 text-xs text-textMuted">
+            <a href="#" class="hover:text-primary transition">Términos</a>
+            <a href="#" class="hover:text-primary transition">Privacidad</a>
+            <a href="https://discord.gg/tu-servidor" target="_blank" class="hover:text-primary transition">Soporte</a>
+        </div>
     </div>
 </div>
 {% endblock %}

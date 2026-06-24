@@ -4,5 +4,3 @@ Flask-Login==0.6.3
 Flask-CORS==4.0.0
 Authlib==1.2.1
 requests==2.31.0
-zlib
-base64

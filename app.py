@@ -14,27 +14,25 @@ import base64
 app = Flask(__name__)
 CORS(app)
 
-# Seguridad
-app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'TU_CLAVE_SECRETA_AQUI_2026')
+app.config['SECRET_KEY'] = 'PROTECT_2026_SECURE_KEY_987XYZ'
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///protector.db'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['PERMANENT_SESSION_LIFETIME'] = datetime.timedelta(days=30)
-app.config['SESSION_COOKIE_SECURE'] = False  # Cambiar a True si usas HTTPS
+app.config['SESSION_COOKIE_SECURE'] = False
 app.config['SESSION_COOKIE_HTTPONLY'] = True
 
-# 👇 DATOS DE TU APLICACIÓN DISCORD (lo configuramos más abajo)
-app.config['DISCORD_CLIENT_ID'] = os.getenv('DISCORD_CLIENT_ID', '')
-app.config['DISCORD_CLIENT_SECRET'] = os.getenv('DISCORD_CLIENT_SECRET', '')
-app.config['DISCORD_REDIRECT_URI'] = os.getenv('DISCORD_REDIRECT_URI', 'http://localhost:8080/callback')
+# ✅ DATOS DE TU APP PROTECTORSCRIPTS
+app.config['DISCORD_CLIENT_ID'] = "1519073151856803930"
+app.config['DISCORD_CLIENT_SECRET'] = "G-oqtu7gXsc0VmbjYpzBUHbvj55z7e0z"
+app.config['DISCORD_REDIRECT_URI'] = "http://localhost:8080/callback"
 
-# 👇 TU ID DE DISCORD PARA SER ADMIN
+# ✅ TU ID DE DISCORD PARA SER ADMIN
 ADMIN_DISCORD_ID = "1501316920975036611"
 
 db = SQLAlchemy(app)
 login_manager = LoginManager(app)
 login_manager.login_view = 'login'
 
-# Conexión con Discord
 oauth = OAuth(app)
 discord = oauth.register(
     name='discord',
@@ -50,8 +48,8 @@ discord = oauth.register(
 class User(UserMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
     discord_id = db.Column(db.String(20), unique=True, nullable=False)
-    username = db.Column(db.String(100), nullable=False)
-    avatar = db.Column(db.String(255))
+    discord_username = db.Column(db.String(100), nullable=False)
+    discord_avatar = db.Column(db.String(255))
     is_admin = db.Column(db.Boolean, default=False)
 
 class Script(db.Model):
@@ -119,8 +117,8 @@ def callback():
         es_admin = (user_data['id'] == ADMIN_DISCORD_ID)
         user = User(
             discord_id=user_data['id'],
-            username=user_data['username'],
-            avatar=user_data.get('avatar'),
+            discord_username=user_data['username'],
+            discord_avatar=user_data.get('avatar'),
             is_admin=es_admin
         )
         db.session.add(user)
@@ -136,7 +134,7 @@ def logout():
     session.clear()
     return redirect(url_for('login'))
 
-# ---------------------- RUTAS DEL PANEL ----------------------
+# ---------------------- RUTAS PRINCIPALES ----------------------
 @app.route('/')
 @login_required
 def index():
@@ -162,6 +160,12 @@ def keys():
     panels = Panel.query.all() if current_user.is_admin else Panel.query.filter_by(owner_id=current_user.id).all()
     return render_template('keys.html', keys=keys, panels=panels, user=current_user)
 
+@app.route('/protector')
+@login_required
+def protector_page():
+    scripts = Script.query.all() if current_user.is_admin else Script.query.filter_by(owner_id=current_user.id).all()
+    return render_template('protector.html', scripts=scripts, user=current_user)
+
 @app.route('/users')
 @login_required
 def users():
@@ -169,7 +173,7 @@ def users():
         return redirect(url_for('scripts'))
     return render_template('users.html', users=User.query.all(), user=current_user)
 
-# ---------------------- API Y PROTECCIÓN ----------------------
+# ---------------------- PROTECCIÓN Y API ----------------------
 @app.route('/api/verify')
 def verify():
     key = request.args.get('key', '').strip()
@@ -180,7 +184,7 @@ def verify():
 
     key_obj = Key.query.filter_by(key=key, active=True).first()
     if not key_obj:
-        return Response("return error('Clave inválida')", mimetype='text/plain', status=403)
+        return Response("return error('Clave inválida o desactivada')", mimetype='text/plain', status=403)
 
     if key_obj.expires_at and key_obj.expires_at < datetime.datetime.utcnow():
         return Response("return error('Clave vencida')", mimetype='text/plain', status=403)
@@ -214,18 +218,63 @@ if f then f(gs:Decompress(gs:Base64Decode(d)))() end
 d=nil collectgarbage()
 ''', mimetype='text/plain')
 
-@app.route('/api/upload', methods=['POST'])
+@app.route('/api/protect', methods=['POST'])
 @login_required
-def upload():
+def protect_script():
     data = request.get_json()
-    if not data or 'name' not in data or 'content' not in data:
-        return jsonify({"success": False})
-    
-    file_hash = hashlib.sha256(f"{current_user.id}{data['name']}{datetime.datetime.utcnow()}".encode()).hexdigest()
-    nuevo = Script(owner_id=current_user.id, name=data['name'], content=data['content'], file_hash=file_hash)
+    if not data or 'name' not in data or 'code' not in data:
+        return jsonify({"success": False, "error": "Faltan datos"})
+
+    hash_code = hashlib.sha256(f"{current_user.id}{data['name']}{datetime.datetime.utcnow()}".encode()).hexdigest()
+
+    nuevo = Script(
+        owner_id=current_user.id,
+        name=data['name'],
+        content=data['code'],
+        file_hash=hash_code,
+        killswitch=False,
+        anti_bypass=True
+    )
     db.session.add(nuevo)
     db.session.commit()
-    return jsonify({"success": True, "id": nuevo.id})
+
+    loader = f'''-- 🔐 Protegido por ProtectorScripts
+local KEY = "PONER_AQUI_TU_CLAVE"
+local DOMINIO = "http://localhost:8080"
+
+local hwid = game:GetService("HttpService"):UrlEncode(tostring({}):gsub("table: ", ""))
+local res = game:GetService("HttpService"):GetAsync(DOMINIO.."/api/verify?key="..KEY.."&hwid="..hwid, true)
+if res:sub(1,5) == "return" then error(res:match("error%('(.+)'%)") or "Error", 0) end
+loadstring(res)()
+'''
+
+    return jsonify({
+        "success": True,
+        "hash": hash_code,
+        "loader": loader,
+        "url": f"http://localhost:8080/scripts/hosted/{hash_code}.lua"
+    })
+
+@app.route('/scripts/hosted/<file_hash>.lua')
+def hosted_script(file_hash):
+    script = Script.query.filter_by(file_hash=file_hash).first()
+    if not script:
+        return Response("-- Script no encontrado", mimetype='text/plain', status=404)
+    return Response(f"loadstring(game:HttpGet('http://localhost:8080/api/verify?key=YOUR_KEY&hwid='..tostring({}):gsub('table: ','')))()", mimetype='text/plain')
+
+@app.route('/api/toggle-kill/<int:script_id>', methods=['POST'])
+@login_required
+def toggle_kill(script_id):
+    if current_user.is_admin:
+        script = Script.query.get_or_404(script_id)
+    else:
+        script = Script.query.filter_by(id=script_id, owner_id=current_user.id).first()
+        if not script:
+            return jsonify({"success": False, "error": "Sin permiso"})
+    
+    script.killswitch = not script.killswitch
+    db.session.commit()
+    return jsonify({"success": True, "estado": script.killswitch})
 
 @app.route('/api/generate-key', methods=['POST'])
 @login_required
@@ -239,5 +288,6 @@ def gen_key():
     db.session.commit()
     return jsonify({"success": True, "key": clave})
 
+# ---------------------- INICIAR SERVIDOR ----------------------
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=8080, debug=False)

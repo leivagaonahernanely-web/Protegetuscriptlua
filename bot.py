@@ -2,7 +2,6 @@ import discord
 from discord import app_commands, ui
 import requests
 import os
-from datetime import datetime
 
 API_URL = os.getenv("API_URL", "https://protegetuscriptlua-production.up.railway.app/api")
 BOT_TOKEN = os.getenv("BOT_TOKEN")
@@ -57,7 +56,7 @@ class PanelView(ui.View):
 -- 📜 {self.script_name}
 script_key = "{clave}"
 
-loadstring(game:HttpGet("{API_URL.replace('/api','')}/api/verify"))()
+loadstring(game:HttpGet("{API_URL.replace('/api','')}/api/verify?key={clave}&hwid={hwid}"))()
 ```"""
                 await interaction.response.send_message(f"✅ Tu código:\n{codigo}", ephemeral=True)
             else:
@@ -125,3 +124,4 @@ async def on_ready():
     print(f"✅ Bot listo: {bot.user}")
 
 bot.run(BOT_TOKEN)
+        

@@ -1,52 +1,130 @@
 {% extends "base.html" %}
-{% block content %}
-<h1 class="text-2xl font-bold mb-6">🚫 HWID Bans</h1>
+{% block title %}HWID Bans - LuauProtect Pro{% endblock %}
 
-<div class="bg-card p-5 rounded-xl border border-border mb-6">
-    <h3 class="font-semibold mb-3">Bloquear HWID</h3>
-    <div class="space-y-4">
-        <input type="text" id="hwidInput" placeholder="HWID o hash" class="w-full bg-dark border border-border rounded p-2.5">
-        <input type="text" id="reasonInput" placeholder="Motivo (opcional)" class="w-full bg-dark border border-border rounded p-2.5">
-        <button onclick="banHWID()" class="w-full bg-red-600 hover:bg-red-700 p-2.5 rounded">Bloquear HWID</button>
+{% block content %}
+<div class="mb-8">
+    <h1 class="text-3xl font-bold">🚫 HWID Bans</h1>
+    <p class="text-textMuted mt-1">Gestiona los HWID bloqueados en tu sistema.</p>
+</div>
+
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+    <div class="lg:col-span-1">
+        <div class="card">
+            <h3 class="text-lg font-semibold mb-4 flex items-center gap-2">
+                <i class="fas fa-plus-circle text-danger"></i> Bloquear HWID
+            </h3>
+            <form id="banForm" class="space-y-4">
+                <div>
+                    <label class="text-sm font-medium text-textMuted block mb-1">HWID / Hash</label>
+                    <input type="text" id="hwidInput" placeholder="Ej: 1234567890abcdef" required>
+                </div>
+                <div>
+                    <label class="text-sm font-medium text-textMuted block mb-1">Motivo (opcional)</label>
+                    <input type="text" id="reasonInput" placeholder="Ej: Uso indebido detectado">
+                </div>
+                <button type="submit" class="btn-danger w-full justify-center">
+                    <i class="fas fa-ban"></i> Bloquear HWID
+                </button>
+            </form>
+        </div>
+    </div>
+
+    <div class="lg:col-span-2">
+        <div class="card">
+            <h3 class="text-lg font-semibold mb-4 flex items-center gap-2">
+                <i class="fas fa-list text-danger"></i> Lista de HWID Bloqueados
+                <span class="badge bg-dark text-textMuted ml-auto">{{ bans|length }}</span>
+            </h3>
+            {% if bans %}
+                <div class="table-container">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>HWID</th>
+                                <th>Motivo</th>
+                                <th>Fecha</th>
+                                <th>Acciones</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for b in bans %}
+                            <tr>
+                                <td><code class="text-xs bg-dark px-2 py-1 rounded">{{ b.hwid_hash }}</code></td>
+                                <td>{{ b.reason|default('Sin motivo') }}</td>
+                                <td class="text-textMuted text-sm">{{ b.created_at.strftime('%d/%m/%Y %H:%M') if b.created_at else 'N/A' }}</td>
+                                <td>
+                                    <button onclick="unbanHWID('{{ b.hwid_hash }}')" class="text-success text-sm hover:underline">
+                                        <i class="fas fa-undo"></i> Desbloquear
+                                    </button>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            {% else %}
+                <div class="text-center py-12 text-textMuted">
+                    <i class="fas fa-check-circle text-4xl block mb-2 opacity-30 text-success"></i>
+                    <p>No hay HWID bloqueados</p>
+                    <p class="text-sm">El sistema está limpio</p>
+                </div>
+            {% endif %}
+        </div>
     </div>
 </div>
+{% endblock %}
 
-{% if bans %}
-<div class="bg-card p-4 rounded-xl border border-border overflow-x-auto">
-    <table class="w-full text-left">
-        <thead>
-            <tr class="border-b border-border">
-                <th class="p-2">Hash HWID</th>
-                <th class="p-2">Motivo</th>
-            </tr>
-        </thead>
-        <tbody>
-            {% for b in bans %}
-            <tr class="border-b border-border">
-                <td class="p-2 font-mono text-xs">{{ b.hwid_hash }}</td>
-                <td class="p-2">{{ b.reason }}</td>
-            </tr>
-            {% endfor %}
-        </tbody>
-    </table>
-</div>
-{% else %}
-<p class="text-center text-textMuted py-10">No hay HWID bloqueados</p>
-{% endif %}
-
+{% block extra_js %}
 <script>
-async function banHWID() {
+document.getElementById('banForm').addEventListener('submit', async function(e) {
+    e.preventDefault();
     const hwid = document.getElementById('hwidInput').value.trim();
-    const motivo = document.getElementById('reasonInput').value.trim();
-    if (!hwid) return alert('Ingresa el HWID');
-    const res = await fetch('/api/ban-hwid', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({hwid: hwid, reason: motivo})
-    });
-    const data = await res.json();
-    if (data.success) location.reload();
-    else alert('Error: ' + data.error);
+    const reason = document.getElementById('reasonInput').value.trim();
+
+    if (!hwid) {
+        showToast('Ingresa un HWID válido', 'error');
+        return;
+    }
+
+    try {
+        const res = await fetch('/api/ban-hwid', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ hwid, reason })
+        });
+        const data = await res.json();
+
+        if (data.success) {
+            showToast('HWID bloqueado exitosamente', 'success');
+            setTimeout(() => location.reload(), 1500);
+        } else {
+            showToast('Error: ' + data.error, 'error');
+        }
+    } catch (error) {
+        showToast('Error al conectar con el servidor', 'error');
+    }
+});
+
+async function unbanHWID(hwid) {
+    if (!confirm('¿Estás seguro de desbloquear este HWID?')) return;
+
+    try {
+        const res = await fetch('/api/unban-hwid', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ hwid })
+        });
+        const data = await res.json();
+
+        if (data.success) {
+            showToast('HWID desbloqueado', 'success');
+            setTimeout(() => location.reload(), 1500);
+        } else {
+            showToast('Error: ' + data.error, 'error');
+        }
+    } catch (error) {
+        showToast('Error al conectar con el servidor', 'error');
+    }
 }
 </script>
 {% endblock %}

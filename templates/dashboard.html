@@ -1,25 +1,70 @@
-{% extends "base.html" %}
-{% block content %}
-<div class="text-center py-10">
-    <h1 class="text-4xl font-bold text-primary mb-2">🛡️ LuauProtect</h1>
-    <p class="text-textMuted text-lg">Secure Script Management</p>
-    <div class="grid md:grid-cols-2 lg:grid-cols-4 gap-5 mt-10">
-        <a href="/scripts" class="bg-card p-6 rounded-xl border border-border hover:border-primary/50 transition">
-            <h3 class="text-xl font-semibold mb-1">📊 Scripts</h3>
-            <p class="text-textMuted">Proteger y administrar</p>
-        </a>
-        <a href="/panels" class="bg-card p-6 rounded-xl border border-border hover:border-primary/50 transition">
-            <h3 class="text-xl font-semibold mb-1">🖥️ Paneles</h3>
-            <p class="text-textMuted">Asignar scripts</p>
-        </a>
-        <a href="/keys" class="bg-card p-6 rounded-xl border border-border hover:border-primary/50 transition">
-            <h3 class="text-xl font-semibold mb-1">🔑 Claves</h3>
-            <p class="text-textMuted">Generar y controlar</p>
-        </a>
-        <a href="/hwid-bans" class="bg-card p-6 rounded-xl border border-border hover:border-primary/50 transition">
-            <h3 class="text-xl font-semibold mb-1">🚫 HWID Bans</h3>
-            <p class="text-textMuted">Bloquear equipos</p>
-        </a>
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Panel - LuaProtect</title>
+    <style>
+        *{margin:0;padding:0;box-sizing:border-box;font-family:Arial,sans-serif}
+        body{background:#121212;color:#fff}
+        header{background:#1e1e1e;padding:15px 30px;display:flex;justify-content:space-between;align-items:center}
+        .container{max-width:1200px;margin:30px auto;padding:0 20px}
+        .card{background:#1e1e1e;padding:20px;border-radius:8px;margin-bottom:20px}
+        h2{color:#4ea8de;margin-bottom:15px}
+        input,textarea{width:100%;padding:10px;margin:8px 0;background:#2d2d2d;border:1px solid #444;color:#fff;border-radius:4px}
+        button{padding:10px 20px;background:#28a745;border:none;color:#fff;border-radius:4px;cursor:pointer}
+        button:hover{background:#218838}
+        .logout{background:#dc3545}
+        .logout:hover{background:#c82333}
+    </style>
+</head>
+<body>
+    <header>
+        <h2>LuaProtect Panel</h2>
+        <div>
+            <span>{{ user.username }}</span>
+            <a href="/logout" class="btn logout" style="margin-left:15px;color:#fff;text-decoration:none">Cerrar sesión</a>
+        </div>
+    </header>
+    <div class="container">
+        <div class="card">
+            <h3>Subir nuevo script</h3>
+            <form method="POST" action="/scripts/new">
+                <input type="text" name="name" placeholder="Nombre del script" required>
+                <input type="text" name="description" placeholder="Descripción breve">
+                <textarea name="code" rows="8" placeholder="Pega aquí tu código Lua" required></textarea>
+                <button type="submit">Proteger y guardar</button>
+            </form>
+        </div>
+        <div class="card">
+            <h3>Mis Scripts</h3>
+            {% if scripts %}
+                <ul style="list-style:none">
+                {% for s in scripts %}
+                    <li style="padding:8px 0;border-bottom:1px solid #333">
+                        {{ s.name }} — <code>{{ s.hash_id }}</code>
+                        <a href="/loader/{{ s.hash_id }}" style="color:#4ea8de;margin-left:10px">Ver Loader</a>
+                        <form method="POST" action="/scripts/delete/{{ s.hash_id }}" style="display:inline">
+                            <button type="submit" style="background:#dc3545;padding:4px 8px;font-size:12px">Eliminar</button>
+                        </form>
+                    </li>
+                {% endfor %}
+                </ul>
+            {% else %}
+                <p>No tienes scripts todavía</p>
+            {% endif %}
+        </div>
+        {% if user.is_admin %}
+        <div class="card">
+            <h3>Generar Licencia</h3>
+            <form method="POST" action="/licenses/new">
+                <input type="text" name="script_hash" placeholder="Hash del script" required>
+                <input type="number" name="days" placeholder="Días de duración" value="30" min="1">
+                <input type="number" name="uses" placeholder="Usos máximos" value="1" min="1">
+                <button type="submit">Generar Clave</button>
+            </form>
+        </div>
+        {% endif %}
     </div>
-</div>
-{% endblock %}
+</body>
+</html>

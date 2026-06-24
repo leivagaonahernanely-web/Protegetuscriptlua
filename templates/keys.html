@@ -1,20 +1,85 @@
 {% extends "base.html" %}
 {% block content %}
-<div class="mb-6">
-    <h1 class="text-2xl font-bold">🔑 Claves</h1>
-    <p class="text-textMuted">Genera y administra claves de acceso</p>
-</div>
-<form id="formKey" class="bg-card p-5 rounded-xl border border-border mb-6">
-    <h3 class="font-semibold mb-3">Generar clave</h3>
-    <div class="space-y-3">
-        <select id="panel_id" class="w-full bg-dark border border-border rounded p-2">
+<h1 class="text-2xl font-bold mb-6">🔑 Claves de Acceso</h1>
+
+<div class="bg-card p-5 rounded-xl border border-border mb-6">
+    <h3 class="font-semibold mb-3">Generar nueva clave</h3>
+    <div class="grid md:grid-cols-2 gap-4">
+        <select id="panelId" class="w-full bg-dark border border-border rounded p-2.5">
             <option value="">Seleccionar panel</option>
             {% for p in panels %}
-            <option value="{{ p.id }}">{{ p.title }}</option>
+            <option value="{{ p.id }}">{{ p.name }}</option>
             {% endfor %}
         </select>
-        <input type="number" id="hours" placeholder="Duración en horas (0 = sin vencimiento)" class="w-full bg-dark border border-border rounded p-2" value="24">
-        <button type="submit" class="w-full bg-primary hover:bg-primary/90 p-2 rounded">Generar Clave</button>
+        <input type="number" id="hours" placeholder="Duración en horas (0 = sin vencimiento)" class="w-full bg-dark border border-border rounded p-2.5" value="24" min="0">
     </div>
-</form>
+    <button onclick="generarClave()" class="w-full bg-primary hover:bg-primary/90 p-2.5 rounded mt-4">Generar Clave</button>
+</div>
+
+{% if keys %}
+<div class="bg-card p-4 rounded-xl border border-border overflow-x-auto">
+    <table class="w-full text-left">
+        <thead>
+            <tr class="border-b border-border">
+                <th class="p-2">Clave</th>
+                <th class="p-2">Panel</th>
+                <th class="p-2">HWID</th>
+                <th class="p-2">Expira</th>
+                <th class="p-2">Estado</th>
+                <th class="p-2">Acciones</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for k in keys %}
+            <tr class="border-b border-border">
+                <td class="p-2 font-mono text-sm">{{ k.key }}</td>
+                <td class="p-2">{{ k.panel.name if k.panel else '—' }}</td>
+                <td class="p-2 text-xs text-textMuted">{{ k.hwid[:16] + '...' if k.hwid else 'Sin asignar' }}</td>
+                <td class="p-2 text-sm">{{ k.expires.strftime('%d/%m/%Y') if k.expires else 'Nunca' }}</td>
+                <td class="p-2">
+                    <span class="px-2 py-1 rounded text-xs {{ 'bg-green-500/20 text-green-400' if k.active else 'bg-red-500/20 text-red-400' }}">
+                        {{ 'Activa' if k.active else 'Inactiva' }}
+                    </span>
+                </td>
+                <td class="p-2 flex gap-2">
+                    <button onclick="copiarTexto('{{ k.key }}')" class="text-xs bg-blue-500/20 text-blue-400 px-2 py-1 rounded">Copiar</button>
+                    <button onclick="cambiarEstado({{ k.id }}, {{ k.active|lower }})" class="text-xs bg-yellow-500/20 text-yellow-400 px-2 py-1 rounded">
+                        {{ 'Desactivar' if k.active else 'Activar' }}
+                    </button>
+                </td>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% else %}
+<p class="text-center text-textMuted py-10">No hay claves generadas</p>
+{% endif %}
+
+<script>
+async function generarClave() {
+    const panelId = document.getElementById('panelId').value;
+    const horas = document.getElementById('hours').value;
+    if (!panelId) return alert('Selecciona un panel');
+    const res = await fetch('/api/generate-key', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({panel_id: panelId, hours: horas})
+    });
+    const data = await res.json();
+    if (data.success) {
+        alert('Clave generada: ' + data.key);
+        location.reload();
+    } else alert('Error: ' + data.error);
+}
+
+function copiarTexto(texto) {
+    navigator.clipboard.writeText(texto);
+    alert('Copiado');
+}
+
+async function cambiarEstado(id) {
+    await fetch(`/api/toggle-key/${id}`, {method: 'POST'});
+    location.reload();
+}
+</script>
 {% endblock %}

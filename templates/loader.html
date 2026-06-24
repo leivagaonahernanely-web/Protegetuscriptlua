@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Loader - {{ script.name }}</title>
+    <style>
+        *{margin:0;padding:0;box-sizing:border-box;font-family:monospace}
+        body{background:#121212;color:#eee;padding:30px}
+        pre{background:#1e1e1e;padding:20px;border-radius:8px;overflow-x:auto;white-space:pre-wrap;word-wrap:break-word}
+        h2{color:#4ea8de;margin-bottom:15px}
+        button{margin-top:15px;padding:10px 20px;background:#5865f2;color:#fff;border:none;border-radius:4px;cursor:pointer}
+    </style>
+</head>
+<body>
+    <h2>Loader para: {{ script.name }}</h2>
+    <pre id="codigo">{{ loader }}</pre>
+    <button onclick="navigator.clipboard.writeText(document.getElementById('codigo').textContent)">Copiar al portapapeles</button>
+</body>
+</html>
+ 

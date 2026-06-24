@@ -1,76 +1,72 @@
 {% extends "base.html" %}
 {% block content %}
-<div class="container mx-auto px-4 py-6 max-w-6xl">
-    <div class="flex flex-col md:flex-row justify-between items-center mb-8 gap-4">
-        <div class="flex items-center gap-3">
-            <i class="fa fa-shield text-3xl text-primary"></i>
-            <h1 class="text-3xl font-bold"><span class="text-white">Luau</span> <span class="text-accent">Protect</span></h1>
-        </div>
-        <div class="flex items-center gap-4">
-            <a href="/" class="bg-secondary hover:bg-secondary/80 px-4 py-2 rounded-lg">← Volver</a>
-        </div>
+<div class="container mx-auto px-4 py-8 max-w-6xl">
+    <div class="flex justify-between items-center mb-6">
+        <h2 class="text-2xl font-bold">🔑 Claves</h2>
+        <a href="/" class="bg-secondary px-4 py-2 rounded-lg">← Volver</a>
     </div>
 
-    <div class="bg-card rounded-xl p-6 border border-secondary">
-        <h2 class="text-2xl font-bold mb-5">🔑 Claves Generadas</h2>
-        {% if keys %}
-        <div class="overflow-x-auto">
-            <table class="w-full text-sm">
-                <thead>
-                    <tr class="border-b border-gray-700">
-                        <th class="text-left p-3">Clave</th>
-                        <th class="text-left p-3">Estado</th>
-                        <th class="text-left p-3">HWID</th>
-                        <th class="text-left p-3">Expira</th>
-                        <th class="text-left p-3">Acciones</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for k in keys %}
-                    <tr class="border-b border-gray-700 hover:bg-secondary/40">
-                        <td class="p-3 font-mono">{{ k.key }}</td>
-                        <td class="p-3">
-                            {% if k.active %}
-                            <span class="text-green-400">✅ Activa</span>
-                            {% else %}
-                            <span class="text-red-400">❌ Desactivada</span>
-                            {% endif %}
-                        </td>
-                        <td class="p-3 text-xs font-mono text-gray-300 truncate max-w-[120px]">{{ k.hwid or "Sin activar" }}</td>
-                        <td class="p-3 text-gray-300">
-                            {% if k.expires_at %}
-                            {{ k.expires_at.strftime('%d/%m/%Y %H:%M') }}
-                            {% else %}
-                            Permanente
-                            {% endif %}
-                        </td>
-                        <td class="p-3">
-                            <button onclick="resetHwid('{{ k.key }}')" class="text-yellow-400 hover:text-yellow-300 mr-2">Reset HWID</button>
-                            <button onclick="banKey('{{ k.key }}')" class="text-red-400 hover:text-red-300">Desactivar</button>
-                        </td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
+    <div class="bg-card p-6 rounded-xl border border-secondary/70 mb-8">
+        <h3 class="text-lg font-semibold mb-4">Generar Clave</h3>
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <select id="keyPanel" class="bg-secondary border border-gray-700 rounded-lg px-3 py-2">
+                {% for p in panels %}<option value="{{ p.id }}">{{ p.title }}</option>{% endfor %}
+            </select>
+            <select id="keyDuracion" class="bg-secondary border border-gray-700 rounded-lg px-3 py-2">
+                <option value="0">Permanente</option>
+                <option value="24">24h</option>
+                <option value="168">7 días</option>
+                <option value="720">30 días</option>
+            </select>
+            <input type="text" id="keyNota" placeholder="Nota" class="bg-secondary border border-gray-700 rounded-lg px-3 py-2">
         </div>
-        {% else %}
-        <p class="text-gray-400 italic">No hay claves generadas.</p>
-        {% endif %}
+        <button onclick="generarClave()" class="bg-primary hover:bg-primary/90 px-5 py-2 rounded-lg mt-4">✨ Generar</button>
+    </div>
+
+    <div class="bg-card p-6 rounded-xl border border-secondary/70 overflow-x-auto">
+        <table class="w-full text-sm">
+            <thead>
+                <tr class="border-b border-gray-700">
+                    <th class="text-left p-2">Clave</th>
+                    <th class="text-left p-2">Estado</th>
+                    <th class="text-left p-2">Expira</th>
+                    <th class="text-left p-2">Acciones</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for k in keys %}
+                <tr class="border-b border-gray-700/50">
+                    <td class="p-2 font-mono">{{ k.key }}</td>
+                    <td class="p-2">{{ '✅ Activa' if k.active else '❌ Desactivada' }}</td>
+                    <td class="p-2">{{ k.expires_at.strftime('%d/%m/%Y') if k.expires_at else 'Nunca' }}</td>
+                    <td class="p-2 flex gap-2">
+                        <button onclick="copiar('{{ k.key }}')" class="text-blue-400">Copiar</button>
+                        <button onclick="resetHWID('{{ k.key }}')" class="text-yellow-400">Reset</button>
+                        <button onclick="banKey('{{ k.key }}')" class="text-red-400">Desactivar</button>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
     </div>
 </div>
 
 <script>
-function resetHwid(key) {
-    if (!confirm("¿Resetear HWID de esta clave?")) return;
-    fetch('/api/reset-hwid', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({key:key})})
-    .then(r=>r.json())
-    .then(d=>{if(d.success) location.reload(); else alert('Error')})
+function generarClave() {
+    fetch('/api/generate-key', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+            panel_id: document.getElementById('keyPanel').value,
+            duration: document.getElementById('keyDuracion').value,
+            note: document.getElementById('keyNota').value
+        })
+    })
+    .then(r => r.json())
+    .then(d => { if (d.success) { alert(`✅ Clave: ${d.key}`); location.reload(); } });
 }
-function banKey(key) {
-    if (!confirm("¿Desactivar esta clave?")) return;
-    fetch('/api/ban-key', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({key:key})})
-    .then(r=>r.json())
-    .then(d=>{if(d.success) location.reload(); else alert('Error')})
-}
+function copiar(t) { navigator.clipboard.writeText(t).then(() => alert('Copiado')); }
+function resetHWID(k) { fetch('/api/reset-hwid', {method:'POST', body:JSON.stringify({key:k})}).then(()=>location.reload()); }
+function banKey(k) { fetch('/api/ban-key', {method:'POST', body:JSON.stringify({key:k})}).then(()=>location.reload()); }
 </script>
 {% endblock %}

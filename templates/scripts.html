@@ -1,93 +1,28 @@
-{% extends "base.html" %}
+                        {% extends "base.html" %}
 {% block content %}
-<div class="flex justify-between items-center mb-6">
-    <h1 class="text-2xl font-bold">Overview</h1>
-    <button class="text-primary border border-primary px-4 py-1.5 rounded-md hover:bg-primary/10">Invite Bot</button>
+<div class="mb-6">
+    <h1 class="text-2xl font-bold">📜 Mis Scripts</h1>
+    <p class="text-textMuted">Gestiona tus códigos protegidos</p>
 </div>
-
-<!-- Tarjetas de estadísticas -->
-<div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
-    <div class="bg-card border border-border rounded-lg p-4 flex justify-between items-center">
-        <div class="flex items-center gap-3">
-            <div class="bg-primary rounded-md p-3">
-                <i class="fa-solid fa-file-lines text-white text-xl"></i>
-            </div>
-            <div>
-                <p class="text-textMuted text-sm">TOTAL SCRIPTS</p>
-                <p class="text-2xl font-bold">{{ scripts|length }}</p>
-            </div>
+{% if scripts %}
+<div class="grid md:grid-cols-2 gap-4">
+    {% for s in scripts %}
+    <div class="bg-card p-4 rounded-xl border border-border">
+        <h3 class="font-semibold text-lg">{{ s.name }}</h3>
+        <p class="text-sm text-textMuted">Creado: {{ s.created_at.strftime('%d/%m/%Y %H:%M') }}</p>
+        <div class="mt-3 flex gap-2">
+            <span class="text-xs px-2 py-1 rounded {{ 'bg-red-500/20 text-red-400' if s.killswitch else 'bg-green-500/20 text-green-400' }}">
+                {{ 'Desactivado' if s.killswitch else 'Activo' }}
+            </span>
+            {% if user.is_admin %}
+            <span class="text-xs text-textMuted">Dueño: {{ s.owner.discord_username }}</span>
+            {% endif %}
         </div>
-        <span class="text-textMuted">1/∞</span>
     </div>
-    <div class="bg-card border border-border rounded-lg p-4 flex justify-between items-center">
-        <div class="flex items-center gap-3">
-            <div class="bg-primary rounded-md p-3">
-                <i class="fa-solid fa-lock text-white text-xl"></i>
-            </div>
-            <div>
-                <p class="text-textMuted text-sm">MONTHLY OBFUSCATIONS</p>
-                <p class="text-2xl font-bold">9</p>
-            </div>
-        </div>
-        <span class="text-textMuted">9/10</span>
-    </div>
+    {% endfor %}
 </div>
-
-<!-- Tabla de scripts -->
-<div class="bg-card border border-border rounded-lg overflow-hidden">
-    <div class="p-4 border-b border-border">
-        <h2 class="text-xl font-semibold">Scripts</h2>
-    </div>
-    <div class="overflow-x-auto">
-        <table class="w-full text-sm">
-            <thead>
-                <tr class="bg-sidebar text-textMuted border-b border-border">
-                    <th class="text-left p-4">SCRIPT NAME</th>
-                    <th class="text-left p-4">STATUS</th>
-                    <th class="text-left p-4">AD SYSTEMS</th>
-                    <th class="text-right p-4">ACTIONS</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% if scripts %}
-                {% for s in scripts %}
-                <tr class="border-b border-border hover:bg-sidebar/50">
-                    <td class="p-4 flex items-center gap-3">
-                        <div class="bg-primary rounded p-2">
-                            <i class="fa-solid fa-file-lines text-white"></i>
-                        </div>
-                        <div>
-                            <p class="font-medium">{{ s.name }}</p>
-                            <p class="text-xs text-textMuted font-mono">{{ s.file_hash[:16] }}...</p>
-                        </div>
-                    </td>
-                    <td class="p-4">
-                        <span class="bg-success/20 text-success px-2 py-0.5 rounded-full text-xs font-medium">ACTIVE</span>
-                    </td>
-                    <td class="p-4 text-textMuted">None</td>
-                    <td class="p-4 text-right">
-                        <button onclick="copyLoader('{{ s.file_hash }}')" class="bg-green-600 hover:bg-green-500 text-white px-3 py-1.5 rounded-md mr-2">
-                            <i class="fa-solid fa-download mr-1"></i> LOADER
-                        </button>
-                        <button onclick="openModal('{{ s.name }}')" class="bg-primary hover:bg-primary/90 text-white px-3 py-1.5 rounded-md">
-                            <i class="fa-solid fa-pen mr-1"></i> EDIT
-                        </button>
-                    </td>
-                </tr>
-                {% endfor %}
-                {% else %}
-                <tr><td colspan="4" class="p-8 text-center text-textMuted">No scripts uploaded yet</td></tr>
-                {% endif %}
-            </tbody>
-        </table>
-    </div>
-</div>
-
-<script>
-function copyLoader(hash) {
-    const url = `https://{{ request.host }}/scripts/hosted/${hash}.lua`;
-    navigator.clipboard.writeText(url).then(() => alert('✅ Loader URL copied!'));
-}
-</script>
+{% else %}
+<p class="text-center text-textMuted py-10">Aún no tienes scripts guardados</p>
+{% endif %}
 {% endblock %}
  

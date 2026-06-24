@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Protector | Panel</title>
+    <title>PolSec | Panel</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
     <script>
@@ -27,18 +27,50 @@
             }
         }
     </script>
+    <style>
+        /* Animación suave para abrir/cerrar */
+        .sidebar {
+            transition: transform 0.3s ease;
+            transform: translateX(-100%);
+        }
+        .sidebar.open {
+            transform: translateX(0);
+        }
+        @media (min-width: 768px) {
+            .sidebar {
+                transform: none;
+                position: static;
+            }
+        }
+    </style>
 </head>
 <body class="bg-dark text-textMain font-inter min-h-screen">
-    <div class="flex flex-col md:flex-row h-screen">
-        <!-- Menú Lateral -->
-        <aside class="w-full md:w-64 bg-sidebar border-r border-border flex-shrink-0">
-            <div class="p-4 border-b border-border">
+
+    <!-- Botón para abrir menú (solo en móvil) -->
+    <div class="md:hidden fixed top-4 left-4 z-50">
+        <button onclick="toggleSidebar()" class="bg-card p-2 rounded-md border border-border">
+            <i class="fa-solid fa-bars text-xl"></i>
+        </button>
+    </div>
+
+    <div class="flex flex-col md:flex-row h-screen relative">
+        <!-- Menú Lateral - SE ABRE/CIERRA -->
+        <aside id="sidebar" class="sidebar fixed md:static inset-y-0 left-0 w-64 bg-sidebar border-r border-border z-40 shadow-xl">
+            <!-- Botón cerrar en móvil -->
+            <div class="md:hidden absolute top-2 right-2">
+                <button onclick="toggleSidebar()" class="text-textMuted hover:text-white text-xl">×</button>
+            </div>
+
+            <!-- Logo PolSec -->
+            <div class="p-4 border-b border-border mt-2">
                 <div class="bg-gradient-to-r from-primary to-primaryLight rounded-lg p-4 flex items-center justify-center gap-3">
                     <i class="fa-solid fa-shield text-white text-2xl"></i>
-                    <span class="text-xl font-bold">Protector</span>
+                    <span class="text-xl font-bold">PolSec</span>
                 </div>
             </div>
-            <nav class="p-3 space-y-1">
+
+            <!-- Navegación igual a la imagen -->
+            <nav class="p-3 space-y-1 mt-2">
                 <div class="text-xs text-textMuted uppercase font-semibold mt-4 mb-2 px-3">Analytics</div>
                 <a href="/" class="flex items-center gap-3 px-3 py-2.5 rounded-md {% if request.path == '/' %}bg-primary/20 text-primary{% else %}hover:bg-card{% endif %}">
                     <i class="fa-solid fa-chart-line w-5"></i>
@@ -71,7 +103,9 @@
                     <span>Config</span>
                 </a>
             </nav>
-            <div class="mt-auto p-4 border-t border-border">
+
+            <!-- Usuario abajo -->
+            <div class="absolute bottom-0 left-0 right-0 p-4 border-t border-border">
                 <div class="flex items-center justify-between">
                     <span class="text-sm">{{ current_user.username }}</span>
                     <a href="/logout" class="text-red-400 hover:text-red-300 text-sm">Salir</a>
@@ -80,121 +114,26 @@
         </aside>
 
         <!-- Contenido Principal -->
-        <main class="flex-1 overflow-y-auto p-4 md:p-6">
+        <main class="flex-1 overflow-y-auto p-4 md:p-6 pt-16 md:pt-6">
             {% block content %}{% endblock %}
         </main>
     </div>
 
-    <!-- Modal de Edición -->
-    <div id="editModal" class="fixed inset-0 bg-black/70 z-50 flex items-center justify-center hidden">
-        <div class="bg-card rounded-lg w-full max-w-xl p-6 relative max-h-[90vh] overflow-y-auto">
-            <button onclick="closeModal()" class="absolute right-4 top-4 text-textMuted hover:text-white text-xl">&times;</button>
-            <h3 class="text-xl font-bold text-center mb-2">Edit Script - <span id="modalScriptName"></span></h3>
-            <p class="text-textMuted text-center mb-6">Configure settings and upload script for obfuscation.</p>
-
-            <!-- Zona de arrastre -->
-            <div id="dropZone" class="border-2 border-dashed border-border rounded-lg p-8 text-center mb-6 hover:border-primary transition-colors">
-                <i class="fa-solid fa-upload text-4xl text-textMuted mb-3"></i>
-                <p class="text-lg font-medium">Add files here</p>
-                <p class="text-sm text-textMuted">You can upload 1 files (up to 3 MB each)</p>
-                <input type="file" id="fileInput" accept=".lua" class="hidden">
-            </div>
-
-            <!-- Interruptores -->
-            <div class="grid grid-cols-2 gap-4 mb-6">
-                <div class="bg-sidebar p-3 rounded-md border border-border flex justify-between items-center">
-                    <span>Killswitch</span>
-                    <label class="relative inline-flex items-center cursor-pointer">
-                        <input type="checkbox" id="killswitch" class="sr-only peer">
-                        <div class="w-10 h-5 bg-border rounded-full peer peer-checked:after:translate-x-full peer-checked:after:bg-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-textMuted after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-primary"></div>
-                    </label>
-                </div>
-                <div class="bg-sidebar p-3 rounded-md border border-border flex justify-between items-center">
-                    <span>Trial Mode</span>
-                    <label class="relative inline-flex items-center cursor-pointer">
-                        <input type="checkbox" id="trial" class="sr-only peer">
-                        <div class="w-10 h-5 bg-border rounded-full peer peer-checked:after:translate-x-full peer-checked:after:bg-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-textMuted after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-primary"></div>
-                    </label>
-                </div>
-                <div class="bg-sidebar p-3 rounded-md border border-border flex justify-between items-center">
-                    <div>
-                        <span>Anti-Bypass</span>
-                        <p class="text-xs text-textMuted">B.Y.P.A.S.S protection</p>
-                    </div>
-                    <label class="relative inline-flex items-center cursor-pointer">
-                        <input type="checkbox" id="antibypass" class="sr-only peer">
-                        <div class="w-10 h-5 bg-border rounded-full peer peer-checked:after:translate-x-full peer-checked:after:bg-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-textMuted after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-primary"></div>
-                    </label>
-                </div>
-            </div>
-
-            <h4 class="font-semibold mb-3">Ad Systems</h4>
-            <div class="grid grid-cols-2 gap-3 mb-6">
-                <div class="bg-sidebar p-2 rounded-md border border-border flex justify-between items-center">
-                    <span>LootLabs</span>
-                    <label class="relative inline-flex items-center cursor-pointer">
-                        <input type="checkbox" class="sr-only peer">
-                        <div class="w-9 h-4 bg-border rounded-full peer peer-checked:after:translate-x-full peer-checked:after:bg-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-textMuted after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-primary"></div>
-                    </label>
-                </div>
-                <div class="bg-sidebar p-2 rounded-md border border-border flex justify-between items-center">
-                    <span>Linkvertise</span>
-                    <label class="relative inline-flex items-center cursor-pointer">
-                        <input type="checkbox" class="sr-only peer">
-                        <div class="w-9 h-4 bg-border rounded-full peer peer-checked:after:translate-x-full peer-checked:after:bg-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-textMuted after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-primary"></div>
-                    </label>
-                </div>
-                <div class="bg-sidebar p-2 rounded-md border border-border flex justify-between items-center">
-                    <span>WorkInk</span>
-                    <label class="relative inline-flex items-center cursor-pointer">
-                        <input type="checkbox" class="sr-only peer">
-                        <div class="w-9 h-4 bg-border rounded-full peer peer-checked:after:translate-x-full peer-checked:after:bg-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-textMuted after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-primary"></div>
-                    </label>
-                </div>
-                <div class="bg-sidebar p-2 rounded-md border border-border flex justify-between items-center">
-                    <span>Lockr</span>
-                    <label class="relative inline-flex items-center cursor-pointer">
-                        <input type="checkbox" class="sr-only peer">
-                        <div class="w-9 h-4 bg-border rounded-full peer peer-checked:after:translate-x-full peer-checked:after:bg-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-textMuted after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-primary"></div>
-                    </label>
-                </div>
-            </div>
-
-            <h4 class="font-semibold mb-2">Key Duration (seconds)</h4>
-            <input type="number" value="86400" class="w-full bg-sidebar border border-border rounded-md p-2 mb-4">
-
-            <button onclick="saveChanges()" class="w-full bg-primary hover:bg-primary/90 py-2.5 rounded-md font-medium">Save Changes</button>
-        </div>
-    </div>
-
+    <!-- Script para abrir/cerrar menú -->
     <script>
-        // Arrastrar y soltar archivos
-        const dropZone = document.getElementById('dropZone');
-        const fileInput = document.getElementById('fileInput');
-
-        dropZone.addEventListener('click', () => fileInput.click());
-        dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('border-primary'); });
-        dropZone.addEventListener('dragleave', () => dropZone.classList.remove('border-primary'));
-        dropZone.addEventListener('drop', e => {
-            e.preventDefault();
-            dropZone.classList.remove('border-primary');
-            if (e.dataTransfer.files.length) fileInput.files = e.dataTransfer.files;
+        function toggleSidebar() {
+            document.getElementById('sidebar').classList.toggle('open');
+        }
+        // Cerrar al hacer clic fuera en móvil
+        document.addEventListener('click', function(e) {
+            const sidebar = document.getElementById('sidebar');
+            const btn = document.querySelector('button[onclick="toggleSidebar()"]');
+            if (window.innerWidth < 768 && !sidebar.contains(e.target) && !btn.contains(e.target)) {
+                sidebar.classList.remove('open');
+            }
         });
-
-        function openModal(name) {
-            document.getElementById('modalScriptName').textContent = name;
-            document.getElementById('editModal').classList.remove('hidden');
-            document.body.style.overflow = 'hidden';
-        }
-        function closeModal() {
-            document.getElementById('editModal').classList.add('hidden');
-            document.body.style.overflow = 'auto';
-        }
-        function saveChanges() {
-            alert('✅ Cambios guardados');
-            closeModal();
-        }
     </script>
+
     {% block scripts %}{% endblock %}
 </body>
 </html>

@@ -47,7 +47,7 @@
     </div>
     <script>
         function toggleSidebar() { document.getElementById('sidebar').classList.toggle('open'); }
-        document.addEventListener('click', e => { if(window.innerWidth<768 && !sidebar.contains(e.target) && !event.target.closest('button')) sidebar.classList.remove('open'); });
+        document.addEventListener('click', e => { if(window.innerWidth<768 && !sidebar.contains(e.target) && !e.target.closest('button')) sidebar.classList.remove('open'); });
     </script>
 </body>
 </html>

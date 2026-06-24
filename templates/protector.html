@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="mb-6">
+    <h1 class="text-2xl font-bold">🛡️ Protector de Scripts</h1>
+    <p class="text-textMuted">Sube y protege tus códigos de Roblox</p>
+</div>
+<div class="grid md:grid-cols-2 gap-6">
+    <div class="bg-card p-5 rounded-xl border border-border">
+        <h3 class="font-semibold mb-3">Proteger Nuevo Script</h3>
+        <div class="space-y-4">
+            <input type="text" id="scriptName" placeholder="Nombre del script" class="w-full bg-dark border border-border rounded p-2">
+            <textarea id="scriptCode" rows="12" placeholder="Pega aquí tu código Lua completo" class="w-full bg-dark border border-border rounded p-2 font-mono text-sm"></textarea>
+            <button onclick="protegerScript()" class="w-full bg-primary hover:bg-primary/90 p-2 rounded">Proteger Script</button>
+        </div>
+        <div id="resultado" class="mt-5 hidden border-t border-border pt-4">
+            <h4 class="font-medium mb-2">✅ Listo</h4>
+            <textarea id="loaderCode" readonly rows="6" class="w-full bg-dark border border-border rounded p-2 text-xs font-mono"></textarea>
+        </div>
+    </div>
+    <div class="bg-card p-5 rounded-xl border border-border">
+        <h3 class="font-semibold mb-3">Mis Scripts Protegidos</h3>
+        {% if scripts %}
+        <div class="space-y-3">
+            {% for s in scripts %}
+            <div class="p-3 bg-dark rounded border border-border">
+                <div class="flex justify-between items-center">
+                    <span>{{ s.name }}</span>
+                    <button onclick="cambiarEstado({{ s.id }})" class="text-xs px-2 py-1 rounded {{ 'bg-red-500/20 text-red-400' if s.killswitch else 'bg-green-500/20 text-green-400' }}">
+                        {{ 'Desactivado' if s.killswitch else 'Activo' }}
+                    </button>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+        {% else %}
+        <p class="text-center text-textMuted py-6">Ningún script protegido aún</p>
+        {% endif %}
+    </div>
+</div>
+<script>
+async function protegerScript() {
+    const nombre = document.getElementById('scriptName').value.trim();
+    const codigo = document.getElementById('scriptCode').value.trim();
+    if(!nombre || !codigo) return alert('Completa todos los campos');
+    const res = await fetch('/api/protect', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({name: nombre, code: codigo})
+    });
+    const data = await res.json();
+    if(data.success) {
+        document.getElementById('loaderCode').value = data.loader;
+        document.getElementById('resultado').classList.remove('hidden');
+    } else alert('Error: ' + data.error);
+}
+async function cambiarEstado(id) {
+    await fetch(`/api/toggle-kill/${id}`, {method: 'POST'});
+    location.reload();
+}
+</script>
+{% endblock %}
+ 

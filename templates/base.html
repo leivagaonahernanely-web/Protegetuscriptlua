@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+                <!DOCTYPE html>
 <html lang="es">
 <head>
     <meta charset="UTF-8">
@@ -10,131 +10,44 @@
         tailwind.config = {
             theme: {
                 extend: {
-                    colors: {
-                        dark: '#0F1217',
-                        sidebar: '#14181E',
-                        card: '#191E25',
-                        primary: '#2563EB',
-                        primaryLight: '#3B82F6',
-                        success: '#10B981',
-                        danger: '#EF4444',
-                        textMain: '#E5E7EB',
-                        textMuted: '#9CA3AF',
-                        border: '#272E3B'
-                    },
-                    fontFamily: { inter: ['Inter', 'sans-serif'] }
+                    colors: { dark: '#0F1217', sidebar: '#14181E', card: '#191E25', primary: '#2563EB', textMain: '#E5E7EB', textMuted: '#9CA3AF', border: '#272E3B' }
                 }
             }
         }
     </script>
     <style>
-        /* Animación suave para abrir/cerrar */
-        .sidebar {
-            transition: transform 0.3s ease;
-            transform: translateX(-100%);
-        }
-        .sidebar.open {
-            transform: translateX(0);
-        }
-        @media (min-width: 768px) {
-            .sidebar {
-                transform: none;
-                position: static;
-            }
-        }
+        .sidebar { transition: transform 0.3s ease; transform: translateX(-100%); }
+        .sidebar.open { transform: translateX(0); }
+        @media (min-width: 768px) { .sidebar { transform: none; position: static; } }
     </style>
 </head>
-<body class="bg-dark text-textMain font-inter min-h-screen">
-
-    <!-- Botón para abrir menú (solo en móvil) -->
-    <div class="md:hidden fixed top-4 left-4 z-50">
-        <button onclick="toggleSidebar()" class="bg-card p-2 rounded-md border border-border">
-            <i class="fa-solid fa-bars text-xl"></i>
-        </button>
-    </div>
-
-    <div class="flex flex-col md:flex-row h-screen relative">
-        <!-- Menú Lateral - SE ABRE/CIERRA -->
-        <aside id="sidebar" class="sidebar fixed md:static inset-y-0 left-0 w-64 bg-sidebar border-r border-border z-40 shadow-xl">
-            <!-- Botón cerrar en móvil -->
-            <div class="md:hidden absolute top-2 right-2">
-                <button onclick="toggleSidebar()" class="text-textMuted hover:text-white text-xl">×</button>
-            </div>
-
-            <!-- Logo PolSec -->
-            <div class="p-4 border-b border-border mt-2">
-                <div class="bg-gradient-to-r from-primary to-primaryLight rounded-lg p-4 flex items-center justify-center gap-3">
-                    <i class="fa-solid fa-shield text-white text-2xl"></i>
-                    <span class="text-xl font-bold">PolSec</span>
-                </div>
-            </div>
-
-            <!-- Navegación igual a la imagen -->
-            <nav class="p-3 space-y-1 mt-2">
-                <div class="text-xs text-textMuted uppercase font-semibold mt-4 mb-2 px-3">Analytics</div>
-                <a href="/" class="flex items-center gap-3 px-3 py-2.5 rounded-md {% if request.path == '/' %}bg-primary/20 text-primary{% else %}hover:bg-card{% endif %}">
-                    <i class="fa-solid fa-chart-line w-5"></i>
-                    <span>Overview</span>
-                </a>
-                <a href="/reports" class="flex items-center gap-3 px-3 py-2.5 rounded-md hover:bg-card">
-                    <i class="fa-solid fa-file-chart-column w-5"></i>
-                    <span>Reports</span>
-                </a>
-
-                <div class="text-xs text-textMuted uppercase font-semibold mt-4 mb-2 px-3">Keys</div>
-                <a href="/keys" class="flex items-center gap-3 px-3 py-2.5 rounded-md {% if request.path == '/keys' %}bg-primary/20 text-primary{% else %}hover:bg-card{% endif %}">
-                    <i class="fa-solid fa-key w-5"></i>
-                    <span>Key List</span>
-                </a>
-
-                <div class="text-xs text-textMuted uppercase font-semibold mt-4 mb-2 px-3">Lua</div>
-                <a href="/scripts" class="flex items-center gap-3 px-3 py-2.5 rounded-md {% if request.path == '/scripts' %}bg-primary/20 text-primary{% else %}hover:bg-card{% endif %}">
-                    <i class="fa-solid fa-code w-5"></i>
-                    <span>Script</span>
-                </a>
-                <a href="/vault" class="flex items-center gap-3 px-3 py-2.5 rounded-md hover:bg-card">
-                    <i class="fa-solid fa-box-archive w-5"></i>
-                    <span>Source Vault</span>
-                </a>
-
-                <div class="text-xs text-textMuted uppercase font-semibold mt-4 mb-2 px-3">Ad System</div>
-                <a href="/ads" class="flex items-center gap-3 px-3 py-2.5 rounded-md hover:bg-card">
-                    <i class="fa-solid fa-gear w-5"></i>
-                    <span>Config</span>
-                </a>
+<body class="bg-dark text-textMain min-h-screen">
+    <button onclick="toggleSidebar()" class="md:hidden fixed top-4 left-4 z-50 bg-card p-2 rounded"><i class="fa fa-bars"></i></button>
+    <div class="flex h-screen">
+        <aside id="sidebar" class="sidebar fixed md:static w-64 bg-sidebar border-r border-border z-40">
+            <div class="p-4 border-b border-border"><div class="bg-gradient-to-r from-primary to-blue-400 p-3 rounded text-center text-xl font-bold">PolSec</div></div>
+            <nav class="p-3 space-y-2">
+                <div class="text-xs text-textMuted uppercase mt-4 mb-2 px-2">Gestión</div>
+                <a href="/scripts" class="flex items-center gap-2 p-2 rounded {% if request.path == '/scripts' %}bg-primary/20 text-primary{% else %}hover:bg-card{% endif %}"><i class="fa fa-code"></i> Scripts</a>
+                <a href="/panels" class="flex items-center gap-2 p-2 rounded {% if request.path == '/panels' %}bg-primary/20 text-primary{% else %}hover:bg-card{% endif %}"><i class="fa fa-layer-group"></i> Paneles</a>
+                <a href="/keys" class="flex items-center gap-2 p-2 rounded {% if request.path == '/keys' %}bg-primary/20 text-primary{% else %}hover:bg-card{% endif %}"><i class="fa fa-key"></i> Claves</a>
+                {% if user.is_admin %}
+                <a href="/users" class="flex items-center gap-2 p-2 rounded {% if request.path == '/users' %}bg-primary/20 text-primary{% else %}hover:bg-card{% endif %}"><i class="fa fa-users"></i> Usuarios</a>
+                {% endif %}
             </nav>
-
-            <!-- Usuario abajo -->
-            <div class="absolute bottom-0 left-0 right-0 p-4 border-t border-border">
-                <div class="flex items-center justify-between">
-                    <span class="text-sm">{{ current_user.username }}</span>
-                    <a href="/logout" class="text-red-400 hover:text-red-300 text-sm">Salir</a>
-                </div>
+            <div class="absolute bottom-0 left-0 right-0 p-3 border-t border-border flex justify-between items-center">
+                <span class="text-sm">{{ user.username }}</span>
+                <a href="/logout" class="text-red-400 text-sm">Salir</a>
             </div>
         </aside>
-
-        <!-- Contenido Principal -->
-        <main class="flex-1 overflow-y-auto p-4 md:p-6 pt-16 md:pt-6">
+        <main class="flex-1 p-4 md:p-6 overflow-auto pt-16 md:pt-6">
             {% block content %}{% endblock %}
         </main>
     </div>
-
-    <!-- Script para abrir/cerrar menú -->
     <script>
-        function toggleSidebar() {
-            document.getElementById('sidebar').classList.toggle('open');
-        }
-        // Cerrar al hacer clic fuera en móvil
-        document.addEventListener('click', function(e) {
-            const sidebar = document.getElementById('sidebar');
-            const btn = document.querySelector('button[onclick="toggleSidebar()"]');
-            if (window.innerWidth < 768 && !sidebar.contains(e.target) && !btn.contains(e.target)) {
-                sidebar.classList.remove('open');
-            }
-        });
+        function toggleSidebar() { document.getElementById('sidebar').classList.toggle('open'); }
+        document.addEventListener('click', e => { if(window.innerWidth<768 && !sidebar.contains(e.target) && !event.target.closest('button')) sidebar.classList.remove('open'); });
     </script>
-
-    {% block scripts %}{% endblock %}
 </body>
 </html>
  

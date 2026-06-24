@@ -1,34 +1,45 @@
 {% extends "base.html" %}
 {% block content %}
-<div class="container mx-auto px-4 py-8 max-w-6xl">
-    <div class="flex justify-between items-center mb-8">
-        <h1 class="text-2xl font-bold">📤 Gestión de Scripts</h1>
-        <div class="flex items-center gap-3">
-            <span class="text-sm">{{ user.username }}</span>
-            <a href="/logout" class="text-red-400 hover:text-red-300"><i class="fa-solid fa-sign-out-alt"></i> Salir</a>
+<div class="max-w-5xl mx-auto">
+    <h2 class="text-2xl font-bold mb-6 flex items-center gap-2">
+        <i class="fa-solid fa-upload"></i> Subir Nuevo Script
+    </h2>
+
+    <div class="bg-card p-6 rounded-xl border border-secondary/50 mb-8 shadow-lg">
+        <div class="space-y-4">
+            <div>
+                <label class="block text-sm text-textGray mb-2">Nombre del script</label>
+                <input type="text" id="scriptName" placeholder="Ej: Hydrax Hub v2" class="w-full bg-secondary border border-gray-700 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-primary/50 transition-all">
+            </div>
+            <div>
+                <label class="block text-sm text-textGray mb-2">Código Lua</label>
+                <textarea id="scriptContent" rows="12" placeholder="Pega aquí todo el código de tu script..." class="w-full bg-secondary border border-gray-700 rounded-lg px-4 py-3 font-mono text-sm focus:outline-none focus:ring-2 focus:ring-primary/50 transition-all"></textarea>
+            </div>
+            <button onclick="subirScript()" class="w-full md:w-auto bg-green-600 hover:bg-green-500 px-6 py-3 rounded-lg font-medium flex items-center justify-center gap-2 transition-all shadow-md">
+                <i class="fa-solid fa-rocket"></i> Host Script
+            </button>
         </div>
     </div>
 
-    <div class="bg-card p-6 rounded-xl border border-secondary/70 mb-8">
-        <h3 class="text-lg font-semibold mb-4">Subir Nuevo Script</h3>
-        <input type="text" id="scriptName" placeholder="Nombre del script" class="w-full bg-secondary border border-gray-700 rounded-lg px-4 py-2 mb-3">
-        <textarea id="scriptContent" rows="10" placeholder="Código Lua aquí..." class="w-full bg-secondary border border-gray-700 rounded-lg px-4 py-2 mb-4 font-mono"></textarea>
-        <button onclick="subirScript()" class="bg-green-600 hover:bg-green-500 px-5 py-2 rounded-lg">🚀 Host Script</button>
-    </div>
+    <h2 class="text-2xl font-bold mb-4 flex items-center gap-2">
+        <i class="fa-solid fa-list"></i> Scripts Alojados
+    </h2>
 
-    <div class="bg-card p-6 rounded-xl border border-secondary/70">
-        <h3 class="text-lg font-semibold mb-4">Scripts Alojados</h3>
+    <div class="bg-card rounded-xl border border-secondary/50 overflow-hidden shadow-lg">
         {% if scripts %}
-        <div class="space-y-3">
+        <div class="divide-y divide-secondary/50">
             {% for s in scripts %}
-            <div class="bg-secondary/40 p-3 rounded-lg flex justify-between items-center">
-                <span>{{ s.name }}</span>
-                <code class="text-xs text-gray-300">/scripts/hosted/{{ s.file_hash }}.lua</code>
+            <div class="p-4 hover:bg-secondary/30 transition-colors">
+                <h3 class="font-semibold text-lg mb-1">{{ s.name }}</h3>
+                <p class="text-textGray text-sm font-mono break-all">URL: https://{{ request.host }}/scripts/hosted/{{ s.file_hash }}.lua</p>
             </div>
             {% endfor %}
         </div>
         {% else %}
-        <p class="text-gray-400">No hay scripts todavía.</p>
+        <div class="p-8 text-center text-textGray">
+            <i class="fa-solid fa-folder-open text-4xl mb-3 opacity-40"></i>
+            <p>Aún no has subido ningún script</p>
+        </div>
         {% endif %}
     </div>
 </div>
@@ -37,7 +48,7 @@
 function subirScript() {
     const nombre = document.getElementById('scriptName').value.trim();
     const codigo = document.getElementById('scriptContent').value.trim();
-    if (!nombre || !codigo) return alert('Completa todos los campos');
+    if (!nombre || !codigo) return alert('⚠️ Completa todos los campos');
     fetch('/api/upload-script', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
@@ -46,11 +57,10 @@ function subirScript() {
     .then(r => r.json())
     .then(d => {
         if (d.success) {
-            alert(`✅ Subido!\nURL: ${d.url}`);
+            alert(`✅ Subido correctamente!\nURL: ${d.url}`);
             location.reload();
-        } else alert('❌ Error al subir');
+        } else alert('❌ Error al subir el script');
     });
 }
 </script>
 {% endblock %}
- 

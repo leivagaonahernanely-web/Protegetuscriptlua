@@ -1,55 +1,52 @@
 {% extends "base.html" %}
 {% block content %}
-<div class="container mx-auto px-4 py-8 max-w-6xl">
-    <div class="flex justify-between items-center mb-6">
-        <h2 class="text-2xl font-bold">🚫 HWID Baneados</h2>
-        <a href="/" class="bg-secondary px-4 py-2 rounded-lg">← Volver</a>
-    </div>
+<h1 class="text-2xl font-bold mb-6">🚫 HWID Bans</h1>
 
-    <div class="bg-card p-6 rounded-xl border border-secondary/70 overflow-x-auto">
-        <div class="mb-4">
-            <input type="text" id="hwidInput" placeholder="Ingresar HWID para banear" class="w-full bg-secondary border border-gray-700 rounded-lg px-4 py-2 mb-3">
-            <input type="text" id="motivoInput" placeholder="Motivo (opcional)" class="w-full bg-secondary border border-gray-700 rounded-lg px-4 py-2 mb-3">
-            <button onclick="banearHWID()" class="bg-red-600 hover:bg-red-500 px-5 py-2 rounded-lg">🚫 Banear HWID</button>
-        </div>
-
-        {% if bans %}
-        <table class="w-full text-sm">
-            <thead>
-                <tr class="border-b border-gray-700">
-                    <th class="text-left p-2">Hash HWID</th>
-                    <th class="text-left p-2">Motivo</th>
-                    <th class="text-left p-2">Fecha</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for b in bans %}
-                <tr class="border-b border-gray-700/50">
-                    <td class="p-2 font-mono text-xs">{{ b.hwid_hash[:20] }}...</td>
-                    <td class="p-2">{{ b.reason }}</td>
-                    <td class="p-2">{{ b.banned_at.strftime('%d/%m/%Y') }}</td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-        {% else %}
-        <p class="text-gray-400">No hay HWID baneados.</p>
-        {% endif %}
+<div class="bg-card p-5 rounded-xl border border-border mb-6">
+    <h3 class="font-semibold mb-3">Bloquear HWID</h3>
+    <div class="space-y-4">
+        <input type="text" id="hwidInput" placeholder="HWID o hash" class="w-full bg-dark border border-border rounded p-2.5">
+        <input type="text" id="reasonInput" placeholder="Motivo (opcional)" class="w-full bg-dark border border-border rounded p-2.5">
+        <button onclick="banHWID()" class="w-full bg-red-600 hover:bg-red-700 p-2.5 rounded">Bloquear HWID</button>
     </div>
 </div>
 
+{% if bans %}
+<div class="bg-card p-4 rounded-xl border border-border overflow-x-auto">
+    <table class="w-full text-left">
+        <thead>
+            <tr class="border-b border-border">
+                <th class="p-2">Hash HWID</th>
+                <th class="p-2">Motivo</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for b in bans %}
+            <tr class="border-b border-border">
+                <td class="p-2 font-mono text-xs">{{ b.hwid_hash }}</td>
+                <td class="p-2">{{ b.reason }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% else %}
+<p class="text-center text-textMuted py-10">No hay HWID bloqueados</p>
+{% endif %}
+
 <script>
-function banearHWID() {
+async function banHWID() {
     const hwid = document.getElementById('hwidInput').value.trim();
-    const motivo = document.getElementById('motivoInput').value.trim();
+    const motivo = document.getElementById('reasonInput').value.trim();
     if (!hwid) return alert('Ingresa el HWID');
-    fetch('/api/ban-hwid', {
+    const res = await fetch('/api/ban-hwid', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({hwid: hwid, reason: motivo})
-    })
-    .then(r => r.json())
-    .then(d => { if (d.success) { alert('✅ HWID baneado'); location.reload(); } });
+    });
+    const data = await res.json();
+    if (data.success) location.reload();
+    else alert('Error: ' + data.error);
 }
 </script>
 {% endblock %}

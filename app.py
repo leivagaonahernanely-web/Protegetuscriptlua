@@ -14,24 +14,27 @@ import base64
 app = Flask(__name__)
 CORS(app)
 
-# Claves de seguridad y OAuth Discord
-app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'PROTECT_2026_SECURE_KEY_987XYZ')
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///luau_protect.db'
+# Seguridad
+app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'TU_CLAVE_SECRETA_AQUI_2026')
+app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///protector.db'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['PERMANENT_SESSION_LIFETIME'] = datetime.timedelta(days=30)
-app.config['SESSION_COOKIE_SECURE'] = True
+app.config['SESSION_COOKIE_SECURE'] = False  # Cambiar a True si usas HTTPS
 app.config['SESSION_COOKIE_HTTPONLY'] = True
 
-# ⚠️ PON AQUÍ TUS DATOS DE LA APLICACIÓN DE DISCORD
-app.config['DISCORD_CLIENT_ID'] = os.getenv('DISCORD_CLIENT_ID', 'TU_ID_AQUI')
-app.config['DISCORD_CLIENT_SECRET'] = os.getenv('DISCORD_CLIENT_SECRET', 'TU_SECRETO_AQUI')
-app.config['DISCORD_REDIRECT_URI'] = os.getenv('DISCORD_REDIRECT_URI', 'https://tu-dominio.com/callback')
+# 👇 DATOS DE TU APLICACIÓN DISCORD (lo configuramos más abajo)
+app.config['DISCORD_CLIENT_ID'] = os.getenv('DISCORD_CLIENT_ID', '')
+app.config['DISCORD_CLIENT_SECRET'] = os.getenv('DISCORD_CLIENT_SECRET', '')
+app.config['DISCORD_REDIRECT_URI'] = os.getenv('DISCORD_REDIRECT_URI', 'http://localhost:8080/callback')
+
+# 👇 TU ID DE DISCORD PARA SER ADMIN
+ADMIN_DISCORD_ID = "1501316920975036611"
 
 db = SQLAlchemy(app)
 login_manager = LoginManager(app)
 login_manager.login_view = 'login'
 
-# Configurar OAuth con Discord
+# Conexión con Discord
 oauth = OAuth(app)
 discord = oauth.register(
     name='discord',
@@ -40,10 +43,10 @@ discord = oauth.register(
     access_token_url='https://discord.com/api/oauth2/token',
     authorize_url='https://discord.com/api/oauth2/authorize',
     api_base_url='https://discord.com/api/',
-    client_kwargs={'scope': 'identify email'}
+    client_kwargs={'scope': 'identify'}
 )
 
-# ---------------------- MODELOS ----------------------
+# ---------------------- BASE DE DATOS ----------------------
 class User(UserMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
     discord_id = db.Column(db.String(20), unique=True, nullable=False)
@@ -53,92 +56,78 @@ class User(UserMixin, db.Model):
 
 class Script(db.Model):
     id = db.Column(db.Integer, primary_key=True)
+    owner_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
     name = db.Column(db.String(150), nullable=False)
     content = db.Column(db.Text, nullable=False)
     file_hash = db.Column(db.String(128), unique=True, nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.datetime.utcnow)
     killswitch = db.Column(db.Boolean, default=False)
-    trial_mode = db.Column(db.Boolean, default=False)
     anti_bypass = db.Column(db.Boolean, default=False)
-    key_duration = db.Column(db.Integer, default=86400)
+    owner = db.relationship('User', backref=db.backref('scripts', lazy=True))
 
 class Panel(db.Model):
     id = db.Column(db.Integer, primary_key=True)
+    owner_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
     title = db.Column(db.String(150), nullable=False)
-    description = db.Column(db.Text)
     script_id = db.Column(db.Integer, db.ForeignKey('script.id'))
-    reset_cooldown = db.Column(db.Integer, default=86400)
+    owner = db.relationship('User', backref=db.backref('panels', lazy=True))
 
 class Key(db.Model):
     id = db.Column(db.Integer, primary_key=True)
+    owner_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
     key = db.Column(db.String(16), unique=True, nullable=False)
     panel_id = db.Column(db.Integer, db.ForeignKey('panel.id'))
     hwid = db.Column(db.String(128))
     expires_at = db.Column(db.DateTime)
-    note = db.Column(db.String(255))
     active = db.Column(db.Boolean, default=True)
     created_at = db.Column(db.DateTime, default=datetime.datetime.utcnow)
+    owner = db.relationship('User', backref=db.backref('keys', lazy=True))
 
 class BannedHWID(db.Model):
     id = db.Column(db.Integer, primary_key=True)
+    owner_id = db.Column(db.Integer, db.ForeignKey('user.id'), nullable=False)
     hwid_hash = db.Column(db.String(128), unique=True, nullable=False)
     reason = db.Column(db.String(255), default="Sin motivo")
-    banned_at = db.Column(db.DateTime, default=datetime.datetime.utcnow)
+    owner = db.relationship('User', backref=db.backref('bans', lazy=True))
 
 @login_manager.user_loader
 def load_user(user_id):
     return User.query.get(int(user_id))
 
-# Crear tablas y marcar tu cuenta como ADMIN
 with app.app_context():
     db.create_all()
-    # ⚠️ CAMBIA ESTE ID POR TU ID DE DISCORD
-    ADMIN_DISCORD_ID = "1501316920975036611"
-    if not User.query.filter_by(discord_id=ADMIN_DISCORD_ID).first():
-        admin = User(
-            discord_id=ADMIN_DISCORD_ID,
-            username="hx_xitnotping",
-            is_admin=True
-        )
-        db.session.add(admin)
-        db.session.commit()
 
-# ---------------------- RUTAS DE INICIO DE SESIÓN CON DISCORD ----------------------
+# ---------------------- INICIO DE SESIÓN ----------------------
 @app.route('/login')
 def login():
     if current_user.is_authenticated:
-        return redirect(url_for('scripts_page'))
+        return redirect(url_for('scripts'))
     return discord.authorize_redirect(redirect_uri=app.config['DISCORD_REDIRECT_URI'])
 
 @app.route('/callback')
 def callback():
     token = discord.authorize_access_token()
     if not token:
-        flash("No se pudo iniciar sesión")
+        flash("Error al iniciar sesión")
         return redirect(url_for('login'))
     
     resp = discord.get('users/@me')
     user_data = resp.json()
     
-    # Buscar o crear usuario
     user = User.query.filter_by(discord_id=user_data['id']).first()
     if not user:
-        # Solo permitimos que el administrador acceda al panel
-        if user_data['id'] != ADMIN_DISCORD_ID:
-            flash("No tienes permiso para acceder")
-            return redirect("https://discord.com")
-        
+        es_admin = (user_data['id'] == ADMIN_DISCORD_ID)
         user = User(
             discord_id=user_data['id'],
             username=user_data['username'],
             avatar=user_data.get('avatar'),
-            is_admin=True
+            is_admin=es_admin
         )
         db.session.add(user)
         db.session.commit()
     
     login_user(user, remember=True)
-    return redirect(url_for('scripts_page'))
+    return redirect(url_for('scripts'))
 
 @app.route('/logout')
 @login_required
@@ -147,211 +136,108 @@ def logout():
     session.clear()
     return redirect(url_for('login'))
 
-# ---------------------- RUTA PÚBLICA ----------------------
-@app.route('/scripts/hosted/<file_hash>.lua', methods=['GET'])
-def hosted_script(file_hash):
-    script = Script.query.filter_by(file_hash=file_hash).first()
-    if not script:
-        return Response("-- Script no encontrado", mimetype='text/plain', status=404)
-
-    codigo = f'''script_key = "KEY"  -- Paste your key here or if the script is free put trial
-
-loadstring(game:HttpGet("https://{request.host}/api/verify?key="..script_key.."&hwid="..getgenv().HWID))()'''
-
-    return Response(codigo, mimetype='text/plain; charset=utf-8')
-
-# ---------------------- VERIFICACIÓN ----------------------
-@app.route('/api/verify', methods=['GET'])
-def verify():
-    clave = request.args.get('key', '').strip()
-    hwid = request.args.get('hwid', '').strip()
-
-    if not clave:
-        return Response("return error('Missing key')", mimetype='text/plain', status=403)
-
-    key = Key.query.filter_by(key=clave, active=True).first()
-    if not key:
-        return Response("return error('Invalid or inactive key')", mimetype='text/plain', status=403)
-
-    if key.expires_at and key.expires_at < datetime.datetime.utcnow():
-        return Response("return error('Key expired')", mimetype='text/plain', status=403)
-
-    if hwid:
-        hwid_hash = hashlib.sha256(hwid.encode()).hexdigest()
-        if BannedHWID.query.filter_by(hwid_hash=hwid_hash).first():
-            return Response("return error('HWID is banned')", mimetype='text/plain', status=403)
-        if key.hwid and key.hwid != hwid_hash:
-            return Response("return error('HWID mismatch')", mimetype='text/plain', status=403)
-        if not key.hwid:
-            key.hwid = hwid_hash
-            db.session.commit()
-
-    panel = Panel.query.get(key.panel_id)
-    if not panel or not panel.script_id:
-        return Response("return error('No script assigned')", mimetype='text/plain', status=404)
-
-    script = Script.query.get(panel.script_id)
-    if not script:
-        return Response("return error('Script not found')", mimetype='text/plain', status=404)
-
-    if script.killswitch:
-        return Response("return error('Script disabled by admin')", mimetype='text/plain', status=403)
-
-    comprimido = zlib.compress(script.content.encode('utf-8'), 9)
-    codificado = base64.b64encode(comprimido).decode('utf-8')
-
-    ejecutable = f'''
-local d="{codificado}"
-local gs = game:GetService("HttpService")
-local f = loadstring or load
-if f then
-    f(gs:Decompress(gs:Base64Decode(d)))()
-end
-d=nil collectgarbage()
-'''
-
-    return Response(ejecutable, mimetype='text/plain; charset=utf-8')
-
 # ---------------------- RUTAS DEL PANEL ----------------------
 @app.route('/')
 @login_required
 def index():
-    return redirect(url_for('scripts_page'))
+    return redirect(url_for('scripts'))
 
 @app.route('/scripts')
 @login_required
-def scripts_page():
-    return render_template('scripts.html', scripts=Script.query.all(), user=current_user)
+def scripts():
+    scripts = Script.query.all() if current_user.is_admin else Script.query.filter_by(owner_id=current_user.id).all()
+    return render_template('scripts.html', scripts=scripts, user=current_user)
 
 @app.route('/panels')
 @login_required
-def panels_page():
-    return render_template('panels.html', panels=Panel.query.all(), scripts=Script.query.all(), user=current_user)
+def panels():
+    panels = Panel.query.all() if current_user.is_admin else Panel.query.filter_by(owner_id=current_user.id).all()
+    scripts = Script.query.all() if current_user.is_admin else Script.query.filter_by(owner_id=current_user.id).all()
+    return render_template('panels.html', panels=panels, scripts=scripts, user=current_user)
 
 @app.route('/keys')
 @login_required
-def keys_page():
-    return render_template('keys.html', keys=Key.query.all(), panels=Panel.query.all(), user=current_user)
+def keys():
+    keys = Key.query.all() if current_user.is_admin else Key.query.filter_by(owner_id=current_user.id).all()
+    panels = Panel.query.all() if current_user.is_admin else Panel.query.filter_by(owner_id=current_user.id).all()
+    return render_template('keys.html', keys=keys, panels=panels, user=current_user)
 
-@app.route('/hwid-bans')
+@app.route('/users')
 @login_required
-def hwid_bans_page():
-    return render_template('hwid_bans.html', bans=BannedHWID.query.all(), user=current_user)
+def users():
+    if not current_user.is_admin:
+        return redirect(url_for('scripts'))
+    return render_template('users.html', users=User.query.all(), user=current_user)
 
-@app.route('/vault')
-@login_required
-def vault_page():
-    return render_template('vault.html', user=current_user)
+# ---------------------- API Y PROTECCIÓN ----------------------
+@app.route('/api/verify')
+def verify():
+    key = request.args.get('key', '').strip()
+    hwid = request.args.get('hwid', '').strip()
 
-@app.route('/ads')
-@login_required
-def ads_page():
-    return render_template('ads.html', user=current_user)
+    if not key:
+        return Response("return error('Clave faltante')", mimetype='text/plain', status=403)
 
-# ---------------------- API ----------------------
-@app.route('/api/upload-script', methods=['POST'])
+    key_obj = Key.query.filter_by(key=key, active=True).first()
+    if not key_obj:
+        return Response("return error('Clave inválida')", mimetype='text/plain', status=403)
+
+    if key_obj.expires_at and key_obj.expires_at < datetime.datetime.utcnow():
+        return Response("return error('Clave vencida')", mimetype='text/plain', status=403)
+
+    if hwid:
+        hwid_hash = hashlib.sha256(hwid.encode()).hexdigest()
+        if BannedHWID.query.filter_by(owner_id=key_obj.owner_id, hwid_hash=hwid_hash).first():
+            return Response("return error('HWID baneado')", mimetype='text/plain', status=403)
+        if key_obj.hwid and key_obj.hwid != hwid_hash:
+            return Response("return error('HWID no coincide')", mimetype='text/plain', status=403)
+        if not key_obj.hwid:
+            key_obj.hwid = hwid_hash
+            db.session.commit()
+
+    panel = Panel.query.filter_by(id=key_obj.panel_id, owner_id=key_obj.owner_id).first()
+    if not panel:
+        return Response("return error('Panel no encontrado')", mimetype='text/plain', status=404)
+
+    script = Script.query.filter_by(id=panel.script_id, owner_id=key_obj.owner_id).first()
+    if not script or script.killswitch:
+        return Response("return error('Script desactivado')", mimetype='text/plain', status=403)
+
+    comprimido = zlib.compress(script.content.encode('utf-8'), 9)
+    codificado = base64.b64encode(comprimido).decode('utf-8')
+
+    return Response(f'''
+local d="{codificado}"
+local gs = game:GetService("HttpService")
+local f = loadstring or load
+if f then f(gs:Decompress(gs:Base64Decode(d)))() end
+d=nil collectgarbage()
+''', mimetype='text/plain')
+
+@app.route('/api/upload', methods=['POST'])
 @login_required
-def upload_script():
+def upload():
     data = request.get_json()
     if not data or 'name' not in data or 'content' not in data:
-        return jsonify({"success": False, "error": "Datos incompletos"})
-
-    file_hash = hashlib.sha256(f"{data['name']}{datetime.datetime.utcnow()}".encode()).hexdigest()
-
-    nuevo = Script(
-        name=data['name'],
-        content=data['content'],
-        file_hash=file_hash
-    )
-    db.session.add(nuevo)
-    db.session.commit()
-
-    url_final = f"https://{request.host}/scripts/hosted/{file_hash}.lua"
-    return jsonify({"success": True, "id": nuevo.id, "url": url_final})
-
-@app.route('/api/update-script/<int:script_id>', methods=['POST'])
-@login_required
-def update_script(script_id):
-    script = Script.query.get_or_404(script_id)
-    data = request.get_json()
-
-    script.killswitch = data.get('killswitch', False)
-    script.trial_mode = data.get('trial_mode', False)
-    script.anti_bypass = data.get('anti_bypass', False)
-    script.key_duration = int(data.get('key_duration', 86400))
-
-    if data.get('content'):
-        script.content = data['content']
-
-    db.session.commit()
-    return jsonify({"success": True})
-
-@app.route('/api/create-panel', methods=['POST'])
-@login_required
-def create_panel():
-    data = request.get_json()
-    nuevo = Panel(
-        title=data['title'],
-        description=data.get('description', ''),
-        script_id=data['script_id']
-    )
+        return jsonify({"success": False})
+    
+    file_hash = hashlib.sha256(f"{current_user.id}{data['name']}{datetime.datetime.utcnow()}".encode()).hexdigest()
+    nuevo = Script(owner_id=current_user.id, name=data['name'], content=data['content'], file_hash=file_hash)
     db.session.add(nuevo)
     db.session.commit()
     return jsonify({"success": True, "id": nuevo.id})
 
 @app.route('/api/generate-key', methods=['POST'])
 @login_required
-def generate_key():
+def gen_key():
     data = request.get_json()
-    duracion = int(data.get('duration', 0))
+    duracion = int(data.get('hours', 24))
     clave = ''.join(random.choices("ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789", k=16))
     expira = datetime.datetime.utcnow() + datetime.timedelta(hours=duracion) if duracion > 0 else None
-
-    nueva = Key(
-        key=clave,
-        panel_id=data['panel_id'],
-        note=data.get('note', ''),
-        expires_at=expira
-    )
+    nueva = Key(owner_id=current_user.id, key=clave, panel_id=data['panel_id'], expires_at=expira)
     db.session.add(nueva)
     db.session.commit()
     return jsonify({"success": True, "key": clave})
 
-@app.route('/api/reset-hwid', methods=['POST'])
-@login_required
-def reset_hwid():
-    clave = request.get_json().get('key')
-    key = Key.query.filter_by(key=clave).first()
-    if key:
-        key.hwid = None
-        db.session.commit()
-        return jsonify({"success": True})
-    return jsonify({"success": False})
-
-@app.route('/api/ban-key', methods=['POST'])
-@login_required
-def ban_key():
-    clave = request.get_json().get('key')
-    key = Key.query.filter_by(key=clave).first()
-    if key:
-        key.active = False
-        db.session.commit()
-        return jsonify({"success": True})
-    return jsonify({"success": False})
-
-@app.route('/api/ban-hwid', methods=['POST'])
-@login_required
-def ban_hwid():
-    hwid = request.get_json().get('hwid', '').strip()
-    motivo = request.get_json().get('reason', 'Sin motivo')
-    if not hwid:
-        return jsonify({"success": False})
-    hwid_hash = hashlib.sha256(hwid.encode()).hexdigest()
-    if not BannedHWID.query.filter_by(hwid_hash=hwid_hash).first():
-        db.session.add(BannedHWID(hwid_hash=hwid_hash, reason=motivo))
-        db.session.commit()
-    return jsonify({"success": True})
-
-# ---------------------- INICIO ----------------------
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=int(os.getenv('PORT', 8080)))
+    app.run(host='0.0.0.0', port=8080, debug=False)

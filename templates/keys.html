@@ -1,105 +1,216 @@
-{% extends "base.html" %}
+        {% extends "base.html" %}
+{% block title %}Licencias - LuauProtect Pro{% endblock %}
+
 {% block content %}
-<h1 class="text-2xl font-bold mb-6">🔑 Claves de Acceso</h1>
+<div class="mb-8">
+    <h1 class="text-3xl font-bold">🔑 Licencias</h1>
+    <p class="text-textMuted mt-1">Gestiona todas las claves de acceso a tus scripts protegidos.</p>
+</div>
 
-<div class="bg-card p-5 rounded-xl border border-border mb-6">
-    <h3 class="font-semibold mb-3">Generar nueva clave</h3>
-    <p class="text-xs text-textMuted mb-3">Formatos: 1h, 12h, 1d, 7d, 30d, 90d, 365d, 0</p>
-    <div class="grid md:grid-cols-2 gap-4">
-        <select id="panelId" class="w-full bg-dark border border-border rounded p-2.5">
-            <option value="">Seleccionar panel</option>
-            {% for p in panels %}
-            <option value="{{ p.id }}">{{ p.name }}</option>
-            {% endfor %}
-        </select>
-        <input type="text" id="duration" placeholder="Ej: 30d, 1y, 0" class="w-full bg-dark border border-border rounded p-2.5" value="24h">
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+    <div class="lg:col-span-1">
+        <div class="card">
+            <h3 class="text-lg font-semibold mb-4 flex items-center gap-2">
+                <i class="fas fa-plus-circle text-success"></i> Generar Licencia
+            </h3>
+            <form id="generateForm" class="space-y-4">
+                <div>
+                    <label class="text-sm font-medium text-textMuted block mb-1">Script</label>
+                    <select id="scriptHash" class="w-full" required>
+                        <option value="">Seleccionar script...</option>
+                        {% for s in scripts %}
+                        <option value="{{ s.hash_id }}">{{ s.name }} ({{ s.hash_id[:8] }})</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div>
+                    <label class="text-sm font-medium text-textMuted block mb-1">Duración</label>
+                    <select id="duration" class="w-full">
+                        <option value="1h">1 hora</option>
+                        <option value="12h">12 horas</option>
+                        <option value="1d" selected>1 día</option>
+                        <option value="7d">7 días</option>
+                        <option value="30d">30 días</option>
+                        <option value="90d">90 días</option>
+                        <option value="365d">365 días</option>
+                        <option value="0">Sin expiración</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="text-sm font-medium text-textMuted block mb-1">Usos máximos</label>
+                    <input type="number" id="maxUses" value="1" min="1" max="99">
+                </div>
+                <button type="submit" class="btn-success w-full justify-center">
+                    <i class="fas fa-key"></i> Generar Clave
+                </button>
+            </form>
+        </div>
+        <div class="card mt-4">
+            <div class="flex items-center gap-3 text-sm">
+                <i class="fas fa-info-circle text-primary"></i>
+                <span class="text-textMuted">Las licencias generadas se envían automáticamente al bot de Discord.</span>
+            </div>
+        </div>
     </div>
-    <button onclick="generarClave()" class="w-full bg-primary hover:bg-primary/90 p-2.5 rounded mt-4">Generar Clave</button>
-</div>
 
-{% if keys %}
-<div class="bg-card p-4 rounded-xl border border-border overflow-x-auto">
-    <table class="w-full text-left">
-        <thead>
-            <tr class="border-b border-border">
-                <th class="p-2">Clave</th>
-                <th class="p-2">Panel</th>
-                <th class="p-2">HWID</th>
-                <th class="p-2">Expira</th>
-                <th class="p-2">Estado</th>
-                <th class="p-2">Acciones</th>
-            </tr>
-        </thead>
-        <tbody>
-            {% for k in keys %}
-            <tr class="border-b border-border">
-                <td class="p-2 font-mono text-sm">{{ k.key }}</td>
-                <td class="p-2">{{ k.panel.name if k.panel else '—' }}</td>
-                <td class="p-2 text-xs text-textMuted">{{ k.hwid[:12] + '...' if k.hwid else 'Sin asignar' }}</td>
-                <td class="p-2 text-sm">{{ k.expires.strftime('%d/%m/%Y') if k.expires else 'Nunca' }}</td>
-                <td class="p-2">
-                    <span class="px-2 py-1 rounded text-xs {{ 'bg-green-500/20 text-green-400' if k.active else 'bg-red-500/20 text-red-400' }}">
-                        {{ 'Activa' if k.active else 'Inactiva' }}
-                    </span>
-                </td>
-                <td class="p-2 flex gap-2 flex-wrap">
-                    <button onclick="copiarTexto('{{ k.key }}')" class="text-xs bg-blue-500/20 text-blue-400 px-2 py-1 rounded">Copiar</button>
-                    <button onclick="resetHwid('{{ k.key }}')" class="text-xs bg-yellow-500/20 text-yellow-400 px-2 py-1 rounded">Reset HWID</button>
-                    <button onclick="eliminarClave('{{ k.key }}')" class="text-xs bg-red-500/20 text-red-400 px-2 py-1 rounded">Eliminar</button>
-                </td>
-            {% endfor %}
-        </tbody>
-    </table>
-</div>
-{% else %}
-<p class="text-center text-textMuted py-10">No hay claves generadas</p>
-{% endif %}
+    <div class="lg:col-span-2">
+        <div class="card">
+            <div class="flex justify-between items-center mb-4 flex-wrap gap-2">
+                <h3 class="text-lg font-semibold flex items-center gap-2">
+                    <i class="fas fa-list text-primary"></i> Licencias Activas
+                    <span class="badge bg-dark text-textMuted ml-2">{{ keys|length }}</span>
+                </h3>
+                <div class="flex gap-2">
+                    <input type="text" id="searchKey" placeholder="Buscar clave..." class="w-40 md:w-56 text-sm">
+                    <button onclick="filterKeys()" class="btn-primary text-sm py-2 px-4"><i class="fas fa-search"></i></button>
+                </div>
+            </div>
 
+            {% if keys %}
+                <div class="table-container">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Clave</th>
+                                <th>Script</th>
+                                <th>HWID</th>
+                                <th>Expira</th>
+                                <th>Usos</th>
+                                <th>Estado</th>
+                                <th>Acciones</th>
+                            </tr>
+                        </thead>
+                        <tbody id="keysTableBody">
+                            {% for k in keys %}
+                            <tr class="key-row" data-key="{{ k.key }}">
+                                <td><code class="text-xs bg-dark px-2 py-1 rounded">{{ k.key }}</code></td>
+                                <td class="text-sm">{{ k.script_name|default('—') }}</td>
+                                <td class="text-xs text-textMuted">{{ k.hwid[:12] + '...' if k.hwid else 'Sin asignar' }}</td>
+                                <td class="text-sm">{% if k.expires_at %}{{ k.expires_at.strftime('%d/%m/%Y') }}{% else %}∞{% endif %}</td>
+                                <td class="text-sm">{{ k.used_count }}/{{ k.max_uses }}</td>
+                                <td>
+                                    <span class="px-2 py-1 rounded-full text-xs font-medium 
+                                        {% if k.active and (not k.expires_at or k.expires_at > now) %}
+                                            bg-success/20 text-success
+                                        {% else %}
+                                            bg-danger/20 text-danger
+                                        {% endif %}">
+                                        {% if k.active and (not k.expires_at or k.expires_at > now) %}
+                                            <i class="fas fa-circle text-[6px] mr-1 align-middle"></i> Activa
+                                        {% else %}
+                                            <i class="fas fa-circle text-[6px] mr-1 align-middle"></i> Inactiva
+                                        {% endif %}
+                                    </span>
+                                </td>
+                                <td>
+                                    <div class="flex gap-1 flex-wrap">
+                                        <button onclick="copiarTexto('{{ k.key }}')" class="text-xs bg-primary/20 text-primary px-2 py-1 rounded" title="Copiar"><i class="fas fa-copy"></i></button>
+                                        <button onclick="resetHwid('{{ k.key }}')" class="text-xs bg-warning/20 text-warning px-2 py-1 rounded" title="Reset HWID"><i class="fas fa-undo"></i></button>
+                                        <button onclick="toggleKey('{{ k.key }}')" class="text-xs {% if k.active %}bg-danger/20 text-danger{% else %}bg-success/20 text-success{% endif %} px-2 py-1 rounded" title="Toggle">
+                                            <i class="fas {% if k.active %}fa-pause{% else %}fa-play{% endif %}"></i>
+                                        </button>
+                                    </div>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            {% else %}
+                <div class="text-center py-12 text-textMuted">
+                    <i class="fas fa-key text-4xl block mb-2 opacity-30"></i>
+                    <p>No hay licencias generadas</p>
+                    <p class="text-sm">Usa el formulario para crear tu primera licencia</p>
+                </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
 <script>
-async function generarClave() {
-    const panelId = document.getElementById('panelId').value;
-    const duracion = document.getElementById('duration').value.trim();
-    if (!panelId || !duracion) return alert('Completa todos los campos');
-    const res = await fetch('/api/generate-key', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({panel_id: panelId, duration: duracion})
-    });
-    const data = await res.json();
-    if (data.success) {
-        alert(`✅ Clave generada: ${data.key}\nExpira: ${data.expires}`);
-        location.reload();
-    } else alert('❌ Error: ' + data.error);
-}
+document.getElementById('generateForm').addEventListener('submit', async function(e) {
+    e.preventDefault();
+    const scriptHash = document.getElementById('scriptHash').value;
+    const duration = document.getElementById('duration').value;
+    const maxUses = parseInt(document.getElementById('maxUses').value) || 1;
+
+    if (!scriptHash) {
+        showToast('Selecciona un script', 'error');
+        return;
+    }
+
+    try {
+        const res = await fetch('/api/generate-key', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ script_hash: scriptHash, duration, max_uses: maxUses })
+        });
+        const data = await res.json();
+
+        if (data.success) {
+            showToast(`✅ Clave generada: ${data.key}`, 'success');
+            setTimeout(() => location.reload(), 1500);
+        } else {
+            showToast('❌ Error: ' + data.error, 'error');
+        }
+    } catch (error) {
+        showToast('Error al conectar con el servidor', 'error');
+    }
+});
 
 function copiarTexto(texto) {
     navigator.clipboard.writeText(texto);
-    alert('✅ Copiado');
+    showToast('✅ Clave copiada al portapapeles', 'success');
 }
 
 async function resetHwid(clave) {
-    if (!confirm("¿Restablecer HWID de esta clave?")) return;
-    const res = await fetch('/api/reset-key-hwid', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({key: clave})
-    });
-    const data = await res.json();
-    if (data.success) {
-        alert('✅ HWID restablecido');
-        location.reload();
+    if (!confirm('¿Restablecer HWID de esta clave?')) return;
+    try {
+        const res = await fetch('/api/reset-key-hwid', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ key: clave })
+        });
+        const data = await res.json();
+        if (data.success) {
+            showToast('✅ HWID restablecido', 'success');
+            setTimeout(() => location.reload(), 1000);
+        } else {
+            showToast('❌ Error: ' + data.error, 'error');
+        }
+    } catch {
+        showToast('Error al conectar con el servidor', 'error');
     }
 }
 
-async function eliminarClave(clave) {
-    if (!confirm("¿Seguro que quieres eliminar esta clave?")) return;
-    const res = await fetch('/api/delete-key', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({key: clave})
+async function toggleKey(clave) {
+    const action = confirm('¿Desactivar esta clave?') ? 'desactivar' : 'activar';
+    // Lógica toggle simple
+    try {
+        const res = await fetch('/api/toggle-key', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ key: clave })
+        });
+        const data = await res.json();
+        if (data.success) {
+            showToast('✅ Estado actualizado', 'success');
+            setTimeout(() => location.reload(), 1000);
+        }
+    } catch {
+        showToast('Error al conectar con el servidor', 'error');
+    }
+}
+
+function filterKeys() {
+    const search = document.getElementById('searchKey').value.toLowerCase();
+    const rows = document.querySelectorAll('.key-row');
+    rows.forEach(row => {
+        const key = row.dataset.key.toLowerCase();
+        row.style.display = key.includes(search) ? '' : 'none';
     });
-    const data = await res.json();
-    if (data.success) location.reload();
 }
 </script>
 {% endblock %}

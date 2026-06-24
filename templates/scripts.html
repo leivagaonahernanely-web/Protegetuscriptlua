@@ -1,28 +1,90 @@
-                        {% extends "base.html" %}
+   {% extends "base.html" %}
 {% block content %}
-<div class="mb-6">
-    <h1 class="text-2xl font-bold">📜 Mis Scripts</h1>
-    <p class="text-textMuted">Gestiona tus códigos protegidos</p>
+<div class="flex justify-between items-center mb-6">
+    <h1 class="text-2xl font-bold">📊 Mis Scripts</h1>
+    <label for="fileInput" class="cursor-pointer bg-green-600 hover:bg-green-700 px-4 py-2 rounded flex items-center gap-2">
+        📁 Upload .txt / .lua
+        <input type="file" id="fileInput" accept=".lua,.txt" class="hidden">
+    </label>
 </div>
+
+<div class="bg-card p-5 rounded-xl border border-border mb-6">
+    <h3 class="font-semibold mb-3">✏️ Pegar código o subir archivo</h3>
+    <div class="space-y-4">
+        <input type="text" id="scriptName" placeholder="Nombre del script" class="w-full bg-dark border border-border rounded p-2.5">
+        <textarea id="scriptCode" rows="10" placeholder="Código Lua aquí..." class="w-full bg-dark border border-border rounded p-2.5 font-mono text-sm"></textarea>
+        <button onclick="protegerScript()" class="w-full bg-primary hover:bg-primary/90 p-2.5 rounded">Proteger Script</button>
+    </div>
+    <div id="uploadStatus" class="mt-3 text-sm"></div>
+</div>
+
 {% if scripts %}
 <div class="grid md:grid-cols-2 gap-4">
     {% for s in scripts %}
     <div class="bg-card p-4 rounded-xl border border-border">
-        <h3 class="font-semibold text-lg">{{ s.name }}</h3>
-        <p class="text-sm text-textMuted">Creado: {{ s.created_at.strftime('%d/%m/%Y %H:%M') }}</p>
-        <div class="mt-3 flex gap-2">
-            <span class="text-xs px-2 py-1 rounded {{ 'bg-red-500/20 text-red-400' if s.killswitch else 'bg-green-500/20 text-green-400' }}">
-                {{ 'Desactivado' if s.killswitch else 'Activo' }}
+        <div class="flex justify-between items-center mb-2">
+            <h3 class="font-semibold text-lg">{{ s.name }}</h3>
+            <span class="text-xs px-2 py-1 rounded {{ 'bg-green-500/20 text-green-400' if s.active else 'bg-red-500/20 text-red-400' }}">
+                {{ 'Activo' if s.active else 'Desactivado' }}
             </span>
-            {% if user.is_admin %}
-            <span class="text-xs text-textMuted">Dueño: {{ s.owner.discord_username }}</span>
-            {% endif %}
+        </div>
+        <p class="text-xs text-textMuted">Creado: {{ s.created.strftime('%d/%m/%Y') }}</p>
+        <div class="mt-3 flex gap-2">
+            <button onclick="copiarLoader('{{ s.hash }}')" class="text-xs bg-blue-500/20 text-blue-400 px-2 py-1 rounded">Copiar Loader</button>
+            <button onclick="toggleScript({{ s.id }})" class="text-xs bg-yellow-500/20 text-yellow-400 px-2 py-1 rounded">Cambiar Estado</button>
         </div>
     </div>
     {% endfor %}
 </div>
 {% else %}
-<p class="text-center text-textMuted py-10">Aún no tienes scripts guardados</p>
+<p class="text-center text-textMuted py-10">No tienes scripts aún</p>
 {% endif %}
+
+<script>
+const DOMINIO = "{{ dominio }}";
+
+document.getElementById('fileInput').addEventListener('change', async (e) => {
+    const archivo = e.target.files[0];
+    if (!archivo) return;
+    const formData = new FormData();
+    formData.append('file', archivo);
+    document.getElementById('uploadStatus').textContent = "⏳ Subiendo...";
+    const res = await fetch('/api/upload-script', { method: 'POST', body: formData });
+    const data = await res.json();
+    if (data.success) {
+        document.getElementById('uploadStatus').innerHTML = `✅ Subido: <b>${data.name}</b><br>Loader: <code>${data.loader}</code>`;
+        setTimeout(() => location.reload(), 1800);
+    } else {
+        document.getElementById('uploadStatus').textContent = `❌ Error: ${data.error}`;
+    }
+});
+
+async function protegerScript() {
+    const nombre = document.getElementById('scriptName').value.trim();
+    const codigo = document.getElementById('scriptCode').value.trim();
+    if (!nombre || !codigo) return alert('Completa nombre y código');
+    const res = await fetch('/api/protect', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({name: nombre, code: codigo})
+    });
+    const data = await res.json();
+    if (data.success) {
+        alert('✅ Script protegido:\n' + data.loader);
+        location.reload();
+    } else alert('❌ Error: ' + data.error);
+}
+
+function copiarLoader(hash) {
+    const txt = `loadstring(game:HttpGet("${DOMINIO}/loader/${hash}?key=TU_CLAVE&hwid="..tostring({}):gsub("table: ","")))()`;
+    navigator.clipboard.writeText(txt);
+    alert('Loader copiado al portapapeles');
+}
+
+async function toggleScript(id) {
+    await fetch(`/api/toggle-script/${id}`, {method: 'POST'});
+    location.reload();
+}
+</script>
 {% endblock %}
- 
+           

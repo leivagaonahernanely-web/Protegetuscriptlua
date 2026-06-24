@@ -1,73 +1,201 @@
-<<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="es">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Protector de Scripts</title>
+    <title>Protector | Panel</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
     <script>
         tailwind.config = {
             theme: {
                 extend: {
                     colors: {
-                        dark: '#0A0A0F',
-                        card: '#12121A',
-                        primary: '#4F46E5',
-                        secondary: '#1E1E2B',
-                        accent: '#6366F1',
-                        textGray: '#B0B0C0'
+                        dark: '#0F1217',
+                        sidebar: '#14181E',
+                        card: '#191E25',
+                        primary: '#2563EB',
+                        primaryLight: '#3B82F6',
+                        success: '#10B981',
+                        danger: '#EF4444',
+                        textMain: '#E5E7EB',
+                        textMuted: '#9CA3AF',
+                        border: '#272E3B'
                     },
-                    fontFamily: {
-                        inter: ['Inter', 'system-ui', 'sans-serif']
-                    }
+                    fontFamily: { inter: ['Inter', 'sans-serif'] }
                 }
             }
         }
     </script>
 </head>
-<body class="bg-dark text-white font-inter min-h-screen">
-    <!-- Barra superior -->
-    <header class="bg-card border-b border-secondary/50 px-6 py-4 flex justify-between items-center sticky top-0 z-10">
-        <h1 class="text-xl font-bold flex items-center gap-2">
-            <i class="fa-solid fa-shield text-primary"></i>
-            Protector de Scripts
-        </h1>
-        <div class="flex items-center gap-4">
-            <span class="text-sm text-textGray">👤 {{ user.username }}</span>
-            <a href="/logout" class="text-red-400 hover:text-red-300 transition-colors">
-                <i class="fa-solid fa-right-from-bracket"></i> Salir
-            </a>
-        </div>
-    </header>
+<body class="bg-dark text-textMain font-inter min-h-screen">
+    <div class="flex flex-col md:flex-row h-screen">
+        <!-- Menú Lateral -->
+        <aside class="w-full md:w-64 bg-sidebar border-r border-border flex-shrink-0">
+            <div class="p-4 border-b border-border">
+                <div class="bg-gradient-to-r from-primary to-primaryLight rounded-lg p-4 flex items-center justify-center gap-3">
+                    <i class="fa-solid fa-shield text-white text-2xl"></i>
+                    <span class="text-xl font-bold">Protector</span>
+                </div>
+            </div>
+            <nav class="p-3 space-y-1">
+                <div class="text-xs text-textMuted uppercase font-semibold mt-4 mb-2 px-3">Analytics</div>
+                <a href="/" class="flex items-center gap-3 px-3 py-2.5 rounded-md {% if request.path == '/' %}bg-primary/20 text-primary{% else %}hover:bg-card{% endif %}">
+                    <i class="fa-solid fa-chart-line w-5"></i>
+                    <span>Overview</span>
+                </a>
+                <a href="/reports" class="flex items-center gap-3 px-3 py-2.5 rounded-md hover:bg-card">
+                    <i class="fa-solid fa-file-chart-column w-5"></i>
+                    <span>Reports</span>
+                </a>
 
-    <div class="flex flex-col md:flex-row">
-        <!-- Menú lateral -->
-        <aside class="bg-card border-r border-secondary/50 w-full md:w-64 p-4">
-            <nav class="space-y-1">
-                <a href="/" class="flex items-center gap-3 px-4 py-3 rounded-lg {% if request.path == '/' %}bg-primary/20 text-primary{% else %}hover:bg-secondary/50{% endif %} transition-all">
-                    <i class="fa-solid fa-folder-open w-5"></i>
-                    <span>Gestión de Scripts</span>
-                </a>
-                <a href="/panels" class="flex items-center gap-3 px-4 py-3 rounded-lg {% if request.path == '/panels' %}bg-primary/20 text-primary{% else %}hover:bg-secondary/50{% endif %} transition-all">
-                    <i class="fa-solid fa-layer-group w-5"></i>
-                    <span>Paneles</span>
-                </a>
-                <a href="/keys" class="flex items-center gap-3 px-4 py-3 rounded-lg {% if request.path == '/keys' %}bg-primary/20 text-primary{% else %}hover:bg-secondary/50{% endif %} transition-all">
+                <div class="text-xs text-textMuted uppercase font-semibold mt-4 mb-2 px-3">Keys</div>
+                <a href="/keys" class="flex items-center gap-3 px-3 py-2.5 rounded-md {% if request.path == '/keys' %}bg-primary/20 text-primary{% else %}hover:bg-card{% endif %}">
                     <i class="fa-solid fa-key w-5"></i>
-                    <span>Claves</span>
+                    <span>Key List</span>
                 </a>
-                <a href="/hwid-bans" class="flex items-center gap-3 px-4 py-3 rounded-lg {% if request.path == '/hwid-bans' %}bg-primary/20 text-primary{% else %}hover:bg-secondary/50{% endif %} transition-all">
-                    <i class="fa-solid fa-ban w-5"></i>
-                    <span>HWID Baneados</span>
+
+                <div class="text-xs text-textMuted uppercase font-semibold mt-4 mb-2 px-3">Lua</div>
+                <a href="/scripts" class="flex items-center gap-3 px-3 py-2.5 rounded-md {% if request.path == '/scripts' %}bg-primary/20 text-primary{% else %}hover:bg-card{% endif %}">
+                    <i class="fa-solid fa-code w-5"></i>
+                    <span>Script</span>
+                </a>
+                <a href="/vault" class="flex items-center gap-3 px-3 py-2.5 rounded-md hover:bg-card">
+                    <i class="fa-solid fa-box-archive w-5"></i>
+                    <span>Source Vault</span>
+                </a>
+
+                <div class="text-xs text-textMuted uppercase font-semibold mt-4 mb-2 px-3">Ad System</div>
+                <a href="/ads" class="flex items-center gap-3 px-3 py-2.5 rounded-md hover:bg-card">
+                    <i class="fa-solid fa-gear w-5"></i>
+                    <span>Config</span>
                 </a>
             </nav>
+            <div class="mt-auto p-4 border-t border-border">
+                <div class="flex items-center justify-between">
+                    <span class="text-sm">{{ current_user.username }}</span>
+                    <a href="/logout" class="text-red-400 hover:text-red-300 text-sm">Salir</a>
+                </div>
+            </div>
         </aside>
 
-        <!-- Contenido principal -->
-        <main class="flex-1 p-6">
+        <!-- Contenido Principal -->
+        <main class="flex-1 overflow-y-auto p-4 md:p-6">
             {% block content %}{% endblock %}
         </main>
     </div>
+
+    <!-- Modal de Edición -->
+    <div id="editModal" class="fixed inset-0 bg-black/70 z-50 flex items-center justify-center hidden">
+        <div class="bg-card rounded-lg w-full max-w-xl p-6 relative max-h-[90vh] overflow-y-auto">
+            <button onclick="closeModal()" class="absolute right-4 top-4 text-textMuted hover:text-white text-xl">&times;</button>
+            <h3 class="text-xl font-bold text-center mb-2">Edit Script - <span id="modalScriptName"></span></h3>
+            <p class="text-textMuted text-center mb-6">Configure settings and upload script for obfuscation.</p>
+
+            <!-- Zona de arrastre -->
+            <div id="dropZone" class="border-2 border-dashed border-border rounded-lg p-8 text-center mb-6 hover:border-primary transition-colors">
+                <i class="fa-solid fa-upload text-4xl text-textMuted mb-3"></i>
+                <p class="text-lg font-medium">Add files here</p>
+                <p class="text-sm text-textMuted">You can upload 1 files (up to 3 MB each)</p>
+                <input type="file" id="fileInput" accept=".lua" class="hidden">
+            </div>
+
+            <!-- Interruptores -->
+            <div class="grid grid-cols-2 gap-4 mb-6">
+                <div class="bg-sidebar p-3 rounded-md border border-border flex justify-between items-center">
+                    <span>Killswitch</span>
+                    <label class="relative inline-flex items-center cursor-pointer">
+                        <input type="checkbox" id="killswitch" class="sr-only peer">
+                        <div class="w-10 h-5 bg-border rounded-full peer peer-checked:after:translate-x-full peer-checked:after:bg-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-textMuted after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-primary"></div>
+                    </label>
+                </div>
+                <div class="bg-sidebar p-3 rounded-md border border-border flex justify-between items-center">
+                    <span>Trial Mode</span>
+                    <label class="relative inline-flex items-center cursor-pointer">
+                        <input type="checkbox" id="trial" class="sr-only peer">
+                        <div class="w-10 h-5 bg-border rounded-full peer peer-checked:after:translate-x-full peer-checked:after:bg-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-textMuted after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-primary"></div>
+                    </label>
+                </div>
+                <div class="bg-sidebar p-3 rounded-md border border-border flex justify-between items-center">
+                    <div>
+                        <span>Anti-Bypass</span>
+                        <p class="text-xs text-textMuted">B.Y.P.A.S.S protection</p>
+                    </div>
+                    <label class="relative inline-flex items-center cursor-pointer">
+                        <input type="checkbox" id="antibypass" class="sr-only peer">
+                        <div class="w-10 h-5 bg-border rounded-full peer peer-checked:after:translate-x-full peer-checked:after:bg-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-textMuted after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-primary"></div>
+                    </label>
+                </div>
+            </div>
+
+            <h4 class="font-semibold mb-3">Ad Systems</h4>
+            <div class="grid grid-cols-2 gap-3 mb-6">
+                <div class="bg-sidebar p-2 rounded-md border border-border flex justify-between items-center">
+                    <span>LootLabs</span>
+                    <label class="relative inline-flex items-center cursor-pointer">
+                        <input type="checkbox" class="sr-only peer">
+                        <div class="w-9 h-4 bg-border rounded-full peer peer-checked:after:translate-x-full peer-checked:after:bg-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-textMuted after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-primary"></div>
+                    </label>
+                </div>
+                <div class="bg-sidebar p-2 rounded-md border border-border flex justify-between items-center">
+                    <span>Linkvertise</span>
+                    <label class="relative inline-flex items-center cursor-pointer">
+                        <input type="checkbox" class="sr-only peer">
+                        <div class="w-9 h-4 bg-border rounded-full peer peer-checked:after:translate-x-full peer-checked:after:bg-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-textMuted after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-primary"></div>
+                    </label>
+                </div>
+                <div class="bg-sidebar p-2 rounded-md border border-border flex justify-between items-center">
+                    <span>WorkInk</span>
+                    <label class="relative inline-flex items-center cursor-pointer">
+                        <input type="checkbox" class="sr-only peer">
+                        <div class="w-9 h-4 bg-border rounded-full peer peer-checked:after:translate-x-full peer-checked:after:bg-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-textMuted after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-primary"></div>
+                    </label>
+                </div>
+                <div class="bg-sidebar p-2 rounded-md border border-border flex justify-between items-center">
+                    <span>Lockr</span>
+                    <label class="relative inline-flex items-center cursor-pointer">
+                        <input type="checkbox" class="sr-only peer">
+                        <div class="w-9 h-4 bg-border rounded-full peer peer-checked:after:translate-x-full peer-checked:after:bg-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-textMuted after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-primary"></div>
+                    </label>
+                </div>
+            </div>
+
+            <h4 class="font-semibold mb-2">Key Duration (seconds)</h4>
+            <input type="number" value="86400" class="w-full bg-sidebar border border-border rounded-md p-2 mb-4">
+
+            <button onclick="saveChanges()" class="w-full bg-primary hover:bg-primary/90 py-2.5 rounded-md font-medium">Save Changes</button>
+        </div>
+    </div>
+
+    <script>
+        // Arrastrar y soltar archivos
+        const dropZone = document.getElementById('dropZone');
+        const fileInput = document.getElementById('fileInput');
+
+        dropZone.addEventListener('click', () => fileInput.click());
+        dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('border-primary'); });
+        dropZone.addEventListener('dragleave', () => dropZone.classList.remove('border-primary'));
+        dropZone.addEventListener('drop', e => {
+            e.preventDefault();
+            dropZone.classList.remove('border-primary');
+            if (e.dataTransfer.files.length) fileInput.files = e.dataTransfer.files;
+        });
+
+        function openModal(name) {
+            document.getElementById('modalScriptName').textContent = name;
+            document.getElementById('editModal').classList.remove('hidden');
+            document.body.style.overflow = 'hidden';
+        }
+        function closeModal() {
+            document.getElementById('editModal').classList.add('hidden');
+            document.body.style.overflow = 'auto';
+        }
+        function saveChanges() {
+            alert('✅ Cambios guardados');
+            closeModal();
+        }
+    </script>
+    {% block scripts %}{% endblock %}
 </body>
 </html>
+ 

@@ -3,7 +3,6 @@ from flask_sqlalchemy import SQLAlchemy
 from flask_login import LoginManager, UserMixin, login_user, login_required, current_user, logout_user
 from flask_cors import CORS
 from authlib.integrations.flask_client import OAuth
-import os
 import hashlib
 import random
 import datetime
@@ -18,16 +17,19 @@ app.config['SECRET_KEY'] = 'PROTECT_2026_SECURE_KEY_987XYZ'
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///protector.db'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['PERMANENT_SESSION_LIFETIME'] = datetime.timedelta(days=30)
-app.config['SESSION_COOKIE_SECURE'] = False
+app.config['SESSION_COOKIE_SECURE'] = True
 app.config['SESSION_COOKIE_HTTPONLY'] = True
 
-# ✅ DATOS DE TU APP
+# ✅ DATOS DE TU APP + DOMINIO RAILWAY
 app.config['DISCORD_CLIENT_ID'] = "1519073151856803930"
 app.config['DISCORD_CLIENT_SECRET'] = "G-oqtu7gXsc0VmbjYpzBUHbvj55z7e0z"
-app.config['DISCORD_REDIRECT_URI'] = "http://localhost:8080/callback"
+app.config['DISCORD_REDIRECT_URI'] = "https://protegetuscriptlua-production.up.railway.app/callback"
 
 # ✅ TU ID DE DISCORD PARA ADMIN
 ADMIN_DISCORD_ID = "1501316920975036611"
+
+# ✅ DOMINIO PRINCIPAL
+DOMINIO = "https://protegetuscriptlua-production.up.railway.app"
 
 db = SQLAlchemy(app)
 login_manager = LoginManager(app)
@@ -134,7 +136,7 @@ def logout():
     session.clear()
     return redirect(url_for('login'))
 
-# ---------------------- RUTAS ----------------------
+# ---------------------- RUTAS PRINCIPALES ----------------------
 @app.route('/')
 @login_required
 def index():
@@ -240,7 +242,7 @@ def protect_script():
 
     loader = f'''-- 🔐 Protegido por ProtectorScripts
 local KEY = "PONER_AQUI_TU_CLAVE"
-local DOMINIO = "http://localhost:8080"
+local DOMINIO = "{DOMINIO}"
 
 local hwid = game:GetService("HttpService"):UrlEncode(tostring({{}}):gsub("table: ", ""))
 local res = game:GetService("HttpService"):GetAsync(DOMINIO.."/api/verify?key="..KEY.."&hwid="..hwid, true)
@@ -252,7 +254,7 @@ loadstring(res)()
         "success": True,
         "hash": hash_code,
         "loader": loader,
-        "url": f"http://localhost:8080/scripts/hosted/{hash_code}.lua"
+        "url": f"{DOMINIO}/scripts/hosted/{hash_code}.lua"
     })
 
 @app.route('/scripts/hosted/<file_hash>.lua')
@@ -260,7 +262,7 @@ def hosted_script(file_hash):
     script = Script.query.filter_by(file_hash=file_hash).first()
     if not script:
         return Response("-- Script no encontrado", mimetype='text/plain', status=404)
-    return Response(f"loadstring(game:HttpGet('http://localhost:8080/api/verify?key=YOUR_KEY&hwid='..tostring({{}}):gsub('table: ','')))()", mimetype='text/plain')
+    return Response(f"loadstring(game:HttpGet('{DOMINIO}/api/verify?key=YOUR_KEY&hwid='..tostring({{}}):gsub('table: ','')))()", mimetype='text/plain')
 
 @app.route('/api/toggle-kill/<int:script_id>', methods=['POST'])
 @login_required
@@ -290,4 +292,4 @@ def gen_key():
 
 # ---------------------- INICIAR SERVIDOR ----------------------
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=8080, debug=False)
+    app.run(host='0.0.0.0', port=int(os.environ.get("PORT", 8080)), debug=False)

@@ -1,70 +1,175 @@
-<!DOCTYPE html>
-<html lang="es">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Panel - LuaProtect</title>
-    <style>
-        *{margin:0;padding:0;box-sizing:border-box;font-family:Arial,sans-serif}
-        body{background:#121212;color:#fff}
-        header{background:#1e1e1e;padding:15px 30px;display:flex;justify-content:space-between;align-items:center}
-        .container{max-width:1200px;margin:30px auto;padding:0 20px}
-        .card{background:#1e1e1e;padding:20px;border-radius:8px;margin-bottom:20px}
-        h2{color:#4ea8de;margin-bottom:15px}
-        input,textarea{width:100%;padding:10px;margin:8px 0;background:#2d2d2d;border:1px solid #444;color:#fff;border-radius:4px}
-        button{padding:10px 20px;background:#28a745;border:none;color:#fff;border-radius:4px;cursor:pointer}
-        button:hover{background:#218838}
-        .logout{background:#dc3545}
-        .logout:hover{background:#c82333}
-    </style>
-</head>
-<body>
-    <header>
-        <h2>LuaProtect Panel</h2>
-        <div>
-            <span>{{ user.username }}</span>
-            <a href="/logout" class="btn logout" style="margin-left:15px;color:#fff;text-decoration:none">Cerrar sesión</a>
+{% extends "base.html" %}
+{% block title %}Dashboard - LuauProtect Pro{% endblock %}
+
+{% block content %}
+<div class="mb-8">
+    <h1 class="text-3xl font-bold">Dashboard</h1>
+    <p class="text-textMuted mt-1">Bienvenido de vuelta, {{ user.username }}. Aquí tienes un resumen de tu actividad.</p>
+</div>
+
+<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+    <div class="stat-card">
+        <div class="flex justify-between items-start">
+            <div>
+                <div class="stat-label">Scripts</div>
+                <div class="stat-number">{{ stats.total_scripts|default(0) }}</div>
+            </div>
+            <div class="stat-icon"><i class="fas fa-code"></i></div>
         </div>
-    </header>
-    <div class="container">
-        <div class="card">
-            <h3>Subir nuevo script</h3>
-            <form method="POST" action="/scripts/new">
-                <input type="text" name="name" placeholder="Nombre del script" required>
-                <input type="text" name="description" placeholder="Descripción breve">
-                <textarea name="code" rows="8" placeholder="Pega aquí tu código Lua" required></textarea>
-                <button type="submit">Proteger y guardar</button>
-            </form>
+        <div class="text-xs text-textMuted mt-2">Activos: {{ stats.active_scripts|default(0) }}</div>
+    </div>
+    <div class="stat-card">
+        <div class="flex justify-between items-start">
+            <div>
+                <div class="stat-label">Licencias</div>
+                <div class="stat-number">{{ stats.total_licenses|default(0) }}</div>
+            </div>
+            <div class="stat-icon"><i class="fas fa-key"></i></div>
         </div>
-        <div class="card">
-            <h3>Mis Scripts</h3>
-            {% if scripts %}
-                <ul style="list-style:none">
-                {% for s in scripts %}
-                    <li style="padding:8px 0;border-bottom:1px solid #333">
-                        {{ s.name }} — <code>{{ s.hash_id }}</code>
-                        <a href="/loader/{{ s.hash_id }}" style="color:#4ea8de;margin-left:10px">Ver Loader</a>
-                        <form method="POST" action="/scripts/delete/{{ s.hash_id }}" style="display:inline">
-                            <button type="submit" style="background:#dc3545;padding:4px 8px;font-size:12px">Eliminar</button>
-                        </form>
-                    </li>
-                {% endfor %}
-                </ul>
-            {% else %}
-                <p>No tienes scripts todavía</p>
-            {% endif %}
+        <div class="text-xs text-textMuted mt-2">Activas: {{ stats.active_licenses|default(0) }}</div>
+    </div>
+    <div class="stat-card">
+        <div class="flex justify-between items-start">
+            <div>
+                <div class="stat-label">Usuarios</div>
+                <div class="stat-number">{{ stats.total_users|default(0) }}</div>
+            </div>
+            <div class="stat-icon"><i class="fas fa-users"></i></div>
         </div>
-        {% if user.is_admin %}
-        <div class="card">
-            <h3>Generar Licencia</h3>
-            <form method="POST" action="/licenses/new">
-                <input type="text" name="script_hash" placeholder="Hash del script" required>
-                <input type="number" name="days" placeholder="Días de duración" value="30" min="1">
-                <input type="number" name="uses" placeholder="Usos máximos" value="1" min="1">
-                <button type="submit">Generar Clave</button>
-            </form>
+        <div class="text-xs text-textMuted mt-2">Administradores: {{ stats.admin_users|default(0) }}</div>
+    </div>
+    <div class="stat-card">
+        <div class="flex justify-between items-start">
+            <div>
+                <div class="stat-label">Accesos</div>
+                <div class="stat-number">{{ stats.total_access|default(0) }}</div>
+            </div>
+            <div class="stat-icon"><i class="fas fa-eye"></i></div>
         </div>
+        <div class="text-xs text-textMuted mt-2">Exitosos: {{ stats.success_access|default(0) }}</div>
+    </div>
+</div>
+
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+    <div class="card">
+        <h3 class="text-lg font-semibold mb-4 flex items-center gap-2">
+            <i class="fas fa-upload text-primary"></i> Subir Nuevo Script
+        </h3>
+        <form method="POST" action="/scripts/new">
+            <div class="space-y-4">
+                <div>
+                    <label class="text-sm font-medium text-textMuted block mb-1">Nombre del Script</label>
+                    <input type="text" name="name" placeholder="Ej: Anti-Cheat System" required>
+                </div>
+                <div>
+                    <label class="text-sm font-medium text-textMuted block mb-1">Descripción (opcional)</label>
+                    <input type="text" name="description" placeholder="Breve descripción del script">
+                </div>
+                <div>
+                    <label class="text-sm font-medium text-textMuted block mb-1">Código Lua</label>
+                    <textarea name="code" rows="6" placeholder="-- Pega aquí tu código Lua protegido" required></textarea>
+                </div>
+                <button type="submit" class="btn-primary w-full justify-center">
+                    <i class="fas fa-shield-alt"></i> Proteger y Guardar
+                </button>
+            </div>
+        </form>
+    </div>
+
+    <div class="card">
+        <h3 class="text-lg font-semibold mb-4 flex items-center gap-2">
+            <i class="fas fa-list text-primary"></i> Mis Scripts
+        </h3>
+        {% if scripts %}
+            <div class="table-container">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Nombre</th>
+                            <th>Hash</th>
+                            <th>Estado</th>
+                            <th>Acciones</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for s in scripts %}
+                        <tr>
+                            <td class="font-medium">{{ s.name }}</td>
+                            <td><code class="text-xs bg-dark px-2 py-1 rounded">{{ s.hash_id[:8] }}...</code></td>
+                            <td>
+                                {% if s.active %}
+                                    <span class="text-success text-xs bg-success/10 px-2 py-1 rounded-full">Activo</span>
+                                {% else %}
+                                    <span class="text-danger text-xs bg-danger/10 px-2 py-1 rounded-full">Inactivo</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                <div class="flex gap-2 flex-wrap">
+                                    <a href="/loader/{{ s.hash_id }}" class="text-primary text-sm hover:underline">Loader</a>
+                                    <form method="POST" action="/scripts/delete/{{ s.hash_id }}" class="inline">
+                                        <button type="submit" class="text-danger text-sm hover:underline">Eliminar</button>
+                                    </form>
+                                </div>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        {% else %}
+            <div class="text-center py-8 text-textMuted">
+                <i class="fas fa-inbox text-4xl block mb-2 opacity-30"></i>
+                <p>No tienes scripts aún</p>
+                <p class="text-sm">Sube tu primer script usando el formulario</p>
+            </div>
         {% endif %}
     </div>
-</body>
-</html>
+</div>
+
+{% if user.is_admin %}
+<div class="card mt-6">
+    <h3 class="text-lg font-semibold mb-4 flex items-center gap-2">
+        <i class="fas fa-key text-success"></i> Generar Licencia (Admin)
+    </h3>
+    <form method="POST" action="/licenses/generate" class="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <div>
+            <label class="text-sm font-medium text-textMuted block mb-1">Hash del Script</label>
+            <input type="text" name="script_hash" placeholder="Ej: a3f5g7h9" required>
+        </div>
+        <div>
+            <label class="text-sm font-medium text-textMuted block mb-1">Días de Validez</label>
+            <input type="number" name="days_valid" value="30" min="1">
+        </div>
+        <div>
+            <label class="text-sm font-medium text-textMuted block mb-1">Usos Máximos</label>
+            <input type="number" name="max_uses" value="1" min="1">
+        </div>
+        <div class="flex items-end">
+            <button type="submit" class="btn-success w-full justify-center">
+                <i class="fas fa-key"></i> Generar
+            </button>
+        </div>
+    </form>
+</div>
+{% endif %}
+
+<div class="card mt-6">
+    <h3 class="text-lg font-semibold mb-4 flex items-center gap-2">
+        <i class="fas fa-link text-primary"></i> Enlaces Rápidos
+    </h3>
+    <div class="flex flex-wrap gap-3">
+        <a href="/scripts" class="bg-dark border border-border rounded-lg px-4 py-2 text-sm hover:border-primary transition">
+            <i class="fas fa-code mr-2"></i> Ver todos los scripts
+        </a>
+        <a href="/licenses" class="bg-dark border border-border rounded-lg px-4 py-2 text-sm hover:border-primary transition">
+            <i class="fas fa-key mr-2"></i> Gestionar licencias
+        </a>
+        <a href="/hwid-bans" class="bg-dark border border-border rounded-lg px-4 py-2 text-sm hover:border-primary transition">
+            <i class="fas fa-ban mr-2"></i> HWID Bans
+        </a>
+        <a href="/logs" class="bg-dark border border-border rounded-lg px-4 py-2 text-sm hover:border-primary transition">
+            <i class="fas fa-history mr-2"></i> Ver logs
+        </a>
+    </div>
+</div>
+{% endblock %} 

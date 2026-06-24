@@ -1,68 +1,20 @@
 {% extends "base.html" %}
 {% block content %}
-<div class="max-w-5xl mx-auto">
-    <h2 class="text-2xl font-bold mb-6 flex items-center gap-2">
-        <i class="fa-solid fa-layer-group"></i> Gestionar Paneles
-    </h2>
-
-    <div class="bg-card p-6 rounded-xl border border-secondary/50 mb-8 shadow-lg">
-        <h3 class="text-xl font-semibold mb-4">Crear Nuevo Panel</h3>
-        <div class="space-y-4">
-            <div>
-                <label class="block text-sm text-textGray mb-2">Nombre del panel</label>
-                <input type="text" id="panelTitle" placeholder="Ej: Hydrax Hub Premium" class="w-full bg-secondary border border-gray-700 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-primary/50">
-            </div>
-            <div>
-                <label class="block text-sm text-textGray mb-2">Descripción</label>
-                <textarea id="panelDesc" rows="3" placeholder="Breve descripción del panel..." class="w-full bg-secondary border border-gray-700 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-primary/50"></textarea>
-            </div>
-            <div>
-                <label class="block text-sm text-textGray mb-2">Script asignado</label>
-                <select id="panelScript" class="w-full bg-secondary border border-gray-700 rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-primary/50">
-                    {% for s in scripts %}
-                    <option value="{{ s.id }}">{{ s.name }}</option>
-                    {% endfor %}
-                </select>
-            </div>
-            <button onclick="crearPanel()" class="bg-primary hover:bg-primary/90 px-6 py-3 rounded-lg font-medium flex items-center gap-2 transition-all">
-                <i class="fa-solid fa-plus"></i> Crear Panel
-            </button>
-        </div>
-    </div>
-
-    <h3 class="text-xl font-bold mb-4">Paneles Existentes</h3>
-    <div class="bg-card rounded-xl border border-secondary/50 shadow-lg">
-        {% if panels %}
-        <div class="divide-y divide-secondary/50">
-            {% for p in panels %}
-            <div class="p-4 hover:bg-secondary/30">
-                <h4 class="font-semibold text-lg">{{ p.title }}</h4>
-                <p class="text-textGray text-sm">{{ p.description or 'Sin descripción' }}</p>
-            </div>
-            {% endfor %}
-        </div>
-        {% else %}
-        <div class="p-8 text-center text-textGray">
-            <i class="fa-solid fa-layer-group text-4xl mb-3 opacity-40"></i>
-            <p>No hay paneles creados aún</p>
-        </div>
-        {% endif %}
-    </div>
+<div class="mb-6">
+    <h1 class="text-2xl font-bold">📦 Paneles</h1>
+    <p class="text-textMuted">Asigna scripts a tus paneles</p>
 </div>
-
-<script>
-function crearPanel() {
-    fetch('/api/create-panel', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({
-            title: document.getElementById('panelTitle').value,
-            description: document.getElementById('panelDesc').value,
-            script_id: document.getElementById('panelScript').value
-        })
-    })
-    .then(r => r.json())
-    .then(d => { if (d.success) { alert('✅ Panel creado'); location.reload(); } });
-}
-</script>
+<form id="formPanel" class="bg-card p-5 rounded-xl border border-border mb-6">
+    <h3 class="font-semibold mb-3">Crear nuevo panel</h3>
+    <div class="space-y-3">
+        <input type="text" id="title" placeholder="Nombre del panel" class="w-full bg-dark border border-border rounded p-2">
+        <select id="script_id" class="w-full bg-dark border border-border rounded p-2">
+            <option value="">Seleccionar script</option>
+            {% for s in scripts %}
+            <option value="{{ s.id }}">{{ s.name }}</option>
+            {% endfor %}
+        </select>
+        <button type="submit" class="w-full bg-primary hover:bg-primary/90 p-2 rounded">Crear Panel</button>
+    </div>
+</form>
 {% endblock %}

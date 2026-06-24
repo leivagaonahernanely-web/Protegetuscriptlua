@@ -21,12 +21,12 @@ app.config['PERMANENT_SESSION_LIFETIME'] = datetime.timedelta(days=30)
 app.config['SESSION_COOKIE_SECURE'] = False
 app.config['SESSION_COOKIE_HTTPONLY'] = True
 
-# ✅ DATOS DE TU APP PROTECTORSCRIPTS
+# ✅ DATOS CORRECTOS SIN ERRORES
 app.config['DISCORD_CLIENT_ID'] = "1519073151856803930"
 app.config['DISCORD_CLIENT_SECRET'] = "G-oqtu7gXsc0VmbjYpzBUHbvj55z7e0z"
 app.config['DISCORD_REDIRECT_URI'] = "http://localhost:8080/callback"
 
-# ✅ TU ID DE DISCORD PARA SER ADMIN
+# ✅ TU ID DE DISCORD (ADMIN)
 ADMIN_DISCORD_ID = "1501316920975036611"
 
 db = SQLAlchemy(app)

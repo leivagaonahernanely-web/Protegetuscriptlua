@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="container mx-auto px-4 py-6 max-w-6xl">
+    <div class="flex flex-col md:flex-row justify-between items-center mb-8 gap-4">
+        <div class="flex items-center gap-3">
+            <i class="fa fa-shield text-3xl text-primary"></i>
+            <h1 class="text-3xl font-bold"><span class="text-white">Luau</span> <span class="text-accent">Protect</span></h1>
+        </div>
+        <div class="flex items-center gap-4">
+            <a href="/" class="bg-secondary hover:bg-secondary/80 px-4 py-2 rounded-lg">← Volver</a>
+        </div>
+    </div>
+
+    <div class="bg-card rounded-xl p-6 border border-secondary">
+        <h2 class="text-2xl font-bold mb-5">🔑 Claves Generadas</h2>
+        {% if keys %}
+        <div class="overflow-x-auto">
+            <table class="w-full text-sm">
+                <thead>
+                    <tr class="border-b border-gray-700">
+                        <th class="text-left p-3">Clave</th>
+                        <th class="text-left p-3">Estado</th>
+                        <th class="text-left p-3">HWID</th>
+                        <th class="text-left p-3">Expira</th>
+                        <th class="text-left p-3">Acciones</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for k in keys %}
+                    <tr class="border-b border-gray-700 hover:bg-secondary/40">
+                        <td class="p-3 font-mono">{{ k.key }}</td>
+                        <td class="p-3">
+                            {% if k.active %}
+                            <span class="text-green-400">✅ Activa</span>
+                            {% else %}
+                            <span class="text-red-400">❌ Desactivada</span>
+                            {% endif %}
+                        </td>
+                        <td class="p-3 text-xs font-mono text-gray-300 truncate max-w-[120px]">{{ k.hwid or "Sin activar" }}</td>
+                        <td class="p-3 text-gray-300">
+                            {% if k.expires_at %}
+                            {{ k.expires_at.strftime('%d/%m/%Y %H:%M') }}
+                            {% else %}
+                            Permanente
+                            {% endif %}
+                        </td>
+                        <td class="p-3">
+                            <button onclick="resetHwid('{{ k.key }}')" class="text-yellow-400 hover:text-yellow-300 mr-2">Reset HWID</button>
+                            <button onclick="banKey('{{ k.key }}')" class="text-red-400 hover:text-red-300">Desactivar</button>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <p class="text-gray-400 italic">No hay claves generadas.</p>
+        {% endif %}
+    </div>
+</div>
+
+<script>
+function resetHwid(key) {
+    if (!confirm("¿Resetear HWID de esta clave?")) return;
+    fetch('/api/reset-hwid', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({key:key})})
+    .then(r=>r.json())
+    .then(d=>{if(d.success) location.reload(); else alert('Error')})
+}
+function banKey(key) {
+    if (!confirm("¿Desactivar esta clave?")) return;
+    fetch('/api/ban-key', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({key:key})})
+    .then(r=>r.json())
+    .then(d=>{if(d.success) location.reload(); else alert('Error')})
+}
+</script>
+{% endblock %}

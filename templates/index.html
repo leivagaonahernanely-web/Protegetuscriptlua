@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <title>Luau Protect</title>
+    <style>
+        body { background: #0f0f14; color: #fff; font-family: sans-serif; padding: 20px; }
+        .card { background: #181820; border-radius: 12px; padding: 25px; margin-bottom: 20px; }
+        input, textarea { width: 100%; background: #222530; border: 1px solid #333; padding: 12px; border-radius: 8px; color: #fff; margin: 8px 0; }
+        button { background: #5865F2; border: none; padding: 12px 20px; border-radius: 8px; color: #fff; cursor: pointer; }
+    </style>
+</head>
+<body>
+    <h1>🛡️ Luau Protect</h1>
+    <div class="card">
+        <h2>Upload / Edit Script</h2>
+        <input type="text" id="scriptName" placeholder="Nombre del script">
+        <textarea id="scriptContent" rows="12" placeholder="Pega aquí el código Lua..."></textarea>
+        <button onclick="saveScript()">Guardar Script</button>
+    </div>
+    <script>
+        function saveScript(){
+            fetch('/api/upload-script', {
+                method:'POST',
+                headers:{'Content-Type':'application/json'},
+                body:JSON.stringify({name:document.getElementById('scriptName').value, content:document.getElementById('scriptContent').value})
+            })
+            .then(r=>r.json())
+            .then(res=>alert(res.success ? '✅ Guardado!' : '❌ Error'));
+        }
+    </script>
+</body>
+</html>

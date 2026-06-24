@@ -1,25 +1,22 @@
 {% extends "base.html" %}
 {% block content %}
 <div class="flex items-center justify-center min-h-screen px-4">
-    <div class="w-full max-w-md bg-card rounded-xl p-8 shadow-xl border border-secondary">
+    <div class="bg-card p-8 rounded-xl border border-secondary/70 w-full max-w-md">
         <div class="text-center mb-6">
-            <i class="fa fa-shield text-5xl text-primary mb-3"></i>
-            <h1 class="text-3xl font-bold">Luau Protect</h1>
+            <i class="fa-solid fa-shield text-4xl text-primary mb-2"></i>
+            <h2 class="text-2xl font-bold">Luau Protect</h2>
             <p class="text-gray-400">Inicia sesión con tu ID de Discord</p>
         </div>
         {% with messages = get_flashed_messages(with_categories=true) %}
             {% if messages %}
-                {% for category, msg in messages %}
-                    <div class="mb-4 p-3 rounded bg-red-900/40 border border-red-800 text-red-200 text-sm">{{ msg }}</div>
-                {% endfor %}
+                <div class="mb-4 p-3 bg-red-500/20 border border-red-500/30 rounded text-red-300">
+                    {% for cat, msg in messages %}{{ msg }}{% endfor %}
+                </div>
             {% endif %}
         {% endwith %}
         <form method="POST" class="space-y-4">
-            <div>
-                <label class="block text-sm font-medium mb-1">ID de Discord</label>
-                <input type="text" name="discord_id" required placeholder="Ej: 1501316920975036611" class="w-full bg-secondary border border-gray-700 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-primary">
-            </div>
-            <button type="submit" class="w-full bg-primary hover:bg-primary/90 text-white font-medium py-2.5 rounded-lg transition">Iniciar Sesión</button>
+            <input type="text" name="discord_id" placeholder="Tu ID de Discord" required class="w-full bg-secondary border border-gray-700 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-primary/50">
+            <button type="submit" class="w-full bg-primary hover:bg-primary/90 py-2 rounded-lg font-medium">Iniciar Sesión</button>
         </form>
     </div>
 </div>

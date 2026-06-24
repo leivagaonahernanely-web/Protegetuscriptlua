@@ -1,7 +1,8 @@
-from flask import Flask, render_template, request, jsonify, redirect, url_for, flash, Response
+from flask import Flask, render_template, request, jsonify, redirect, url_for, flash, Response, session
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import LoginManager, UserMixin, login_user, login_required, current_user, logout_user
 from flask_cors import CORS
+from authlib.integrations.flask_client import OAuth
 import os
 import hashlib
 import random
@@ -9,24 +10,45 @@ import datetime
 import zlib
 import base64
 
-# ---------------------- CONFIGURACIÓN BÁSICA ----------------------
+# ---------------------- CONFIGURACIÓN ----------------------
 app = Flask(__name__)
 CORS(app)
 
+# Claves de seguridad y OAuth Discord
 app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'PROTECT_2026_SECURE_KEY_987XYZ')
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///luau_protect.db'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['PERMANENT_SESSION_LIFETIME'] = datetime.timedelta(days=30)
+app.config['SESSION_COOKIE_SECURE'] = True
+app.config['SESSION_COOKIE_HTTPONLY'] = True
+
+# ⚠️ PON AQUÍ TUS DATOS DE LA APLICACIÓN DE DISCORD
+app.config['DISCORD_CLIENT_ID'] = os.getenv('DISCORD_CLIENT_ID', 'TU_ID_AQUI')
+app.config['DISCORD_CLIENT_SECRET'] = os.getenv('DISCORD_CLIENT_SECRET', 'TU_SECRETO_AQUI')
+app.config['DISCORD_REDIRECT_URI'] = os.getenv('DISCORD_REDIRECT_URI', 'https://tu-dominio.com/callback')
 
 db = SQLAlchemy(app)
 login_manager = LoginManager(app)
 login_manager.login_view = 'login'
 
-# ---------------------- MODELOS DE BASE DE DATOS ----------------------
+# Configurar OAuth con Discord
+oauth = OAuth(app)
+discord = oauth.register(
+    name='discord',
+    client_id=app.config['DISCORD_CLIENT_ID'],
+    client_secret=app.config['DISCORD_CLIENT_SECRET'],
+    access_token_url='https://discord.com/api/oauth2/token',
+    authorize_url='https://discord.com/api/oauth2/authorize',
+    api_base_url='https://discord.com/api/',
+    client_kwargs={'scope': 'identify email'}
+)
+
+# ---------------------- MODELOS ----------------------
 class User(UserMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
     discord_id = db.Column(db.String(20), unique=True, nullable=False)
     username = db.Column(db.String(100), nullable=False)
+    avatar = db.Column(db.String(255))
     is_admin = db.Column(db.Boolean, default=False)
 
 class Script(db.Model):
@@ -67,33 +89,78 @@ class BannedHWID(db.Model):
 def load_user(user_id):
     return User.query.get(int(user_id))
 
-# Crear tablas y usuario admin inicial
+# Crear tablas y marcar tu cuenta como ADMIN
 with app.app_context():
     db.create_all()
-    if not User.query.filter_by(discord_id='1501316920975036611').first():
+    # ⚠️ CAMBIA ESTE ID POR TU ID DE DISCORD
+    ADMIN_DISCORD_ID = "1501316920975036611"
+    if not User.query.filter_by(discord_id=ADMIN_DISCORD_ID).first():
         admin = User(
-            discord_id='1501316920975036611',
-            username='hx_xitnotping',
+            discord_id=ADMIN_DISCORD_ID,
+            username="hx_xitnotping",
             is_admin=True
         )
         db.session.add(admin)
         db.session.commit()
 
-# ---------------------- RUTA PÚBLICA: SOLO MUESTRA EL LOADER ----------------------
+# ---------------------- RUTAS DE INICIO DE SESIÓN CON DISCORD ----------------------
+@app.route('/login')
+def login():
+    if current_user.is_authenticated:
+        return redirect(url_for('scripts_page'))
+    return discord.authorize_redirect(redirect_uri=app.config['DISCORD_REDIRECT_URI'])
+
+@app.route('/callback')
+def callback():
+    token = discord.authorize_access_token()
+    if not token:
+        flash("No se pudo iniciar sesión")
+        return redirect(url_for('login'))
+    
+    resp = discord.get('users/@me')
+    user_data = resp.json()
+    
+    # Buscar o crear usuario
+    user = User.query.filter_by(discord_id=user_data['id']).first()
+    if not user:
+        # Solo permitimos que el administrador acceda al panel
+        if user_data['id'] != ADMIN_DISCORD_ID:
+            flash("No tienes permiso para acceder")
+            return redirect("https://discord.com")
+        
+        user = User(
+            discord_id=user_data['id'],
+            username=user_data['username'],
+            avatar=user_data.get('avatar'),
+            is_admin=True
+        )
+        db.session.add(user)
+        db.session.commit()
+    
+    login_user(user, remember=True)
+    return redirect(url_for('scripts_page'))
+
+@app.route('/logout')
+@login_required
+def logout():
+    logout_user()
+    session.clear()
+    return redirect(url_for('login'))
+
+# ---------------------- RUTA PÚBLICA ----------------------
 @app.route('/scripts/hosted/<file_hash>.lua', methods=['GET'])
 def hosted_script(file_hash):
     script = Script.query.filter_by(file_hash=file_hash).first()
     if not script:
         return Response("-- Script no encontrado", mimetype='text/plain', status=404)
 
-    # Exactamente igual a la imagen, nada más
     codigo = f'''script_key = "KEY"  -- Paste your key here or if the script is free put trial
 
 loadstring(game:HttpGet("https://{request.host}/api/verify?key="..script_key.."&hwid="..getgenv().HWID))()'''
 
     return Response(codigo, mimetype='text/plain; charset=utf-8')
 
-# ---------------------- VERIFICACIÓN: NUNCA DEVUELVE CÓDIGO LEGIBLE ----------------------
+# ---------------------- VERIFICACIÓN ----------------------
 @app.route('/api/verify', methods=['GET'])
 def verify():
     clave = request.args.get('key', '').strip()
@@ -109,7 +176,6 @@ def verify():
     if key.expires_at and key.expires_at < datetime.datetime.utcnow():
         return Response("return error('Key expired')", mimetype='text/plain', status=403)
 
-    # Verificar HWID
     if hwid:
         hwid_hash = hashlib.sha256(hwid.encode()).hexdigest()
         if BannedHWID.query.filter_by(hwid_hash=hwid_hash).first():
@@ -120,7 +186,6 @@ def verify():
             key.hwid = hwid_hash
             db.session.commit()
 
-    # Obtener script
     panel = Panel.query.get(key.panel_id)
     if not panel or not panel.script_id:
         return Response("return error('No script assigned')", mimetype='text/plain', status=404)
@@ -129,11 +194,9 @@ def verify():
     if not script:
         return Response("return error('Script not found')", mimetype='text/plain', status=404)
 
-    # Killswitch
     if script.killswitch:
         return Response("return error('Script disabled by admin')", mimetype='text/plain', status=403)
 
-    # 🔐 Solo enviamos datos comprimidos + codificados, NADA LEGIBLE
     comprimido = zlib.compress(script.content.encode('utf-8'), 9)
     codificado = base64.b64encode(comprimido).decode('utf-8')
 
@@ -148,26 +211,6 @@ d=nil collectgarbage()
 '''
 
     return Response(ejecutable, mimetype='text/plain; charset=utf-8')
-
-# ---------------------- RUTAS DE AUTENTICACIÓN ----------------------
-@app.route('/login', methods=['GET', 'POST'])
-def login():
-    if current_user.is_authenticated:
-        return redirect(url_for('scripts_page'))
-    if request.method == 'POST':
-        discord_id = request.form.get('discord_id', '').strip()
-        user = User.query.filter_by(discord_id=discord_id).first()
-        if user:
-            login_user(user, remember=True)
-            return redirect(url_for('scripts_page'))
-        flash('ID no autorizado o incorrecto', 'danger')
-    return render_template('login.html')
-
-@app.route('/logout')
-@login_required
-def logout():
-    logout_user()
-    return redirect(url_for('login'))
 
 # ---------------------- RUTAS DEL PANEL ----------------------
 @app.route('/')
@@ -205,7 +248,7 @@ def vault_page():
 def ads_page():
     return render_template('ads.html', user=current_user)
 
-# ---------------------- API PARA ACCIONES ----------------------
+# ---------------------- API ----------------------
 @app.route('/api/upload-script', methods=['POST'])
 @login_required
 def upload_script():
@@ -309,6 +352,6 @@ def ban_hwid():
         db.session.commit()
     return jsonify({"success": True})
 
-# ---------------------- INICIO DEL SERVIDOR ----------------------
+# ---------------------- INICIO ----------------------
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=int(os.getenv('PORT', 8080)))

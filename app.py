@@ -151,7 +151,7 @@ def generar_hash(longitud=32):
     return ''.join(random.choices(string.ascii_letters + string.digits, k=longitud))
 
 def generar_clave_licencia(longitud=40):
-    return ''.join(random.choices(string.ascii_letters + string.digits + "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789", k=longitud))
+    return ''.join(random.choices(string.ascii_letters + string.digits, k=longitud))
 
 def proteger_codigo(codigo: str) -> str:
     codigo = codigo.strip()
@@ -170,10 +170,10 @@ def desproteger_codigo(datos: str) -> str:
 def generar_loader(hash_script: str, dominio: str) -> str:
     return f'''
 --[[
-    LUA PROTECT v2.1
-    Sistema de protección de scripts
-    Dominio: {dominio}
-    Script ID: {hash_script}
+LUA PROTECT v2.1
+Sistema de protección de scripts
+Dominio: {dominio}
+Script ID: {hash_script}
 ]]
 
 local HttpService = game:GetService("HttpService")
@@ -451,3 +451,4 @@ with app.app_context():
 if __name__ == '__main__':
     port = int(os.getenv("PORT", 5000))
     app.run(host='0.0.0.0', port=port, debug=False)
+ 

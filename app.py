@@ -50,7 +50,7 @@ app.config['SESSION_COOKIE_DOMAIN'] = None
 # Variables de Discord
 DISCORD_CLIENT_ID = os.getenv("DISCORD_CLIENT_ID")
 DISCORD_CLIENT_SECRET = os.getenv("DISCORD_CLIENT_SECRET")
-DOMINIO = os.getenv("DOMINIO", "https://protegetuscriptlua-production.up.railway.app")
+DOMINIO = os.getenv("DOMINIO", "https://protegeterscriptlua-production.up.railway.app")
 ADMIN_DISCORD_ID = os.getenv("ADMIN_DISCORD_ID", "1501316920975036611")
 
 if not DISCORD_CLIENT_ID or not DISCORD_CLIENT_SECRET:
@@ -109,9 +109,12 @@ class User(UserMixin, db.Model):
     last_login = db.Column(db.DateTime)
     login_count = db.Column(db.Integer, default=0)
     
-    # Configuración del panel (título y descripción)
-    panel_title = db.Column(db.String(255), default="Mi Script")
-    panel_description = db.Column(db.Text, default="Descripción de tu script")
+    # API Key personal (se genera automáticamente)
+    api_key = db.Column(db.String(64), unique=True, index=True)
+    
+    # Configuración del panel
+    panel_title = db.Column(db.String(255), default="Vanta_OnTop")
+    panel_description = db.Column(db.Text, default="Script protegido con LuauProtect")
     
     scripts = db.relationship('Script', backref='owner', lazy='dynamic')
     licenses = db.relationship('License', backref='creator', lazy='dynamic')
@@ -124,6 +127,7 @@ class User(UserMixin, db.Model):
             'avatar': self.avatar,
             'is_admin': self.is_admin,
             'created_at': self.created_at.isoformat(),
+            'api_key': self.api_key,
             'panel_title': self.panel_title,
             'panel_description': self.panel_description
         }
@@ -291,8 +295,12 @@ def calcular_expiracion(duration: str) -> Optional[datetime]:
         return datetime.utcnow() + timedelta(days=30)
     return datetime.utcnow() + timedelta(days=30)
 
+def generar_api_key() -> str:
+    """Genera una API Key única para cada usuario"""
+    return ''.join(random.choices(string.ascii_uppercase + string.digits, k=16))
+
 # ============================================================
-# 7. RUTAS PRINCIPALES (Login sin CSRF)
+# 7. RUTAS PRINCIPALES
 # ============================================================
 
 @app.route('/')
@@ -349,15 +357,21 @@ def callback():
         
         user = User.query.filter_by(discord_id=discord_id).first()
         if not user:
+            # 🔥 Generar API Key única para el nuevo usuario
+            api_key = generar_api_key()
+            while User.query.filter_by(api_key=api_key).first():
+                api_key = generar_api_key()
+            
             user = User(
                 discord_id=discord_id,
                 username=username,
                 avatar=avatar,
-                is_admin=(discord_id == ADMIN_DISCORD_ID)
+                is_admin=(discord_id == ADMIN_DISCORD_ID),
+                api_key=api_key
             )
             db.session.add(user)
             db.session.commit()
-            logger.info(f"Nuevo usuario: {username} ({discord_id})")
+            logger.info(f"Nuevo usuario: {username} ({discord_id}) - API Key: {api_key}")
         
         user.last_login = datetime.utcnow()
         user.login_count += 1
@@ -414,28 +428,24 @@ def dashboard():
                           stats=stats)
 
 # ============================================================
-# 9. PANEL DE CONTROL (CONFIGURABLE)
+# 9. PANEL DE CONTROL CON API KEY
 # ============================================================
 
 @app.route('/panel')
 @login_required
 def panel_page():
-    """Panel de control con configuración de título y descripción"""
+    """Panel de control con API Key personal"""
     # Buscar licencia del usuario
-    license = License.query.filter_by(hwid=str(current_user.discord_id)).first()
-    if not license:
-        license = License.query.filter_by(created_by=current_user.id).first()
+    license = License.query.filter_by(created_by=current_user.id).first()
     
-    # Obtener configuración del panel del usuario
+    # Buscar script
+    script = Script.query.filter_by(active=True).first()
+    
+    # Configuración del panel
     panel_config = {
-        'title': current_user.panel_title or 'Mi Script',
-        'description': current_user.panel_description or 'Descripción de tu script'
+        'title': current_user.panel_title or 'Vanta_OnTop',
+        'description': current_user.panel_description or 'Script protegido con LuauProtect'
     }
-    
-    # Buscar script asociado
-    script = None
-    if license:
-        script = Script.query.filter_by(hash_id=license.script_hash, active=True).first()
     
     return render_template('panel.html', 
                           user=current_user, 
@@ -447,7 +457,7 @@ def panel_page():
 @app.route('/api/panel-config', methods=['POST'])
 @login_required
 def save_panel_config():
-    """Guarda la configuración del panel (título y descripción)"""
+    """Guarda la configuración del panel"""
     try:
         data = request.get_json()
         title = data.get('title', '').strip()
@@ -456,12 +466,9 @@ def save_panel_config():
         if not title:
             return jsonify({'success': False, 'error': 'El título es requerido'})
         
-        # Guardar en el usuario
         current_user.panel_title = title
         current_user.panel_description = description
         db.session.commit()
-        
-        logger.info(f"Panel configurado por {current_user.username}: {title}")
         
         return jsonify({
             'success': True,
@@ -469,7 +476,7 @@ def save_panel_config():
             'description': description
         })
     except Exception as e:
-        logger.error(f"Error guardando configuración del panel: {str(e)}")
+        logger.error(f"Error guardando configuración: {str(e)}")
         return jsonify({'success': False, 'error': str(e)})
 
 @app.route('/api/regenerate-key', methods=['POST'])
@@ -477,33 +484,32 @@ def save_panel_config():
 def regenerate_key():
     """Regenera la API Key del usuario"""
     try:
-        # Buscar licencia del usuario
-        license = License.query.filter_by(hwid=str(current_user.discord_id)).first()
-        if not license:
-            license = License.query.filter_by(created_by=current_user.id).first()
+        nueva_key = generar_api_key()
+        while User.query.filter_by(api_key=nueva_key).first():
+            nueva_key = generar_api_key()
         
-        if not license:
-            return jsonify({'success': False, 'error': 'No tienes una key asignada'})
-        
-        # Generar nueva key
-        nueva_key = generar_clave()
-        while License.query.filter_by(key=nueva_key).first():
-            nueva_key = generar_clave()
-        
-        # Reemplazar key
-        old_key = license.key
-        license.key = nueva_key
+        old_key = current_user.api_key
+        current_user.api_key = nueva_key
         db.session.commit()
         
-        logger.info(f"Key regenerada: {old_key} -> {nueva_key} por {current_user.username}")
+        logger.info(f"API Key regenerada: {old_key} -> {nueva_key} por {current_user.username}")
         
         return jsonify({
             'success': True,
-            'key': nueva_key
+            'api_key': nueva_key
         })
     except Exception as e:
-        logger.error(f"Error regenerando key: {str(e)}")
+        logger.error(f"Error regenerando API Key: {str(e)}")
         return jsonify({'success': False, 'error': str(e)})
+
+@app.route('/api/my-key')
+@login_required
+def get_my_key():
+    """Obtiene la API Key del usuario actual"""
+    return jsonify({
+        'success': True,
+        'api_key': current_user.api_key
+    })
 
 # ============================================================
 # 10. SCRIPTS
@@ -581,7 +587,7 @@ def users_page():
 @login_required
 def view_loader(hash_id):
     script = Script.query.filter_by(hash_id=hash_id).first_or_404()
-    loader = f'loadstring(game:HttpGet("{DOMINIO}/api/load/{hash_id}?key=TU_CLAVE&hwid="..tostring({{}}):gsub("table: ","")))()'
+    loader = f'loadstring(game:HttpGet("{DOMINIO}/api/load/{hash_id}?key=TU_API_KEY&hwid="..tostring({{}}):gsub("table: ","")))()'
     return render_template('loader.html', script=script, loader=loader)
 
 # ============================================================
@@ -629,7 +635,7 @@ def protect_script():
         db.session.add(nuevo)
         db.session.commit()
         
-        loader = f'loadstring(game:HttpGet("{DOMINIO}/api/load/{hash_id}?key=TU_CLAVE&hwid="..tostring({{}}):gsub("table: ","")))()'
+        loader = f'loadstring(game:HttpGet("{DOMINIO}/api/load/{hash_id}?key=TU_API_KEY&hwid="..tostring({{}}):gsub("table: ","")))()'
         
         logger.info(f"Script protegido: {hash_id} por {current_user.username} ({size_mb}MB)")
         
@@ -652,7 +658,7 @@ def load_script(hash_id):
         hwid = request.args.get('hwid', '').strip()
         
         if not key:
-            return "error: clave requerida", 400
+            return "error: API Key requerida", 400
         
         if not validar_hwid(hwid):
             return "error: HWID inválido", 400
@@ -660,10 +666,12 @@ def load_script(hash_id):
         if HWIDBan.query.filter_by(hwid=hwid).first():
             return "error: HWID baneado", 403
         
+        # 🔥 Buscar script
         script = Script.query.filter_by(hash_id=hash_id, active=True).first()
         if not script:
             return "error: script no encontrado", 404
         
+        # 🔥 Buscar licencia por API Key
         lic = License.query.filter_by(key=key, script_hash=hash_id, active=True).first()
         if not lic:
             AccessLog(key_hash=hashlib.md5(key.encode()).hexdigest()[:16], 
@@ -671,7 +679,7 @@ def load_script(hash_id):
                      script_hash=hash_id, success=False, 
                      error_message="licencia_invalida")
             db.session.commit()
-            return "error: licencia inválida", 401
+            return "error: API Key inválida", 401
         
         if not lic.is_valid():
             error_msg = "licencia_expirada" if lic.expires_at and lic.expires_at < datetime.utcnow() else "licencia_inactiva"
@@ -741,7 +749,7 @@ def upload_script():
         db.session.add(nuevo)
         db.session.commit()
         
-        loader = f'loadstring(game:HttpGet("{DOMINIO}/api/load/{hash_id}?key=TU_CLAVE&hwid="..tostring({{}}):gsub("table: ","")))()'
+        loader = f'loadstring(game:HttpGet("{DOMINIO}/api/load/{hash_id}?key=TU_API_KEY&hwid="..tostring({{}}):gsub("table: ","")))()'
         
         return jsonify({
             'success': True,

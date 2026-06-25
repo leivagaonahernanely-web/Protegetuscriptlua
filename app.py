@@ -2,7 +2,6 @@ from flask import Flask, render_template, request, jsonify, redirect, url_for, f
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import LoginManager, UserMixin, login_user, login_required, current_user, logout_user
 from flask_cors import CORS
-from authlib.integrations.flask_client import OAuth
 from werkzeug.middleware.proxy_fix import ProxyFix
 from functools import wraps
 from datetime import datetime, timedelta
@@ -15,6 +14,7 @@ import hashlib
 import logging
 import re
 import json
+import requests
 from typing import Optional, Dict, Any, List, Tuple
 
 # ============================================================
@@ -24,7 +24,7 @@ from typing import Optional, Dict, Any, List, Tuple
 app = Flask(__name__)
 app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)
 
-# Claves desde variables de entorno (NUNCA hardcodeadas)
+# Claves desde variables de entorno
 app.config['SECRET_KEY'] = os.getenv("SECRET_KEY")
 if not app.config['SECRET_KEY']:
     raise ValueError("❌ SECRET_KEY no está configurada")
@@ -32,22 +32,22 @@ if not app.config['SECRET_KEY']:
 app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv("DATABASE_URL", "sqlite:///luaprotect_ultimate.db")
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
-    'pool_size': 10,
+    'pool_size': 20,
     'pool_recycle': 3600,
     'pool_pre_ping': True,
 }
 
+# 🔥 SIN LÍMITE DE MB
+app.config['MAX_CONTENT_LENGTH'] = None  # Sin límite
+
 # Configuración de sesión ultra segura
 app.config['SESSION_COOKIE_SECURE'] = True
 app.config['SESSION_COOKIE_HTTPONLY'] = True
-app.config['SESSION_COOKIE_SAMESITE'] = 'Strict'
+app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
 app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(days=30)
 app.config['SESSION_COOKIE_DOMAIN'] = None
 
-# Límites
-app.config['MAX_CONTENT_LENGTH'] = 64 * 1024 * 1024  # 64MB
-
-# Variables de Discord (desde entorno)
+# Variables de Discord
 DISCORD_CLIENT_ID = os.getenv("DISCORD_CLIENT_ID")
 DISCORD_CLIENT_SECRET = os.getenv("DISCORD_CLIENT_SECRET")
 DOMINIO = os.getenv("DOMINIO", "https://protegetuscriptlua-production.up.railway.app")
@@ -60,10 +60,10 @@ if not DISCORD_CLIENT_ID or not DISCORD_CLIENT_SECRET:
 API_CONFIG = {
     'KEY_LENGTH': 32,
     'HASH_LENGTH': 16,
-    'MAX_KEYS_PER_USER': 100,
-    'MAX_SCRIPTS_PER_USER': 50,
-    'HWID_MIN_LENGTH': 10,
-    'RATE_LIMIT': 10,
+    'MAX_KEYS_PER_USER': 999999,  # Ilimitado para admin
+    'MAX_SCRIPTS_PER_USER': 999999,  # Ilimitado
+    'HWID_MIN_LENGTH': 5,
+    'RATE_LIMIT': 100,
     'CACHE_TIMEOUT': 300,
 }
 
@@ -82,32 +82,17 @@ logging.basicConfig(
 logger = logging.getLogger("LuauProtect")
 
 # ============================================================
-# 3. INICIALIZACIÓN DE EXTENSIONES
+# 3. INICIALIZACIÓN
 # ============================================================
 
 db = SQLAlchemy(app)
 login_manager = LoginManager(app)
 login_manager.login_view = 'login'
-login_manager.login_message = "🔐 Inicia sesión con Discord para continuar"
-login_manager.login_message_category = "info"
-CORS(app, origins=[DOMINIO, "https://*.roblox.com", "http://localhost:*"])
-
-# OAuth Discord con CSRF desactivado
-oauth = OAuth(app)
-discord = oauth.register(
-    name='discord',
-    client_id=DISCORD_CLIENT_ID,
-    client_secret=DISCORD_CLIENT_SECRET,
-    access_token_url='https://discord.com/api/oauth2/token',
-    authorize_url='https://discord.com/api/oauth2/authorize',
-    api_base_url='https://discord.com/api/',
-    redirect_uri=f'{DOMINIO}/callback',
-    client_kwargs={'scope': 'identify'},
-    authorize_state=None
-)
+login_manager.login_message = "🔐 Inicia sesión con Discord"
+CORS(app, origins=[DOMINIO, "https://*.roblox.com", "http://localhost:*"], supports_credentials=True)
 
 # ============================================================
-# 4. MODELOS DE BASE DE DATOS ULTRA OPTIMIZADOS
+# 4. MODELOS ULTRA OPTIMIZADOS
 # ============================================================
 
 class User(UserMixin, db.Model):
@@ -141,17 +126,18 @@ class Script(db.Model):
     __tablename__ = 'scripts'
     
     id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String(100), nullable=False)
+    name = db.Column(db.String(255), nullable=False)
     hash_id = db.Column(db.String(32), unique=True, nullable=False, index=True)
     content = db.Column(db.Text, nullable=False)
     content_hash = db.Column(db.String(64))
-    description = db.Column(db.String(255))
+    description = db.Column(db.Text)
     active = db.Column(db.Boolean, default=True, index=True)
     version = db.Column(db.Integer, default=1)
     owner_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     downloads = db.Column(db.Integer, default=0)
+    size_mb = db.Column(db.Float, default=0.0)  # Tamaño en MB
     
     licenses = db.relationship('License', backref='script_ref', lazy='dynamic')
     
@@ -163,6 +149,7 @@ class Script(db.Model):
             'version': self.version,
             'active': self.active,
             'downloads': self.downloads,
+            'size_mb': self.size_mb,
             'created_at': self.created_at.isoformat(),
             'updated_at': self.updated_at.isoformat()
         }
@@ -175,7 +162,7 @@ class License(db.Model):
     hwid = db.Column(db.String(128))
     script_hash = db.Column(db.String(32), db.ForeignKey('scripts.hash_id'), nullable=False, index=True)
     active = db.Column(db.Boolean, default=True, index=True)
-    max_uses = db.Column(db.Integer, default=1)
+    max_uses = db.Column(db.Integer, default=999999)  # 🔥 ILIMITADO
     used_count = db.Column(db.Integer, default=0)
     expires_at = db.Column(db.DateTime)
     created_by = db.Column(db.Integer, db.ForeignKey('users.id'))
@@ -187,8 +174,7 @@ class License(db.Model):
             return False
         if self.expires_at and self.expires_at < datetime.utcnow():
             return False
-        if self.used_count >= self.max_uses:
-            return False
+        # 🔥 SIN LÍMITE DE USOS
         return True
     
     def use(self, hwid: str) -> bool:
@@ -202,6 +188,18 @@ class License(db.Model):
         self.last_used = datetime.utcnow()
         db.session.commit()
         return True
+    
+    def to_dict(self):
+        return {
+            'key': self.key,
+            'hwid': self.hwid,
+            'script_hash': self.script_hash,
+            'active': self.active,
+            'max_uses': 'Ilimitado' if self.max_uses >= 999999 else self.max_uses,
+            'used_count': self.used_count,
+            'expires_at': self.expires_at.isoformat() if self.expires_at else None,
+            'created_at': self.created_at.isoformat()
+        }
 
 class AccessLog(db.Model):
     __tablename__ = 'access_logs'
@@ -230,7 +228,7 @@ def load_user(user_id):
     return User.query.get(int(user_id))
 
 # ============================================================
-# 5. DECORADORES DE SEGURIDAD
+# 5. DECORADORES
 # ============================================================
 
 def admin_required(f):
@@ -241,17 +239,8 @@ def admin_required(f):
         return f(*args, **kwargs)
     return decorated_function
 
-def rate_limit(f):
-    @wraps(f)
-    def decorated_function(*args, **kwargs):
-        # Implementación simple de rate limit por IP
-        ip = request.remote_addr
-        # Aquí se podría implementar con Redis o memoria
-        return f(*args, **kwargs)
-    return decorated_function
-
 # ============================================================
-# 6. FUNCIONES AUXILIARES ULTRA OPTIMIZADAS
+# 6. FUNCIONES AUXILIARES
 # ============================================================
 
 def generar_hash(longitud: int = 16) -> str:
@@ -298,7 +287,7 @@ def calcular_expiracion(duration: str) -> Optional[datetime]:
     return datetime.utcnow() + timedelta(days=30)
 
 # ============================================================
-# 7. RUTAS PRINCIPALES
+# 7. RUTAS PRINCIPALES (Login sin CSRF)
 # ============================================================
 
 @app.route('/')
@@ -310,7 +299,15 @@ def login():
     try:
         session.permanent = True
         session.modified = True
-        return discord.authorize_redirect()
+        redirect_uri = f'{DOMINIO}/callback'
+        discord_url = (
+            f'https://discord.com/api/oauth2/authorize'
+            f'?client_id={DISCORD_CLIENT_ID}'
+            f'&redirect_uri={redirect_uri}'
+            f'&response_type=code'
+            f'&scope=identify'
+        )
+        return redirect(discord_url)
     except Exception as e:
         logger.error(f"Error en login: {str(e)}")
         return f"Error al iniciar sesión: {str(e)}"
@@ -318,9 +315,28 @@ def login():
 @app.route('/callback')
 def callback():
     try:
-        token = discord.authorize_access_token()
-        resp = discord.get('users/@me')
-        user_data = resp.json()
+        code = request.args.get('code')
+        if not code:
+            return "Error: No se recibió código", 400
+        
+        data = {
+            'client_id': DISCORD_CLIENT_ID,
+            'client_secret': DISCORD_CLIENT_SECRET,
+            'grant_type': 'authorization_code',
+            'code': code,
+            'redirect_uri': f'{DOMINIO}/callback'
+        }
+        
+        headers = {'Content-Type': 'application/x-www-form-urlencoded'}
+        response = requests.post('https://discord.com/api/oauth2/token', data=data, headers=headers)
+        token_data = response.json()
+        
+        if 'access_token' not in token_data:
+            return f"Error obteniendo token: {token_data}", 400
+        
+        user_headers = {'Authorization': f'Bearer {token_data["access_token"]}'}
+        user_response = requests.get('https://discord.com/api/users/@me', headers=user_headers)
+        user_data = user_response.json()
         
         discord_id = user_data['id']
         username = user_data['username']
@@ -367,9 +383,11 @@ def dashboard():
     if current_user.is_admin:
         scripts = Script.query.order_by(Script.created_at.desc()).all()
         licenses = License.query.order_by(License.created_at.desc()).all()
+        users = User.query.all()
     else:
         scripts = Script.query.filter_by(owner_id=current_user.id).order_by(Script.created_at.desc()).all()
         licenses = License.query.filter_by(created_by=current_user.id).order_by(License.created_at.desc()).all()
+        users = []
     
     stats = {
         'total_scripts': Script.query.count(),
@@ -379,13 +397,15 @@ def dashboard():
         'total_users': User.query.count(),
         'admin_users': User.query.filter_by(is_admin=True).count(),
         'total_access': AccessLog.query.count(),
-        'success_access': AccessLog.query.filter_by(success=True).count()
+        'success_access': AccessLog.query.filter_by(success=True).count(),
+        'total_downloads': db.session.query(db.func.sum(Script.downloads)).scalar() or 0
     }
     
     return render_template('dashboard.html', 
                           user=current_user, 
                           scripts=scripts, 
                           licenses=licenses,
+                          users=users,
                           stats=stats)
 
 @app.route('/scripts')
@@ -420,7 +440,7 @@ def keys_page():
             'hwid': lic.hwid,
             'expires_at': lic.expires_at,
             'active': lic.active,
-            'max_uses': lic.max_uses,
+            'max_uses': 'Ilimitado' if lic.max_uses >= 999999 else lic.max_uses,
             'used_count': lic.used_count,
             'created_at': lic.created_at
         })
@@ -464,7 +484,7 @@ def view_loader(hash_id):
     return render_template('loader.html', script=script, loader=loader)
 
 # ============================================================
-# 9. API - PROTECCIÓN DE SCRIPTS
+# 9. API - PROTECCIÓN DE SCRIPTS (SIN LÍMITE DE MB)
 # ============================================================
 
 @app.route('/api/protect', methods=['POST'])
@@ -484,14 +504,19 @@ def protect_script():
         if len(codigo) < 10:
             return jsonify({'success': False, 'error': 'El código debe tener al menos 10 caracteres'})
         
-        # Límite de scripts por usuario
-        script_count = Script.query.filter_by(owner_id=current_user.id).count()
-        if script_count >= API_CONFIG['MAX_SCRIPTS_PER_USER'] and not current_user.is_admin:
-            return jsonify({'success': False, 'error': f'Límite de {API_CONFIG["MAX_SCRIPTS_PER_USER"]} scripts alcanzado'})
+        # 🔥 SIN LÍMITE DE SCRIPTS PARA ADMIN
+        if not current_user.is_admin:
+            script_count = Script.query.filter_by(owner_id=current_user.id).count()
+            if script_count >= API_CONFIG['MAX_SCRIPTS_PER_USER']:
+                return jsonify({'success': False, 'error': f'Límite de {API_CONFIG["MAX_SCRIPTS_PER_USER"]} scripts alcanzado'})
         
         hash_id = generar_hash(API_CONFIG['HASH_LENGTH'])
         while Script.query.filter_by(hash_id=hash_id).first():
             hash_id = generar_hash(API_CONFIG['HASH_LENGTH'])
+        
+        # 🔥 CALCULAR TAMAÑO EN MB
+        size_bytes = len(codigo.encode('utf-8'))
+        size_mb = round(size_bytes / (1024 * 1024), 2)
         
         contenido = comprimir_codigo(codigo) if compression else base64.b64encode(codigo.encode()).decode()
         content_hash = hashlib.sha256(codigo.encode()).hexdigest()
@@ -504,21 +529,23 @@ def protect_script():
             description=description,
             active=killswitch,
             owner_id=current_user.id,
-            version=1
+            version=1,
+            size_mb=size_mb
         )
         db.session.add(nuevo)
         db.session.commit()
         
         loader = f'loadstring(game:HttpGet("{DOMINIO}/api/load/{hash_id}?key=TU_CLAVE&hwid="..tostring({{}}):gsub("table: ","")))()'
         
-        logger.info(f"Script protegido: {hash_id} por {current_user.username}")
+        logger.info(f"Script protegido: {hash_id} por {current_user.username} ({size_mb}MB)")
         
         return jsonify({
             'success': True,
             'hash_id': hash_id,
             'loader': loader,
             'version': 1,
-            'active': killswitch
+            'active': killswitch,
+            'size_mb': size_mb
         })
     except Exception as e:
         logger.error(f"Error protegiendo script: {str(e)}")
@@ -536,7 +563,6 @@ def load_script(hash_id):
         if not validar_hwid(hwid):
             return "error: HWID inválido", 400
         
-        # Verificar HWID ban
         if HWIDBan.query.filter_by(hwid=hwid).first():
             return "error: HWID baneado", 403
         
@@ -550,6 +576,7 @@ def load_script(hash_id):
                      hwid=hwid, ip=obtener_ip_segura(), 
                      script_hash=hash_id, success=False, 
                      error_message="licencia_invalida")
+            db.session.commit()
             return "error: licencia inválida", 401
         
         if not lic.is_valid():
@@ -558,6 +585,7 @@ def load_script(hash_id):
                      hwid=hwid, ip=obtener_ip_segura(), 
                      script_hash=hash_id, success=False, 
                      error_message=error_msg)
+            db.session.commit()
             return f"error: {error_msg}", 401
         
         if lic.hwid and lic.hwid != hwid:
@@ -565,6 +593,7 @@ def load_script(hash_id):
                      hwid=hwid, ip=obtener_ip_segura(), 
                      script_hash=hash_id, success=False, 
                      error_message="hwid_mismatch")
+            db.session.commit()
             return "error: HWID no coincide", 401
         
         if not lic.use(hwid):
@@ -596,11 +625,13 @@ def upload_script():
         if file.filename == '':
             return jsonify({'success': False, 'error': 'Archivo vacío'})
         
-        if not file.filename.endswith(('.lua', '.txt')):
-            return jsonify({'success': False, 'error': 'Solo se permiten archivos .lua y .txt'})
-        
+        # 🔥 ACEPTAR CUALQUIER EXTENSIÓN
         contenido = file.read().decode('utf-8')
         nombre = file.filename.rsplit('.', 1)[0]
+        
+        # 🔥 SIN LÍMITE DE TAMAÑO
+        size_bytes = len(contenido.encode('utf-8'))
+        size_mb = round(size_bytes / (1024 * 1024), 2)
         
         hash_id = generar_hash(API_CONFIG['HASH_LENGTH'])
         while Script.query.filter_by(hash_id=hash_id).first():
@@ -612,7 +643,8 @@ def upload_script():
             name=nombre,
             hash_id=hash_id,
             content=contenido_comprimido,
-            owner_id=current_user.id
+            owner_id=current_user.id,
+            size_mb=size_mb
         )
         db.session.add(nuevo)
         db.session.commit()
@@ -623,14 +655,15 @@ def upload_script():
             'success': True,
             'name': nombre,
             'hash_id': hash_id,
-            'loader': loader
+            'loader': loader,
+            'size_mb': size_mb
         })
     except Exception as e:
         logger.error(f"Error subiendo script: {str(e)}")
         return jsonify({'success': False, 'error': str(e)})
 
 # ============================================================
-# 10. API - GESTIÓN DE LICENCIAS
+# 10. API - GENERACIÓN DE KEYS (ILIMITADAS)
 # ============================================================
 
 @app.route('/api/generate-key', methods=['POST'])
@@ -640,7 +673,7 @@ def generate_key():
         data = request.get_json()
         script_hash = data.get('script_hash', '').strip()
         duration = data.get('duration', '30d')
-        max_uses = int(data.get('max_uses', 1))
+        max_uses = int(data.get('max_uses', 999999))  # 🔥 ILIMITADO POR DEFECTO
         
         if not script_hash:
             return jsonify({'success': False, 'error': 'Script hash es requerido'})
@@ -649,7 +682,7 @@ def generate_key():
         if not script:
             return jsonify({'success': False, 'error': 'Script no encontrado'})
         
-        # Límite de claves
+        # 🔥 SIN LÍMITE DE KEYS PARA ADMIN
         if not current_user.is_admin:
             key_count = License.query.filter_by(created_by=current_user.id).count()
             if key_count >= API_CONFIG['MAX_KEYS_PER_USER']:
@@ -664,7 +697,7 @@ def generate_key():
         nueva = License(
             key=clave,
             script_hash=script_hash,
-            max_uses=max_uses,
+            max_uses=max_uses if max_uses < 999999 else 999999,  # 🔥 ILIMITADO
             expires_at=expires_at,
             created_by=current_user.id
         )
@@ -676,7 +709,8 @@ def generate_key():
         return jsonify({
             'success': True,
             'key': clave,
-            'expires_at': expires_at.isoformat() if expires_at else None
+            'expires_at': expires_at.isoformat() if expires_at else None,
+            'max_uses': 'Ilimitado' if max_uses >= 999999 else max_uses
         })
     except Exception as e:
         logger.error(f"Error generando clave: {str(e)}")
@@ -693,7 +727,6 @@ def toggle_key():
         if not lic:
             return jsonify({'success': False, 'error': 'Licencia no encontrada'})
         
-        # Verificar permisos
         if not current_user.is_admin:
             script = Script.query.filter_by(hash_id=lic.script_hash).first()
             if not script or script.owner_id != current_user.id:
@@ -720,7 +753,6 @@ def reset_key_hwid():
         if not lic:
             return jsonify({'success': False, 'error': 'Licencia no encontrada'})
         
-        # Verificar permisos
         if not current_user.is_admin:
             script = Script.query.filter_by(hash_id=lic.script_hash).first()
             if not script or script.owner_id != current_user.id:
@@ -756,13 +788,13 @@ def verify_key(key):
             'hash': lic.script_hash,
             'expires_at': lic.expires_at.isoformat() if lic.expires_at else None,
             'used_count': lic.used_count,
-            'max_uses': lic.max_uses
+            'max_uses': 'Ilimitado' if lic.max_uses >= 999999 else lic.max_uses
         })
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
 # ============================================================
-# 11. API - GESTIÓN DE SCRIPTS
+# 11. API - GESTIÓN DE SCRIPTS (ADMIN VE TODO)
 # ============================================================
 
 @app.route('/api/toggle-script/<hash_id>', methods=['POST'])
@@ -798,7 +830,6 @@ def delete_script(hash_id):
         if not current_user.is_admin and script.owner_id != current_user.id:
             return jsonify({'success': False, 'error': 'No tienes permiso'})
         
-        # Eliminar licencias asociadas
         License.query.filter_by(script_hash=hash_id).delete()
         db.session.delete(script)
         db.session.commit()
@@ -808,7 +839,7 @@ def delete_script(hash_id):
         return jsonify({'success': False, 'error': str(e)})
 
 # ============================================================
-# 12. API - GESTIÓN DE HWID BANS
+# 12. API - HWID BANS
 # ============================================================
 
 @app.route('/api/ban-hwid', methods=['POST'])
@@ -820,7 +851,7 @@ def ban_hwid():
         hwid = data.get('hwid', '').strip()
         reason = data.get('reason', '').strip()
         
-        if not hwid or len(hwid) < 10:
+        if not hwid or len(hwid) < 5:
             return jsonify({'success': False, 'error': 'HWID inválido'})
         
         if HWIDBan.query.filter_by(hwid=hwid).first():
@@ -894,7 +925,40 @@ def toggle_admin():
         return jsonify({'success': False, 'error': str(e)})
 
 # ============================================================
-# 14. MANEJO DE ERRORES
+# 14. ADMIN - PANEL COMPLETO
+# ============================================================
+
+@app.route('/admin')
+@login_required
+@admin_required
+def admin_panel():
+    scripts = Script.query.order_by(Script.created_at.desc()).all()
+    licenses = License.query.order_by(License.created_at.desc()).all()
+    users = User.query.order_by(User.created_at.desc()).all()
+    logs = AccessLog.query.order_by(AccessLog.timestamp.desc()).limit(100).all()
+    
+    total_size = db.session.query(db.func.sum(Script.size_mb)).scalar() or 0
+    
+    stats = {
+        'total_scripts': len(scripts),
+        'total_licenses': len(licenses),
+        'total_users': len(users),
+        'total_logs': AccessLog.query.count(),
+        'total_size_mb': round(total_size, 2),
+        'active_scripts': len([s for s in scripts if s.active]),
+        'active_licenses': len([l for l in licenses if l.active])
+    }
+    
+    return render_template('admin.html', 
+                          user=current_user,
+                          scripts=scripts,
+                          licenses=licenses,
+                          users=users,
+                          logs=logs,
+                          stats=stats)
+
+# ============================================================
+# 15. MANEJO DE ERRORES
 # ============================================================
 
 @app.errorhandler(404)
@@ -911,7 +975,7 @@ def internal_error(error):
     return jsonify({"error": "Error interno del servidor"}), 500
 
 # ============================================================
-# 15. INICIALIZACIÓN
+# 16. INICIALIZACIÓN
 # ============================================================
 
 with app.app_context():

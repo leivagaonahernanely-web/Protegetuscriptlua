@@ -142,7 +142,7 @@
         </div>
         <div>
             <label class="text-sm font-medium text-textMuted block mb-1">Usos Máximos</label>
-            <input type="number" name="max_uses" value="1" min="1">
+            <input type="number" name="max_uses" value="999999" min="1">
         </div>
         <div class="flex items-end">
             <button type="submit" class="btn-success w-full justify-center">
@@ -152,24 +152,4 @@
     </form>
 </div>
 {% endif %}
-
-<div class="card mt-6">
-    <h3 class="text-lg font-semibold mb-4 flex items-center gap-2">
-        <i class="fas fa-link text-primary"></i> Enlaces Rápidos
-    </h3>
-    <div class="flex flex-wrap gap-3">
-        <a href="/scripts" class="bg-dark border border-border rounded-lg px-4 py-2 text-sm hover:border-primary transition">
-            <i class="fas fa-code mr-2"></i> Ver todos los scripts
-        </a>
-        <a href="/licenses" class="bg-dark border border-border rounded-lg px-4 py-2 text-sm hover:border-primary transition">
-            <i class="fas fa-key mr-2"></i> Gestionar licencias
-        </a>
-        <a href="/hwid-bans" class="bg-dark border border-border rounded-lg px-4 py-2 text-sm hover:border-primary transition">
-            <i class="fas fa-ban mr-2"></i> HWID Bans
-        </a>
-        <a href="/logs" class="bg-dark border border-border rounded-lg px-4 py-2 text-sm hover:border-primary transition">
-            <i class="fas fa-history mr-2"></i> Ver logs
-        </a>
-    </div>
-</div>
-{% endblock %} 
+{% endblock %}

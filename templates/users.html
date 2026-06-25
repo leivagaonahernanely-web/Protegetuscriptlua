@@ -1,6 +1,4 @@
 {% extends "base.html" %}
-{% block title %}Usuarios - LuauProtect Pro{% endblock %}
-
 {% block content %}
 <div class="mb-8">
     <h1 class="text-3xl font-bold">👥 Usuarios</h1>
@@ -34,17 +32,17 @@
                 </thead>
                 <tbody id="usersTableBody">
                     {% for u in usuarios %}
-                    <tr class="user-row" data-username="{{ u.discord_username.lower() }}" data-id="{{ u.discord_id }}">
+                    <tr class="user-row" data-username="{{ u.username.lower() }}" data-id="{{ u.discord_id }}">
                         <td>
                             <div class="flex items-center gap-3">
                                 {% if u.avatar %}
-                                    <img src="{{ u.avatar }}" alt="{{ u.discord_username }}" class="w-8 h-8 rounded-full">
+                                    <img src="{{ u.avatar }}" alt="{{ u.username }}" class="w-8 h-8 rounded-full">
                                 {% else %}
                                     <div class="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center text-primary font-bold text-sm">
-                                        {{ u.discord_username[:2].upper() }}
+                                        {{ u.username[:2].upper() }}
                                     </div>
                                 {% endif %}
-                                <span class="font-medium">{{ u.discord_username }}</span>
+                                <span class="font-medium">{{ u.username }}</span>
                             </div>
                         </td>
                         <td><code class="text-xs bg-dark px-2 py-1 rounded">{{ u.discord_id }}</code></td>
@@ -132,4 +130,4 @@ async function toggleAdmin(discordId) {
     }
 }
 </script>
-{% endblock %}
+{% endblock %} 

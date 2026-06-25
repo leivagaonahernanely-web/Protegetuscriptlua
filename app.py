@@ -37,8 +37,8 @@ app.config['SQLALCHEMY_ENGINE_OPTIONS'] = {
     'pool_pre_ping': True,
 }
 
-# 🔥 SIN LÍMITE DE MB
-app.config['MAX_CONTENT_LENGTH'] = None  # Sin límite
+# Sin límite de MB
+app.config['MAX_CONTENT_LENGTH'] = None
 
 # Configuración de sesión ultra segura
 app.config['SESSION_COOKIE_SECURE'] = True
@@ -60,8 +60,8 @@ if not DISCORD_CLIENT_ID or not DISCORD_CLIENT_SECRET:
 API_CONFIG = {
     'KEY_LENGTH': 32,
     'HASH_LENGTH': 16,
-    'MAX_KEYS_PER_USER': 999999,  # Ilimitado para admin
-    'MAX_SCRIPTS_PER_USER': 999999,  # Ilimitado
+    'MAX_KEYS_PER_USER': 999999,
+    'MAX_SCRIPTS_PER_USER': 999999,
     'HWID_MIN_LENGTH': 5,
     'RATE_LIMIT': 100,
     'CACHE_TIMEOUT': 300,
@@ -109,6 +109,10 @@ class User(UserMixin, db.Model):
     last_login = db.Column(db.DateTime)
     login_count = db.Column(db.Integer, default=0)
     
+    # Configuración del panel (título y descripción)
+    panel_title = db.Column(db.String(255), default="Mi Script")
+    panel_description = db.Column(db.Text, default="Descripción de tu script")
+    
     scripts = db.relationship('Script', backref='owner', lazy='dynamic')
     licenses = db.relationship('License', backref='creator', lazy='dynamic')
     
@@ -119,7 +123,9 @@ class User(UserMixin, db.Model):
             'email': self.email,
             'avatar': self.avatar,
             'is_admin': self.is_admin,
-            'created_at': self.created_at.isoformat()
+            'created_at': self.created_at.isoformat(),
+            'panel_title': self.panel_title,
+            'panel_description': self.panel_description
         }
 
 class Script(db.Model):
@@ -137,7 +143,7 @@ class Script(db.Model):
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     downloads = db.Column(db.Integer, default=0)
-    size_mb = db.Column(db.Float, default=0.0)  # Tamaño en MB
+    size_mb = db.Column(db.Float, default=0.0)
     
     licenses = db.relationship('License', backref='script_ref', lazy='dynamic')
     
@@ -162,7 +168,7 @@ class License(db.Model):
     hwid = db.Column(db.String(128))
     script_hash = db.Column(db.String(32), db.ForeignKey('scripts.hash_id'), nullable=False, index=True)
     active = db.Column(db.Boolean, default=True, index=True)
-    max_uses = db.Column(db.Integer, default=999999)  # 🔥 ILIMITADO
+    max_uses = db.Column(db.Integer, default=999999)
     used_count = db.Column(db.Integer, default=0)
     expires_at = db.Column(db.DateTime)
     created_by = db.Column(db.Integer, db.ForeignKey('users.id'))
@@ -174,7 +180,6 @@ class License(db.Model):
             return False
         if self.expires_at and self.expires_at < datetime.utcnow():
             return False
-        # 🔥 SIN LÍMITE DE USOS
         return True
     
     def use(self, hwid: str) -> bool:
@@ -374,7 +379,7 @@ def logout():
     return redirect(url_for('index'))
 
 # ============================================================
-# 8. DASHBOARD Y GESTIÓN DE SCRIPTS
+# 8. DASHBOARD
 # ============================================================
 
 @app.route('/dashboard')
@@ -407,6 +412,102 @@ def dashboard():
                           licenses=licenses,
                           users=users,
                           stats=stats)
+
+# ============================================================
+# 9. PANEL DE CONTROL (CONFIGURABLE)
+# ============================================================
+
+@app.route('/panel')
+@login_required
+def panel_page():
+    """Panel de control con configuración de título y descripción"""
+    # Buscar licencia del usuario
+    license = License.query.filter_by(hwid=str(current_user.discord_id)).first()
+    if not license:
+        license = License.query.filter_by(created_by=current_user.id).first()
+    
+    # Obtener configuración del panel del usuario
+    panel_config = {
+        'title': current_user.panel_title or 'Mi Script',
+        'description': current_user.panel_description or 'Descripción de tu script'
+    }
+    
+    # Buscar script asociado
+    script = None
+    if license:
+        script = Script.query.filter_by(hash_id=license.script_hash, active=True).first()
+    
+    return render_template('panel.html', 
+                          user=current_user, 
+                          license=license,
+                          script=script,
+                          panel_config=panel_config,
+                          dominio=DOMINIO)
+
+@app.route('/api/panel-config', methods=['POST'])
+@login_required
+def save_panel_config():
+    """Guarda la configuración del panel (título y descripción)"""
+    try:
+        data = request.get_json()
+        title = data.get('title', '').strip()
+        description = data.get('description', '').strip()
+        
+        if not title:
+            return jsonify({'success': False, 'error': 'El título es requerido'})
+        
+        # Guardar en el usuario
+        current_user.panel_title = title
+        current_user.panel_description = description
+        db.session.commit()
+        
+        logger.info(f"Panel configurado por {current_user.username}: {title}")
+        
+        return jsonify({
+            'success': True,
+            'title': title,
+            'description': description
+        })
+    except Exception as e:
+        logger.error(f"Error guardando configuración del panel: {str(e)}")
+        return jsonify({'success': False, 'error': str(e)})
+
+@app.route('/api/regenerate-key', methods=['POST'])
+@login_required
+def regenerate_key():
+    """Regenera la API Key del usuario"""
+    try:
+        # Buscar licencia del usuario
+        license = License.query.filter_by(hwid=str(current_user.discord_id)).first()
+        if not license:
+            license = License.query.filter_by(created_by=current_user.id).first()
+        
+        if not license:
+            return jsonify({'success': False, 'error': 'No tienes una key asignada'})
+        
+        # Generar nueva key
+        nueva_key = generar_clave()
+        while License.query.filter_by(key=nueva_key).first():
+            nueva_key = generar_clave()
+        
+        # Reemplazar key
+        old_key = license.key
+        license.key = nueva_key
+        db.session.commit()
+        
+        logger.info(f"Key regenerada: {old_key} -> {nueva_key} por {current_user.username}")
+        
+        return jsonify({
+            'success': True,
+            'key': nueva_key
+        })
+    except Exception as e:
+        logger.error(f"Error regenerando key: {str(e)}")
+        return jsonify({'success': False, 'error': str(e)})
+
+# ============================================================
+# 10. SCRIPTS
+# ============================================================
 
 @app.route('/scripts')
 @login_required
@@ -484,7 +585,7 @@ def view_loader(hash_id):
     return render_template('loader.html', script=script, loader=loader)
 
 # ============================================================
-# 9. API - PROTECCIÓN DE SCRIPTS (SIN LÍMITE DE MB)
+# 11. API - PROTECCIÓN DE SCRIPTS
 # ============================================================
 
 @app.route('/api/protect', methods=['POST'])
@@ -504,17 +605,10 @@ def protect_script():
         if len(codigo) < 10:
             return jsonify({'success': False, 'error': 'El código debe tener al menos 10 caracteres'})
         
-        # 🔥 SIN LÍMITE DE SCRIPTS PARA ADMIN
-        if not current_user.is_admin:
-            script_count = Script.query.filter_by(owner_id=current_user.id).count()
-            if script_count >= API_CONFIG['MAX_SCRIPTS_PER_USER']:
-                return jsonify({'success': False, 'error': f'Límite de {API_CONFIG["MAX_SCRIPTS_PER_USER"]} scripts alcanzado'})
-        
         hash_id = generar_hash(API_CONFIG['HASH_LENGTH'])
         while Script.query.filter_by(hash_id=hash_id).first():
             hash_id = generar_hash(API_CONFIG['HASH_LENGTH'])
         
-        # 🔥 CALCULAR TAMAÑO EN MB
         size_bytes = len(codigo.encode('utf-8'))
         size_mb = round(size_bytes / (1024 * 1024), 2)
         
@@ -625,11 +719,9 @@ def upload_script():
         if file.filename == '':
             return jsonify({'success': False, 'error': 'Archivo vacío'})
         
-        # 🔥 ACEPTAR CUALQUIER EXTENSIÓN
         contenido = file.read().decode('utf-8')
         nombre = file.filename.rsplit('.', 1)[0]
         
-        # 🔥 SIN LÍMITE DE TAMAÑO
         size_bytes = len(contenido.encode('utf-8'))
         size_mb = round(size_bytes / (1024 * 1024), 2)
         
@@ -663,7 +755,7 @@ def upload_script():
         return jsonify({'success': False, 'error': str(e)})
 
 # ============================================================
-# 10. API - GENERACIÓN DE KEYS (ILIMITADAS)
+# 12. API - GENERACIÓN DE KEYS (ILIMITADAS)
 # ============================================================
 
 @app.route('/api/generate-key', methods=['POST'])
@@ -673,7 +765,7 @@ def generate_key():
         data = request.get_json()
         script_hash = data.get('script_hash', '').strip()
         duration = data.get('duration', '30d')
-        max_uses = int(data.get('max_uses', 999999))  # 🔥 ILIMITADO POR DEFECTO
+        max_uses = int(data.get('max_uses', 999999))
         
         if not script_hash:
             return jsonify({'success': False, 'error': 'Script hash es requerido'})
@@ -681,12 +773,6 @@ def generate_key():
         script = Script.query.filter_by(hash_id=script_hash).first()
         if not script:
             return jsonify({'success': False, 'error': 'Script no encontrado'})
-        
-        # 🔥 SIN LÍMITE DE KEYS PARA ADMIN
-        if not current_user.is_admin:
-            key_count = License.query.filter_by(created_by=current_user.id).count()
-            if key_count >= API_CONFIG['MAX_KEYS_PER_USER']:
-                return jsonify({'success': False, 'error': f'Límite de {API_CONFIG["MAX_KEYS_PER_USER"]} claves alcanzado'})
         
         expires_at = calcular_expiracion(duration)
         
@@ -697,7 +783,7 @@ def generate_key():
         nueva = License(
             key=clave,
             script_hash=script_hash,
-            max_uses=max_uses if max_uses < 999999 else 999999,  # 🔥 ILIMITADO
+            max_uses=max_uses if max_uses < 999999 else 999999,
             expires_at=expires_at,
             created_by=current_user.id
         )
@@ -794,7 +880,7 @@ def verify_key(key):
         return jsonify({'error': str(e)}), 500
 
 # ============================================================
-# 11. API - GESTIÓN DE SCRIPTS (ADMIN VE TODO)
+# 13. API - GESTIÓN DE SCRIPTS
 # ============================================================
 
 @app.route('/api/toggle-script/<hash_id>', methods=['POST'])
@@ -839,7 +925,7 @@ def delete_script(hash_id):
         return jsonify({'success': False, 'error': str(e)})
 
 # ============================================================
-# 12. API - HWID BANS
+# 14. API - HWID BANS
 # ============================================================
 
 @app.route('/api/ban-hwid', methods=['POST'])
@@ -893,7 +979,7 @@ def unban_hwid():
         return jsonify({'success': False, 'error': str(e)})
 
 # ============================================================
-# 13. API - GESTIÓN DE USUARIOS
+# 15. API - GESTIÓN DE USUARIOS
 # ============================================================
 
 @app.route('/api/toggle-admin', methods=['POST'])
@@ -925,7 +1011,7 @@ def toggle_admin():
         return jsonify({'success': False, 'error': str(e)})
 
 # ============================================================
-# 14. ADMIN - PANEL COMPLETO
+# 16. ADMIN - PANEL COMPLETO
 # ============================================================
 
 @app.route('/admin')
@@ -958,7 +1044,7 @@ def admin_panel():
                           stats=stats)
 
 # ============================================================
-# 15. MANEJO DE ERRORES
+# 17. MANEJO DE ERRORES
 # ============================================================
 
 @app.errorhandler(404)
@@ -975,7 +1061,7 @@ def internal_error(error):
     return jsonify({"error": "Error interno del servidor"}), 500
 
 # ============================================================
-# 16. INICIALIZACIÓN
+# 18. INICIALIZACIÓN
 # ============================================================
 
 with app.app_context():

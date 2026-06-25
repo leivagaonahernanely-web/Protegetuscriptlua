@@ -4,17 +4,10 @@ from discord.ext import commands
 from discord import app_commands
 import datetime
 import logging
-from typing import Optional
 from dotenv import load_dotenv
 
-# Cargar variables de entorno
 load_dotenv()
 
-# ============================================================
-# 1. CONFIGURACIÓN Y LOGGING
-# ============================================================
-
-# ✅ Variables de entorno (NUNCA hardcodeadas)
 TOKEN = os.getenv("DISCORD_BOT_TOKEN")
 if not TOKEN:
     raise ValueError("❌ DISCORD_BOT_TOKEN no está configurado")
@@ -22,479 +15,441 @@ if not TOKEN:
 ADMIN_ID = int(os.getenv("ADMIN_DISCORD_ID", "1501316920975036611"))
 DOMINIO = os.getenv("DOMINIO", "https://protegetuscriptlua-production.up.railway.app")
 
-# Logging profesional
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler('bot.log'),
-        logging.StreamHandler()
-    ]
-)
-logger = logging.getLogger("LuaProtectBot")
-
-# ============================================================
-# 2. CONFIGURACIÓN DEL BOT
-# ============================================================
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("LuauProtectBot")
 
 intents = discord.Intents.default()
 intents.message_content = True
 intents.members = True
-intents.guilds = True
 
-bot = commands.Bot(
-    command_prefix="!",
-    intents=intents,
-    help_command=None,
-    activity=discord.Activity(
-        type=discord.ActivityType.watching,
-        name="tus scripts | LuauProtect Pro v3.0"
-    )
-)
+bot = commands.Bot(command_prefix="!", intents=intents, help_command=None)
 
 # ============================================================
-# 3. DECORADORES Y UTILIDADES
+# CLASE PARA GUARDAR EL ÚLTIMO RESET DE CADA USUARIO
+# ============================================================
+last_reset = {}  # {discord_id: datetime}
+
+# ============================================================
+# COMANDO /panel
 # ============================================================
 
-def es_admin(ctx) -> bool:
-    """Verifica si el usuario es administrador"""
-    return ctx.author.id == ADMIN_ID
-
-async def responder_embed(ctx, titulo: str, descripcion: str, color: int = 0x3498db, 
-                          campos: list = None, footer: str = None):
-    """Función auxiliar para crear embeds consistentes"""
+@bot.tree.command(name="panel", description="Abre el panel de control del script")
+async def panel(interaction: discord.Interaction):
+    """Panel principal con todos los botones"""
+    
+    # Verificar si el usuario tiene key
+    from app import db, License, User, Script
+    
+    user = User.query.filter_by(discord_id=str(interaction.user.id)).first()
+    if not user:
+        await interaction.response.send_message("❌ No estás registrado. Inicia sesión en la web primero.", ephemeral=True)
+        return
+    
+    # Buscar licencia del usuario
+    license = License.query.filter_by(hwid=str(interaction.user.id)).first()
+    if not license:
+        license = License.query.filter_by(created_by=user.id).first()
+    
+    # Buscar script (el primero activo)
+    script = Script.query.filter_by(active=True).first()
+    if not script:
+        await interaction.response.send_message("❌ No hay scripts disponibles.", ephemeral=True)
+        return
+    
+    # Crear embed
     embed = discord.Embed(
-        title=titulo,
-        description=descripcion,
-        color=color,
+        title=f"🛡️ {script.name} - Panel de Control",
+        description=script.description or "Script protegido con LuauProtect",
+        color=0x5865F2,
         timestamp=datetime.datetime.utcnow()
     )
-    if campos:
-        for nombre, valor, inline in campos:
-            embed.add_field(name=nombre, value=valor, inline=inline if inline is not None else False)
-    if footer:
-        embed.set_footer(text=footer)
+    
+    # Estado de la licencia
+    if license and license.is_valid():
+        embed.add_field(name="✅ Estado", value="Activa", inline=True)
+        embed.add_field(name="🔑 Key", value=f"`{license.key}`", inline=True)
+        embed.add_field(name="🖥️ HWID", value=f"`{license.hwid or 'Sin asignar'}`", inline=True)
+        embed.add_field(name="📊 Usos", value=f"{license.used_count} (Ilimitado)", inline=True)
+        embed.add_field(name="📅 Expira", value=license.expires_at.strftime('%d/%m/%Y') if license.expires_at else "Nunca", inline=True)
+        embed.set_footer(text="¡Todos los botones están disponibles!")
     else:
-        embed.set_footer(text="LuauProtect Pro v3.0")
-    await ctx.send(embed=embed)
-
-def manejar_error_async(func):
-    """Decorador para manejar errores en comandos"""
-    async def wrapper(ctx, *args, **kwargs):
-        try:
-            await func(ctx, *args, **kwargs)
-        except Exception as e:
-            logger.error(f"Error en comando {func.__name__}: {str(e)}")
-            embed = discord.Embed(
-                title="❌ Error",
-                description=f"Ocurrió un error: {str(e)}",
-                color=0xe74c3c
-            )
-            await ctx.send(embed=embed)
-    return wrapper
+        embed.add_field(name="⚠️ Estado", value="Sin licencia", inline=False)
+        embed.add_field(name="🔑 Acción", value="Usa 'Redeem Key' para canjear tu key", inline=False)
+        embed.set_footer(text="⚠️ Compra tu key primero para acceder a todas las funciones!")
+    
+    # Botones
+    view = discord.ui.View(timeout=300)
+    
+    # Botón View Script
+    view.add_item(discord.ui.Button(
+        label="📜 View Script",
+        style=discord.ButtonStyle.primary,
+        custom_id="view_script"
+    ))
+    
+    # Botón Redeem Key
+    view.add_item(discord.ui.Button(
+        label="🔑 Redeem Key",
+        style=discord.ButtonStyle.success,
+        custom_id="redeem_key"
+    ))
+    
+    # Botón Key Info
+    view.add_item(discord.ui.Button(
+        label="ℹ️ Key Info",
+        style=discord.ButtonStyle.secondary,
+        custom_id="key_info"
+    ))
+    
+    # Botón Reset HWID
+    view.add_item(discord.ui.Button(
+        label="🔄 Reset HWID",
+        style=discord.ButtonStyle.danger,
+        custom_id="reset_hwid"
+    ))
+    
+    await interaction.response.send_message(embed=embed, view=view)
 
 # ============================================================
-# 4. EVENTOS DEL BOT
+# MANEJADOR DE BOTONES DEL PANEL
+# ============================================================
+
+@bot.event
+async def on_interaction(interaction: discord.Interaction):
+    if interaction.type != discord.InteractionType.component:
+        return
+    
+    custom_id = interaction.data.get("custom_id", "")
+    
+    if custom_id == "view_script":
+        await view_script(interaction)
+    elif custom_id == "redeem_key":
+        await redeem_key(interaction)
+    elif custom_id == "key_info":
+        await key_info(interaction)
+    elif custom_id == "reset_hwid":
+        await reset_hwid(interaction)
+
+# ============================================================
+# 1. VIEW SCRIPT (Con tu key automática)
+# ============================================================
+
+async def view_script(interaction: discord.Interaction):
+    from app import db, License, User, Script
+    
+    # Buscar usuario
+    user = User.query.filter_by(discord_id=str(interaction.user.id)).first()
+    if not user:
+        await interaction.response.send_message("❌ No estás registrado.", ephemeral=True)
+        return
+    
+    # Buscar licencia del usuario
+    license = License.query.filter_by(hwid=str(interaction.user.id)).first()
+    if not license:
+        license = License.query.filter_by(created_by=user.id).first()
+    
+    if not license or not license.is_valid():
+        await interaction.response.send_message(
+            "❌ **No tienes una key válida.**\n"
+            "Compra tu key primero usando el botón **'Redeem Key'**.",
+            ephemeral=True
+        )
+        return
+    
+    # Buscar script
+    script = Script.query.filter_by(hash_id=license.script_hash, active=True).first()
+    if not script:
+        script = Script.query.filter_by(active=True).first()
+    
+    if not script:
+        await interaction.response.send_message("❌ No hay scripts disponibles.", ephemeral=True)
+        return
+    
+    # 🔥 LOADER CON LA KEY AUTOMÁTICA
+    loader = f'loadstring(game:HttpGet("{DOMINIO}/api/load/{script.hash_id}?key={license.key}&hwid="..tostring({{}}):gsub("table: ","")))()'
+    
+    embed = discord.Embed(
+        title=f"📜 {script.name} - Loader",
+        description="Copia este código en tu ejecutor de Roblox",
+        color=0x5865F2,
+        timestamp=datetime.datetime.utcnow()
+    )
+    embed.add_field(name="🔑 Key Usada", value=f"`{license.key}`", inline=False)
+    embed.add_field(name="📋 Loader", value=f"```lua\n{loader}\n```", inline=False)
+    embed.set_footer(text="LuauProtect Pro")
+    
+    # Botón para copiar
+    view = discord.ui.View()
+    view.add_item(discord.ui.Button(
+        label="📋 Copiar Loader",
+        style=discord.ButtonStyle.primary,
+        custom_id="copy_loader"
+    ))
+    
+    await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+
+# ============================================================
+# 2. REDEEM KEY (Canjear Key)
+# ============================================================
+
+class KeyModal(discord.ui.Modal, title="🔑 Canjear Key"):
+    key_input = discord.ui.TextInput(
+        label="Key",
+        placeholder="Ingresa tu key aquí...",
+        style=discord.TextStyle.short,
+        required=True,
+        min_length=10,
+        max_length=64
+    )
+    
+    async def on_submit(self, interaction: discord.Interaction):
+        from app import db, License, User, Script
+        
+        key = self.key_input.value.strip()
+        
+        # Buscar licencia
+        license = License.query.filter_by(key=key, active=True).first()
+        if not license:
+            await interaction.response.send_message("❌ Key inválida o inactiva.", ephemeral=True)
+            return
+        
+        # Verificar si la key ya tiene HWID
+        if license.hwid and license.hwid != str(interaction.user.id):
+            await interaction.response.send_message("❌ Esta key ya está en uso por otro usuario.", ephemeral=True)
+            return
+        
+        # Asignar HWID (si no tiene)
+        if not license.hwid:
+            license.hwid = str(interaction.user.id)
+            db.session.commit()
+        
+        # Buscar script
+        script = Script.query.filter_by(hash_id=license.script_hash).first()
+        
+        embed = discord.Embed(
+            title="✅ Key Canjeada Exitosamente",
+            color=0x2ecc71,
+            timestamp=datetime.datetime.utcnow()
+        )
+        embed.add_field(name="🔑 Key", value=f"`{key}`", inline=False)
+        embed.add_field(name="📜 Script", value=script.name if script else "Desconocido", inline=True)
+        embed.add_field(name="📅 Expira", value=license.expires_at.strftime('%d/%m/%Y') if license.expires_at else "Nunca", inline=True)
+        embed.add_field(name="🖥️ HWID", value=f"`{license.hwid}`", inline=True)
+        embed.set_footer(text="LuauProtect Pro")
+        
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+async def redeem_key(interaction: discord.Interaction):
+    await interaction.response.send_modal(KeyModal())
+
+# ============================================================
+# 3. KEY INFO (Info de tu key)
+# ============================================================
+
+async def key_info(interaction: discord.Interaction):
+    from app import db, License, User, Script
+    
+    user = User.query.filter_by(discord_id=str(interaction.user.id)).first()
+    if not user:
+        await interaction.response.send_message("❌ No estás registrado.", ephemeral=True)
+        return
+    
+    license = License.query.filter_by(hwid=str(interaction.user.id)).first()
+    if not license:
+        license = License.query.filter_by(created_by=user.id).first()
+    
+    if not license or not license.is_valid():
+        await interaction.response.send_message(
+            "❌ **No tienes una key válida.**\n"
+            "Compra tu key primero usando el botón **'Redeem Key'**.",
+            ephemeral=True
+        )
+        return
+    
+    script = Script.query.filter_by(hash_id=license.script_hash).first()
+    
+    embed = discord.Embed(
+        title="ℹ️ Información de tu Key",
+        color=0x3498db,
+        timestamp=datetime.datetime.utcnow()
+    )
+    embed.add_field(name="🔑 Key", value=f"`{license.key}`", inline=False)
+    embed.add_field(name="📜 Script", value=script.name if script else "Desconocido", inline=True)
+    embed.add_field(name="✅ Estado", value="Activa" if license.active else "Inactiva", inline=True)
+    embed.add_field(name="🖥️ HWID", value=f"`{license.hwid or 'Sin asignar'}`", inline=True)
+    embed.add_field(name="📊 Usos", value=f"{license.used_count} (Ilimitado)", inline=True)
+    embed.add_field(name="📅 Expira", value=license.expires_at.strftime('%d/%m/%Y %H:%M') if license.expires_at else "Nunca", inline=True)
+    embed.add_field(name="📅 Creada", value=license.created_at.strftime('%d/%m/%Y %H:%M'), inline=True)
+    embed.set_footer(text="LuauProtect Pro")
+    
+    await interaction.response.send_message(embed=embed, ephemeral=True)
+
+# ============================================================
+# 4. RESET HWID (1 vez cada 24 horas)
+# ============================================================
+
+async def reset_hwid(interaction: discord.Interaction):
+    from app import db, License, User
+    
+    user = User.query.filter_by(discord_id=str(interaction.user.id)).first()
+    if not user:
+        await interaction.response.send_message("❌ No estás registrado.", ephemeral=True)
+        return
+    
+    license = License.query.filter_by(hwid=str(interaction.user.id)).first()
+    if not license:
+        license = License.query.filter_by(created_by=user.id).first()
+    
+    if not license or not license.is_valid():
+        await interaction.response.send_message(
+            "❌ **No tienes una key válida.**\n"
+            "Compra tu key primero usando el botón **'Redeem Key'**.",
+            ephemeral=True
+        )
+        return
+    
+    # Verificar límite de 24 horas
+    user_id = str(interaction.user.id)
+    if user_id in last_reset:
+        time_since = datetime.datetime.utcnow() - last_reset[user_id]
+        if time_since < datetime.timedelta(days=1):
+            remaining = datetime.timedelta(days=1) - time_since
+            horas = int(remaining.total_seconds() // 3600)
+            minutos = int((remaining.total_seconds() % 3600) // 60)
+            await interaction.response.send_message(
+                f"⏳ **Debes esperar {horas}h {minutos}m para resetear nuevamente.**\n"
+                "El límite es 1 reset cada 24 horas.",
+                ephemeral=True
+            )
+            return
+    
+    # Resetear HWID
+    license.hwid = None
+    db.session.commit()
+    
+    # Guardar timestamp del reset
+    last_reset[user_id] = datetime.datetime.utcnow()
+    
+    embed = discord.Embed(
+        title="🔄 HWID Restablecido",
+        description="Tu HWID ha sido restablecido exitosamente.",
+        color=0x2ecc71,
+        timestamp=datetime.datetime.utcnow()
+    )
+    embed.add_field(name="🔑 Key", value=f"`{license.key}`", inline=True)
+    embed.add_field(name="🖥️ HWID Nuevo", value="`Sin asignar`", inline=True)
+    embed.add_field(name="⏳ Próximo reset", value="Disponible en 24 horas", inline=True)
+    embed.set_footer(text="LuauProtect Pro")
+    
+    await interaction.response.send_message(embed=embed, ephemeral=True)
+
+# ============================================================
+# 5. COPIA DE LOADER (Botón extra)
+# ============================================================
+
+@bot.tree.command(name="copiar", description="Copia el loader de tu script")
+async def copiar_loader(interaction: discord.Interaction):
+    from app import db, License, User, Script
+    
+    user = User.query.filter_by(discord_id=str(interaction.user.id)).first()
+    if not user:
+        await interaction.response.send_message("❌ No estás registrado.", ephemeral=True)
+        return
+    
+    license = License.query.filter_by(hwid=str(interaction.user.id)).first()
+    if not license:
+        license = License.query.filter_by(created_by=user.id).first()
+    
+    if not license or not license.is_valid():
+        await interaction.response.send_message("❌ No tienes una key válida.", ephemeral=True)
+        return
+    
+    script = Script.query.filter_by(hash_id=license.script_hash, active=True).first()
+    if not script:
+        script = Script.query.filter_by(active=True).first()
+    
+    if not script:
+        await interaction.response.send_message("❌ No hay scripts disponibles.", ephemeral=True)
+        return
+    
+    loader = f'loadstring(game:HttpGet("{DOMINIO}/api/load/{script.hash_id}?key={license.key}&hwid="..tostring({{}}):gsub("table: ","")))()'
+    
+    await interaction.response.send_message(f"```lua\n{loader}\n```", ephemeral=True)
+
+# ============================================================
+# COMANDOS DE ADMIN (Ver todo)
+# ============================================================
+
+@bot.tree.command(name="admin_scripts", description="[Admin] Ver todos los scripts subidos")
+async def admin_scripts(interaction: discord.Interaction):
+    if interaction.user.id != ADMIN_ID:
+        await interaction.response.send_message("❌ No tienes permisos.", ephemeral=True)
+        return
+    
+    from app import Script
+    
+    scripts = Script.query.all()
+    if not scripts:
+        await interaction.response.send_message("📭 No hay scripts subidos.", ephemeral=True)
+        return
+    
+    texto = "**📜 Scripts Subidos:**\n\n"
+    for s in scripts:
+        texto += f"• `{s.hash_id}` - **{s.name}** v{s.version} - 📥 {s.downloads} descargas\n"
+    
+    embed = discord.Embed(
+        title="📜 Scripts - Panel Admin",
+        description=texto,
+        color=0x3498db,
+        timestamp=datetime.datetime.utcnow()
+    )
+    embed.set_footer(text="LuauProtect Pro - Admin")
+    await interaction.response.send_message(embed=embed, ephemeral=True)
+
+@bot.tree.command(name="admin_keys", description="[Admin] Ver todas las keys")
+async def admin_keys(interaction: discord.Interaction):
+    if interaction.user.id != ADMIN_ID:
+        await interaction.response.send_message("❌ No tienes permisos.", ephemeral=True)
+        return
+    
+    from app import License
+    
+    keys = License.query.all()
+    if not keys:
+        await interaction.response.send_message("📭 No hay keys generadas.", ephemeral=True)
+        return
+    
+    texto = "**🔑 Keys Generadas:**\n\n"
+    for k in keys[:20]:
+        estado = "✅" if k.active else "❌"
+        hwid = k.hwid[:16] + "..." if k.hwid else "Sin asignar"
+        texto += f"• `{k.key}` - {estado} - HWID: `{hwid}`\n"
+    
+    if len(keys) > 20:
+        texto += f"\n_... y {len(keys) - 20} más._"
+    
+    embed = discord.Embed(
+        title="🔑 Keys - Panel Admin",
+        description=texto,
+        color=0x3498db,
+        timestamp=datetime.datetime.utcnow()
+    )
+    embed.set_footer(text="LuauProtect Pro - Admin")
+    await interaction.response.send_message(embed=embed, ephemeral=True)
+
+# ============================================================
+# SINCRONIZAR COMANDOS SLASH
 # ============================================================
 
 @bot.event
 async def on_ready():
-    """Evento cuando el bot se conecta"""
-    logger.info(f"✅ Bot conectado como {bot.user} (ID: {bot.user.id})")
-    logger.info(f"📊 Conectado a {len(bot.guilds)} servidores")
-    logger.info(f"👥 Total de usuarios: {len(bot.users)}")
-    
-    # Sincronizar comandos slash (globales)
-    try:
-        synced = await bot.tree.sync()
-        logger.info(f"✅ Comandos slash sincronizados: {len(synced)}")
-    except Exception as e:
-        logger.error(f"❌ Error sincronizando comandos slash: {e}")
-
-@bot.event
-async def on_command_error(ctx, error):
-    """Manejo global de errores de comandos"""
-    if isinstance(error, commands.MissingPermissions):
-        await ctx.send("❌ No tienes permisos para usar este comando.")
-    elif isinstance(error, commands.MissingRequiredArgument):
-        await ctx.send(f"❌ Faltan argumentos. Usa `!ayuda` para ver la sintaxis.")
-    elif isinstance(error, commands.CheckFailure):
-        await ctx.send("❌ No tienes permisos para usar este comando.")
-    else:
-        logger.error(f"Error en comando: {error}")
-        await ctx.send(f"❌ Error inesperado: {str(error)}")
-
-# ============================================================
-# 5. COMANDOS DE ADMINISTRACIÓN
-# ============================================================
-
-@bot.command(name="generar", aliases=["gclave", "gen"])
-@commands.check(es_admin)
-@manejar_error_async
-async def generar_clave(ctx, hash_script: str, dias: int = 30, usos: int = 1):
-    """Genera una nueva licencia para un script"""
-    from app import db, License, generar_clave
-    
-    # Verificar que el script existe
-    from app import Script
-    script = Script.query.filter_by(hash_id=hash_script, active=True).first()
-    if not script:
-        await responder_embed(
-            ctx,
-            "❌ Error",
-            f"El script con hash `{hash_script}` no existe o está inactivo.",
-            color=0xe74c3c
-        )
-        return
-    
-    # Limitar usos máximos
-    if usos > 10:
-        await responder_embed(
-            ctx,
-            "⚠️ Advertencia",
-            "Los usos máximos están limitados a 10 por licencia por razones de seguridad.",
-            color=0xf1c40f
-        )
-        usos = 10
-    
-    # Generar clave única
-    clave = generar_clave()
-    while License.query.filter_by(key=clave).first():
-        clave = generar_clave()
-    
-    # Configurar expiración
-    expira = datetime.datetime.utcnow() + datetime.timedelta(days=dias)
-    
-    # Crear licencia
-    nueva = License(
-        key=clave,
-        script_hash=hash_script,
-        max_uses=usos,
-        expires_at=expira,
-        created_by=ADMIN_ID
-    )
-    db.session.add(nueva)
-    db.session.commit()
-    
-    logger.info(f"Licencia generada: {clave} para script {hash_script} por {ctx.author.name}")
-    
-    # Responder con embed
-    await responder_embed(
-        ctx,
-        "🔑 Licencia Generada",
-        "La licencia se ha creado exitosamente.",
-        color=0x2ecc71,
-        campos=[
-            ("Clave", f"`{clave}`", False),
-            ("Script", f"`{hash_script}` - {script.name}", True),
-            ("Duración", f"{dias} días", True),
-            ("Usos", f"{usos}", True),
-            ("Expira", expira.strftime('%d/%m/%Y %H:%M UTC'), True)
-        ]
-    )
-
-@bot.command(name="reset", aliases=["rhwid"])
-@commands.check(es_admin)
-@manejar_error_async
-async def reset_hwid(ctx, clave: str):
-    """Restablece el HWID de una licencia"""
-    from app import db, License
-    
-    lic = License.query.filter_by(key=clave).first()
-    if not lic:
-        await responder_embed(
-            ctx,
-            "❌ Error",
-            f"No se encontró la clave `{clave}`",
-            color=0xe74c3c
-        )
-        return
-    
-    # Guardar HWID anterior para log
-    hwid_anterior = lic.hwid or "Ninguno"
-    lic.hwid = None
-    db.session.commit()
-    
-    logger.info(f"HWID restablecido para clave {clave} por {ctx.author.name}")
-    
-    await responder_embed(
-        ctx,
-        "🔄 HWID Restablecido",
-        f"Se ha restablecido el HWID de la clave `{clave}`",
-        color=0x3498db,
-        campos=[
-            ("HWID Anterior", f"`{hwid_anterior}`", False)
-        ]
-    )
-
-@bot.command(name="desactivar", aliases=["dclave", "deactivate"])
-@commands.check(es_admin)
-@manejar_error_async
-async def desactivar_clave(ctx, clave: str):
-    """Desactiva una licencia"""
-    from app import db, License
-    
-    lic = License.query.filter_by(key=clave).first()
-    if not lic:
-        await responder_embed(
-            ctx,
-            "❌ Error",
-            f"No se encontró la clave `{clave}`",
-            color=0xe74c3c
-        )
-        return
-    
-    lic.active = False
-    db.session.commit()
-    
-    logger.info(f"Clave desactivada: {clave} por {ctx.author.name}")
-    
-    await responder_embed(
-        ctx,
-        "⛔ Clave Desactivada",
-        f"La clave `{clave}` ha sido desactivada.",
-        color=0xe74c3c,
-        campos=[
-            ("Script", f"`{lic.script_hash}`", True),
-            ("Estado", "Inactiva", True)
-        ]
-    )
-
-@bot.command(name="activar", aliases=["aclave", "activate"])
-@commands.check(es_admin)
-@manejar_error_async
-async def activar_clave(ctx, clave: str):
-    """Reactiva una licencia"""
-    from app import db, License
-    
-    lic = License.query.filter_by(key=clave).first()
-    if not lic:
-        await responder_embed(
-            ctx,
-            "❌ Error",
-            f"No se encontró la clave `{clave}`",
-            color=0xe74c3c
-        )
-        return
-    
-    lic.active = True
-    db.session.commit()
-    
-    logger.info(f"Clave activada: {clave} por {ctx.author.name}")
-    
-    await responder_embed(
-        ctx,
-        "✅ Clave Activada",
-        f"La clave `{clave}` ha sido reactivada.",
-        color=0x2ecc71,
-        campos=[
-            ("Script", f"`{lic.script_hash}`", True),
-            ("Estado", "Activa", True)
-        ]
-    )
-
-@bot.command(name="info", aliases=["claveinfo", "check"])
-@commands.check(es_admin)
-@manejar_error_async
-async def info_clave(ctx, clave: str):
-    """Muestra información detallada de una licencia"""
-    from app import License, Script
-    
-    lic = License.query.filter_by(key=clave).first()
-    if not lic:
-        await responder_embed(
-            ctx,
-            "❌ Error",
-            f"No se encontró la clave `{clave}`",
-            color=0xe74c3c
-        )
-        return
-    
-    script = Script.query.filter_by(hash_id=lic.script_hash).first()
-    
-    estado = "Activa" if lic.active else "Inactiva"
-    estado_color = 0x2ecc71 if lic.active else 0xe74c3c
-    
-    await responder_embed(
-        ctx,
-        f"🔍 Información de Clave",
-        f"Detalles de la clave `{clave}`",
-        color=estado_color,
-        campos=[
-            ("Script", f"`{lic.script_hash}` - {script.name if script else 'Desconocido'}", False),
-            ("Estado", estado, True),
-            ("HWID", f"`{lic.hwid or 'Sin asignar'}`", True),
-            ("Usos", f"{lic.used_count}/{lic.max_uses}", True),
-            ("Creada", lic.created_at.strftime('%d/%m/%Y %H:%M'), True),
-            ("Expira", lic.expires_at.strftime('%d/%m/%Y %H:%M') if lic.expires_at else 'Nunca', True)
-        ]
-    )
-
-# ============================================================
-# 6. COMANDO DE AYUDA MEJORADO
-# ============================================================
-
-@bot.command(name="ayuda", aliases=["help", "comandos"])
-async def ayuda(ctx):
-    """Muestra todos los comandos disponibles"""
-    embed = discord.Embed(
-        title="📚 Comandos de LuauProtect Pro",
-        description="Sistema de protección de scripts v3.0",
-        color=0x3498db,
-        timestamp=datetime.datetime.utcnow()
-    )
-    
-    embed.add_field(
-        name="🔑 Gestión de Licencias",
-        value=(
-            "`!generar <hash> [días] [usos]` - Genera licencia\n"
-            "`!info <clave>` - Info de licencia\n"
-            "`!desactivar <clave>` - Bloquea licencia\n"
-            "`!activar <clave>` - Reactiva licencia"
-        ),
-        inline=False
-    )
-    
-    embed.add_field(
-        name="🛡️ Gestión de HWID",
-        value="`!reset <clave>` - Restablece HWID",
-        inline=False
-    )
-    
-    embed.add_field(
-        name="📊 Estadísticas",
-        value="`!stats` - Estadísticas del sistema",
-        inline=False
-    )
-    
-    embed.add_field(
-        name="🌐 Dominio API",
-        value=f"`{DOMINIO}`",
-        inline=False
-    )
-    
-    embed.set_footer(text="Solo administradores pueden usar comandos de gestión")
-    
-    await ctx.send(embed=embed)
-
-# ============================================================
-# 7. COMANDOS DE ESTADÍSTICAS
-# ============================================================
-
-@bot.command(name="stats", aliases=["estadisticas"])
-@commands.check(es_admin)
-@manejar_error_async
-async def stats(ctx):
-    """Muestra estadísticas del sistema"""
-    from app import Script, License, User, AccessLog
-    
-    total_scripts = Script.query.count()
-    active_scripts = Script.query.filter_by(active=True).count()
-    total_licenses = License.query.count()
-    active_licenses = License.query.filter_by(active=True).count()
-    total_users = User.query.count()
-    total_access = AccessLog.query.count()
-    success_access = AccessLog.query.filter_by(success=True).count()
-    
-    embed = discord.Embed(
-        title="📊 Estadísticas de LuauProtect",
-        color=0x3498db,
-        timestamp=datetime.datetime.utcnow()
-    )
-    
-    embed.add_field(
-        name="📜 Scripts",
-        value=f"Total: **{total_scripts}**\nActivos: **{active_scripts}**",
-        inline=True
-    )
-    
-    embed.add_field(
-        name="🔑 Licencias",
-        value=f"Total: **{total_licenses}**\nActivas: **{active_licenses}**",
-        inline=True
-    )
-    
-    embed.add_field(
-        name="👥 Usuarios",
-        value=f"**{total_users}** registrados",
-        inline=True
-    )
-    
-    embed.add_field(
-        name="📡 Accesos",
-        value=f"Total: **{total_access}**\nExitosos: **{success_access}**",
-        inline=False
-    )
-    
-    embed.set_footer(text=f"Última actualización")
-    await ctx.send(embed=embed)
-
-# ============================================================
-# 8. COMANDOS SLASH (INTERACCIONES MODERNAS)
-# ============================================================
-
-@bot.tree.command(name="generar", description="Genera una nueva licencia para un script")
-@app_commands.describe(
-    hash_script="Hash ID del script",
-    dias="Días de validez (default: 30)",
-    usos="Número de usos permitidos (default: 1)"
-)
-async def slash_generar(interaction: discord.Interaction, hash_script: str, dias: int = 30, usos: int = 1):
-    """Versión Slash Command de generar"""
-    if interaction.user.id != ADMIN_ID:
-        await interaction.response.send_message("❌ No tienes permisos para usar este comando.", ephemeral=True)
-        return
-    
-    # Simular el contexto de un comando normal
-    class MockContext:
-        author = interaction.user
-        send = interaction.response.send_message
-    
-    ctx = MockContext()
-    await generar_clave(ctx, hash_script, dias, usos)
-    # Nota: Esto requiere adaptación para funcionar con interacciones
-
-# ============================================================
-# 9. COMANDOS DE UTILIDAD
-# ============================================================
-
-@bot.command(name="ping")
-async def ping(ctx):
-    """Verifica la latencia del bot"""
-    latency = round(bot.latency * 1000)
-    embed = discord.Embed(
-        title="🏓 Pong!",
-        description=f"Latencia: **{latency}ms**",
-        color=0x2ecc71 if latency < 100 else (0xf1c40f if latency < 200 else 0xe74c3c)
-    )
-    await ctx.send(embed=embed)
-
-@bot.command(name="sync")
-@commands.check(es_admin)
-async def sync_commands(ctx):
-    """Sincroniza los comandos slash manualmente"""
-    try:
-        synced = await bot.tree.sync()
-        await ctx.send(f"✅ Comandos sincronizados: {len(synced)}")
-    except Exception as e:
-        await ctx.send(f"❌ Error sincronizando: {str(e)}")
-
-# ============================================================
-# 10. INICIALIZACIÓN
-# ============================================================
+    await bot.tree.sync()
+    print(f"✅ Bot conectado como {bot.user}")
+    print(f"✅ Comandos slash sincronizados")
+    print(f"📊 Conectado a {len(bot.guilds)} servidores")
 
 if __name__ == "__main__":
     if not TOKEN:
-        logger.error("❌ ERROR: Token no encontrado en variables de entorno")
-        print("❌ ERROR: Token no encontrado en variables de entorno")
-        print("Asegúrate de tener DISCORD_BOT_TOKEN en tu archivo .env")
+        print("❌ ERROR: Token no encontrado")
     else:
-        try:
-            logger.info("🚀 Iniciando LuauProtect Bot...")
-            bot.run(TOKEN)
-        except discord.LoginFailure:
-            logger.error("❌ Token inválido. Verifica DISCORD_BOT_TOKEN")
-            print("❌ Token inválido. Verifica DISCORD_BOT_TOKEN")
-        except Exception as e:
-            logger.error(f"❌ Error crítico: {str(e)}")
-            print(f"❌ Error crítico: {str(e)}") 
+        bot.run(TOKEN)

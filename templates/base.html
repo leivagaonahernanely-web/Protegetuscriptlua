@@ -2,11 +2,11 @@
 <html lang="es">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>{% block title %}LuauProtect Pro{% endblock %}</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
     <script>
         tailwind.config = {
             theme: {
@@ -23,6 +23,8 @@
                         success: '#10b981',
                         danger: '#ef4444',
                         warning: '#f59e0b',
+                        discord: '#5865F2',
+                        discordHover: '#4752c4',
                     },
                     fontFamily: {
                         sans: ['Inter', 'sans-serif'],
@@ -30,6 +32,7 @@
                     boxShadow: {
                         glow: '0 0 40px rgba(88, 101, 242, 0.15)',
                         card: '0 4px 24px rgba(0, 0, 0, 0.4)',
+                        glowDiscord: '0 0 30px rgba(88, 101, 242, 0.3)',
                     }
                 }
             }
@@ -61,12 +64,14 @@
         ::-webkit-scrollbar-thumb:hover {
             background: #2a3a50;
         }
+        
+        /* ========== SIDEBAR ========== */
         .sidebar {
             position: fixed;
             top: 0;
             left: 0;
             height: 100vh;
-            width: 260px;
+            width: 280px;
             background: #0f141e;
             border-right: 1px solid #1e2a3a;
             transform: translateX(-100%);
@@ -80,25 +85,37 @@
         .sidebar.open {
             transform: translateX(0);
         }
-        .sidebar .logo {
+        .sidebar::-webkit-scrollbar {
+            width: 3px;
+        }
+        
+        /* ========== LOGO ========== */
+        .logo {
             font-size: 22px;
             font-weight: 800;
             color: #5865F2;
             padding: 8px 12px;
-            margin-bottom: 32px;
+            margin-bottom: 28px;
             display: flex;
             align-items: center;
             gap: 10px;
+            text-decoration: none;
         }
-        .sidebar .logo span {
-            background: #5865F2;
+        .logo i {
+            font-size: 26px;
+        }
+        .logo span {
+            background: linear-gradient(135deg, #5865F2, #4752c4);
             color: #fff;
             font-size: 10px;
             font-weight: 700;
-            padding: 2px 10px;
+            padding: 2px 12px;
             border-radius: 20px;
             letter-spacing: 0.5px;
+            margin-left: auto;
         }
+        
+        /* ========== NAVEGACIÓN ========== */
         .nav-item {
             display: flex;
             align-items: center;
@@ -111,6 +128,7 @@
             transition: all 0.15s ease;
             text-decoration: none;
             margin-bottom: 2px;
+            position: relative;
         }
         .nav-item:hover {
             background: #141b26;
@@ -120,9 +138,21 @@
             background: #141b26;
             color: #5865F2;
         }
+        .nav-item.active::before {
+            content: '';
+            position: absolute;
+            left: 0;
+            top: 50%;
+            transform: translateY(-50%);
+            width: 3px;
+            height: 24px;
+            background: #5865F2;
+            border-radius: 0 4px 4px 0;
+        }
         .nav-item i {
             width: 20px;
             font-size: 16px;
+            text-align: center;
         }
         .nav-item .badge {
             margin-left: auto;
@@ -132,6 +162,58 @@
             font-size: 11px;
             color: #8892a0;
         }
+        
+        /* ========== BOTÓN INVITAR BOT ========== */
+        .btn-invite-bot {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 12px 16px;
+            margin-top: 8px;
+            margin-bottom: 8px;
+            background: linear-gradient(135deg, #5865F2, #4752c4);
+            color: #fff;
+            border-radius: 12px;
+            font-weight: 600;
+            font-size: 14px;
+            text-decoration: none;
+            transition: all 0.25s ease;
+            border: none;
+            cursor: pointer;
+            box-shadow: 0 4px 20px rgba(88, 101, 242, 0.25);
+            position: relative;
+            overflow: hidden;
+        }
+        .btn-invite-bot::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background: linear-gradient(135deg, rgba(255,255,255,0.1), transparent);
+            pointer-events: none;
+        }
+        .btn-invite-bot:hover {
+            transform: translateY(-2px) scale(1.02);
+            box-shadow: 0 8px 30px rgba(88, 101, 242, 0.4);
+        }
+        .btn-invite-bot:active {
+            transform: scale(0.98);
+        }
+        .btn-invite-bot i {
+            font-size: 18px;
+            color: #fff;
+        }
+        .btn-invite-bot .arrow {
+            margin-left: auto;
+            font-size: 14px;
+            opacity: 0.7;
+            transition: transform 0.2s;
+        }
+        .btn-invite-bot:hover .arrow {
+            transform: translateX(4px);
+            opacity: 1;
+        }
+        
+        /* ========== SECCIÓN USUARIO ========== */
         .user-section {
             margin-top: auto;
             padding-top: 20px;
@@ -155,6 +237,7 @@
             color: #5865F2;
             font-size: 16px;
             overflow: hidden;
+            flex-shrink: 0;
         }
         .user-avatar img {
             width: 100%;
@@ -170,18 +253,42 @@
             font-size: 12px;
             color: #8892a0;
         }
+        .user-role {
+            font-size: 10px;
+            background: #1e2a3a;
+            padding: 2px 10px;
+            border-radius: 20px;
+            color: #8892a0;
+            display: inline-block;
+            margin-top: 2px;
+        }
+        .user-role.admin {
+            background: rgba(88, 101, 242, 0.2);
+            color: #5865F2;
+        }
         .logout-btn {
+            display: flex;
+            align-items: center;
+            gap: 8px;
             color: #8892a0;
             font-size: 13px;
-            padding: 6px 12px;
-            border-radius: 6px;
+            padding: 8px 14px;
+            border-radius: 8px;
             transition: all 0.15s;
             text-decoration: none;
+            margin-top: 8px;
+            border: 1px solid transparent;
         }
         .logout-btn:hover {
             color: #ef4444;
-            background: #1e2a3a;
+            background: rgba(239, 68, 68, 0.1);
+            border-color: rgba(239, 68, 68, 0.2);
         }
+        .logout-btn i {
+            font-size: 14px;
+        }
+        
+        /* ========== OVERLAY MÓVIL ========== */
         .overlay {
             position: fixed;
             inset: 0;
@@ -210,6 +317,8 @@
         .menu-toggle:hover {
             background: #1a2332;
         }
+        
+        /* ========== RESPONSIVE ========== */
         @media (min-width: 768px) {
             .sidebar {
                 transform: translateX(0) !important;
@@ -223,9 +332,6 @@
             .menu-toggle {
                 display: none !important;
             }
-            main {
-                margin-left: 0;
-            }
         }
         @media (max-width: 767px) {
             .menu-toggle {
@@ -234,7 +340,12 @@
             main {
                 padding-top: 70px;
             }
+            .sidebar {
+                width: 280px;
+            }
         }
+        
+        /* ========== CARDS Y COMPONENTES ========== */
         .card {
             background: #141b26;
             border: 1px solid #1e2a3a;
@@ -246,6 +357,7 @@
         .card:hover {
             border-color: #2a3a50;
         }
+        
         .btn-primary {
             background: #5865F2;
             color: #fff;
@@ -264,6 +376,7 @@
             transform: translateY(-1px);
             box-shadow: 0 8px 30px rgba(88, 101, 242, 0.3);
         }
+        
         .btn-danger {
             background: #ef4444;
             color: #fff;
@@ -277,6 +390,7 @@
         .btn-danger:hover {
             background: #dc2626;
         }
+        
         .btn-success {
             background: #10b981;
             color: #fff;
@@ -290,6 +404,7 @@
         .btn-success:hover {
             background: #059669;
         }
+        
         input, textarea, select {
             background: #0a0e17;
             border: 1px solid #1e2a3a;
@@ -308,6 +423,7 @@
         input::placeholder, textarea::placeholder {
             color: #4a5568;
         }
+        
         .stat-card {
             background: #141b26;
             border: 1px solid #1e2a3a;
@@ -334,6 +450,7 @@
             color: #5865F2;
             opacity: 0.7;
         }
+        
         .table-container {
             overflow-x: auto;
             border-radius: 12px;
@@ -362,6 +479,7 @@
         tr:hover td {
             background: #0f141e;
         }
+        
         .code-block {
             background: #0a0e17;
             border: 1px solid #1e2a3a;
@@ -372,6 +490,8 @@
             overflow-x: auto;
             color: #e8edf5;
         }
+        
+        /* ========== TOAST ========== */
         .toast {
             position: fixed;
             bottom: 24px;
@@ -395,50 +515,73 @@
         }
         .toast.success { border-color: #10b981; }
         .toast.error { border-color: #ef4444; }
+        .toast.warning { border-color: #f59e0b; }
     </style>
     {% block extra_css %}{% endblock %}
 </head>
 <body>
 
+<!-- ========== BOTÓN MENÚ MÓVIL ========== -->
 <button id="menuToggle" class="menu-toggle">
     <i class="fas fa-bars"></i>
 </button>
+
+<!-- ========== OVERLAY MÓVIL ========== -->
 <div id="overlay" class="overlay"></div>
 
+<!-- ========== LAYOUT PRINCIPAL ========== -->
 <div class="flex min-h-screen">
+    
+    <!-- ========== SIDEBAR ========== -->
     <aside id="sidebar" class="sidebar">
         <div>
-            <div class="logo">
+            <!-- LOGO -->
+            <a href="/dashboard" class="logo">
                 <i class="fas fa-shield-alt"></i>
                 LuauProtect
                 <span>Pro</span>
-            </div>
+            </a>
+            
+            <!-- NAVEGACIÓN -->
             <nav>
                 <a href="/dashboard" class="nav-item {% if request.path == '/dashboard' %}active{% endif %}">
                     <i class="fas fa-th-large"></i> Dashboard
                 </a>
                 <a href="/scripts" class="nav-item {% if '/scripts' in request.path %}active{% endif %}">
                     <i class="fas fa-code"></i> Scripts
-                    <span class="badge">{{ scripts_count|default(0) }}</span>
+                    <span class="badge">{{ scripts|length if scripts else 0 }}</span>
                 </a>
-                <a href="/licenses" class="nav-item {% if '/licenses' in request.path %}active{% endif %}">
+                <a href="/keys" class="nav-item {% if '/keys' in request.path %}active{% endif %}">
                     <i class="fas fa-key"></i> Licencias
-                    <span class="badge">{{ licenses_count|default(0) }}</span>
+                    <span class="badge">{{ keys|length if keys else 0 }}</span>
                 </a>
+                <a href="/protector" class="nav-item {% if '/protector' in request.path %}active{% endif %}">
+                    <i class="fas fa-shield-alt"></i> Protector
+                </a>
+                {% if user.is_admin %}
                 <a href="/hwid-bans" class="nav-item {% if '/hwid-bans' in request.path %}active{% endif %}">
                     <i class="fas fa-ban"></i> HWID Bans
                 </a>
-                <a href="/logs" class="nav-item {% if '/logs' in request.path %}active{% endif %}">
-                    <i class="fas fa-history"></i> Logs
-                </a>
-                {% if user.is_admin %}
-                <a href="/admin" class="nav-item {% if '/admin' in request.path %}active{% endif %}">
-                    <i class="fas fa-crown"></i> Admin
+                <a href="/users" class="nav-item {% if '/users' in request.path %}active{% endif %}">
+                    <i class="fas fa-users"></i> Usuarios
                     <span class="badge">👑</span>
                 </a>
                 {% endif %}
             </nav>
+            
+            <!-- ========== BOTÓN INVITAR BOT ========== -->
+            <div style="margin-top: 16px; padding: 0 4px;">
+                <a href="https://discord.com/oauth2/authorize?client_id=1519073151856803930&permissions=8&integration_type=0&scope=bot" 
+                   target="_blank" 
+                   class="btn-invite-bot">
+                    <i class="fab fa-discord"></i>
+                    <span>Invitar Bot</span>
+                    <i class="fas fa-arrow-right arrow"></i>
+                </a>
+            </div>
         </div>
+        
+        <!-- ========== SECCIÓN USUARIO ========== -->
         <div class="user-section">
             <div class="user-info">
                 <div class="user-avatar">
@@ -448,25 +591,34 @@
                         {{ user.username[:2].upper() }}
                     {% endif %}
                 </div>
-                <div>
-                    <div class="user-name">{{ user.username }}</div>
-                    <div class="user-email">{{ user.email|default('Usuario') }}</div>
+                <div style="flex:1; min-width:0;">
+                    <div class="user-name truncate">{{ user.username }}</div>
+                    <div class="user-email truncate">{{ user.email|default('Usuario') }}</div>
+                    <span class="user-role {% if user.is_admin %}admin{% endif %}">
+                        {% if user.is_admin %}👑 Administrador{% else %}👤 Usuario{% endif %}
+                    </span>
                 </div>
             </div>
-            <div style="display: flex; gap: 8px; margin-top: 12px;">
-                <a href="/logout" class="logout-btn"><i class="fas fa-sign-out-alt"></i> Cerrar sesión</a>
-            </div>
+            <a href="/logout" class="logout-btn">
+                <i class="fas fa-sign-out-alt"></i> Cerrar sesión
+            </a>
         </div>
     </aside>
 
+    <!-- ========== CONTENIDO PRINCIPAL ========== -->
     <main class="flex-1 p-4 md:p-8 w-full">
         {% block content %}{% endblock %}
     </main>
 </div>
 
+<!-- ========== TOAST ========== -->
 <div id="toast" class="toast"></div>
 
+<!-- ========== SCRIPTS ========== -->
 <script>
+    // ============================================================
+    // MENÚ MÓVIL
+    // ============================================================
     const sidebar = document.getElementById('sidebar');
     const overlay = document.getElementById('overlay');
     const toggleBtn = document.getElementById('menuToggle');
@@ -480,6 +632,16 @@
     toggleBtn.addEventListener('click', toggleMenu);
     overlay.addEventListener('click', toggleMenu);
 
+    // Cerrar sidebar al hacer clic en un enlace (móvil)
+    document.querySelectorAll('.nav-item').forEach(item => {
+        item.addEventListener('click', () => {
+            if (window.innerWidth < 768) toggleMenu();
+        });
+    });
+
+    // ============================================================
+    // TOAST NOTIFICACIONES
+    // ============================================================
     function showToast(message, type = 'success') {
         const toast = document.getElementById('toast');
         toast.textContent = message;
@@ -497,13 +659,22 @@
         {% endif %}
     {% endwith %}
 
-    // Cerrar sidebar al hacer clic en un enlace (móvil)
-    document.querySelectorAll('.nav-item').forEach(item => {
-        item.addEventListener('click', () => {
-            if (window.innerWidth < 768) toggleMenu();
-        });
-    });
+    // ============================================================
+    // COPIA AL PORTAPAPELES
+    // ============================================================
+    function copiarTexto(texto) {
+        navigator.clipboard.writeText(texto);
+        showToast('✅ Copiado al portapapeles', 'success');
+    }
+
+    // ============================================================
+    // CONFIRMACIONES
+    // ============================================================
+    function confirmarAccion(mensaje) {
+        return confirm(mensaje);
+    }
 </script>
+
 {% block extra_js %}{% endblock %}
 </body>
-    </html> 
+    </html>

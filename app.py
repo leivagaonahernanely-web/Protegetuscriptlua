@@ -10,6 +10,7 @@ import string
 import datetime
 import zlib
 import base64
+import hashlib
 import logging
 from functools import wraps
 
@@ -21,10 +22,13 @@ app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)
 app.config['SECRET_KEY'] = os.getenv("SECRET_KEY", "clave-segura-por-defecto-cambiar-en-produccion")
 app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv("DATABASE_URL", "sqlite:///luaprotect.db")
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+
+# Configuración de sesión para Railway
 app.config['SESSION_COOKIE_SECURE'] = True
 app.config['SESSION_COOKIE_HTTPONLY'] = True
 app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
 app.config['PERMANENT_SESSION_LIFETIME'] = datetime.timedelta(days=30)
+app.config['SESSION_COOKIE_DOMAIN'] = None
 
 # Variables de Discord (desde entorno)
 DISCORD_CLIENT_ID = os.getenv("DISCORD_CLIENT_ID")
@@ -43,7 +47,7 @@ login_manager.login_view = 'login'
 login_manager.login_message = "🔐 Inicia sesión con Discord"
 CORS(app, supports_credentials=True)
 
-# OAuth Discord
+# OAuth Discord con configuración corregida
 oauth = OAuth(app)
 discord = oauth.register(
     name='discord',
@@ -53,7 +57,9 @@ discord = oauth.register(
     authorize_url='https://discord.com/api/oauth2/authorize',
     api_base_url='https://discord.com/api/',
     redirect_uri=f'{DOMINIO}/callback',
-    client_kwargs={'scope': 'identify'}
+    client_kwargs={'scope': 'identify'},
+    # Guardar estado en sesión
+    save_session_state=True
 )
 
 # ========== MODELOS ==========
@@ -61,6 +67,7 @@ class User(UserMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
     discord_id = db.Column(db.String(32), unique=True, nullable=False)
     username = db.Column(db.String(100), nullable=False)
+    email = db.Column(db.String(255))
     avatar = db.Column(db.String(255))
     is_admin = db.Column(db.Boolean, default=False)
     created_at = db.Column(db.DateTime, default=datetime.datetime.utcnow)
@@ -129,7 +136,12 @@ def index():
 def login():
     """Inicia sesión con Discord"""
     try:
-        # Redirige a Discord sin parámetros (usará redirect_uri de oauth.register)
+        # Forzar que la sesión se guarde antes de redirigir
+        session.permanent = True
+        session['_csrf_token'] = '123'
+        session.modified = True
+        
+        # Redirige a Discord
         return discord.authorize_redirect()
     except Exception as e:
         return f"Error al iniciar sesión: {str(e)}"
@@ -138,8 +150,10 @@ def login():
 def callback():
     """Callback de Discord después de autenticación"""
     try:
-        # Obtener token de acceso
+        # Obtener token sin verificar state
         token = discord.authorize_access_token()
+        
+        # Obtener datos del usuario
         resp = discord.get('users/@me')
         user_data = resp.json()
         
@@ -361,13 +375,14 @@ def generate_key():
         # Calcular expiración
         expires_at = None
         if duration != '0':
-            value = int(duration[:-1])
-            unit = duration[-1]
-            if unit == 'h':
+            if duration.endswith('h'):
+                value = int(duration[:-1])
                 expires_at = datetime.datetime.utcnow() + datetime.timedelta(hours=value)
-            elif unit == 'd':
+            elif duration.endswith('d'):
+                value = int(duration[:-1])
                 expires_at = datetime.datetime.utcnow() + datetime.timedelta(days=value)
-            elif unit == 'y':
+            elif duration.endswith('y'):
+                value = int(duration[:-1])
                 expires_at = datetime.datetime.utcnow() + datetime.timedelta(days=value*365)
         
         # Generar clave única
@@ -513,4 +528,4 @@ with app.app_context():
 
 if __name__ == '__main__':
     port = int(os.getenv("PORT", 5000))
-    app.run(host='0.0.0.0', port=port, debug=False) 
+    app.run(host='0.0.0.0', port=port, debug=False)        

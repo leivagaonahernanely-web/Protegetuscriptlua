@@ -47,7 +47,7 @@ login_manager.login_view = 'login'
 login_manager.login_message = "🔐 Inicia sesión con Discord"
 CORS(app, supports_credentials=True)
 
-# ========== OAUTH DISCORD CON CSRF DESACTIVADO ==========
+# OAuth Discord con CSRF desactivado
 oauth = OAuth(app)
 discord = oauth.register(
     name='discord',
@@ -58,7 +58,7 @@ discord = oauth.register(
     api_base_url='https://discord.com/api/',
     redirect_uri=f'{DOMINIO}/callback',
     client_kwargs={'scope': 'identify'},
-    authorize_state=None  # 🔑 DESACTIVA LA VERIFICACIÓN CSRF
+    authorize_state=None
 )
 
 # ========== MODELOS ==========
@@ -119,13 +119,6 @@ def comprimir_codigo(codigo):
     compressed = zlib.compress(codigo.encode('utf-8'), level=9)
     return base64.b64encode(compressed).decode('utf-8')
 
-def descomprimir_codigo(codigo_comprimido):
-    try:
-        compressed = base64.b64decode(codigo_comprimido.encode('utf-8'))
-        return zlib.decompress(compressed).decode('utf-8')
-    except:
-        return None
-
 # ========== RUTAS ==========
 @app.route('/')
 def index():
@@ -133,9 +126,7 @@ def index():
 
 @app.route('/login')
 def login():
-    """Inicia sesión con Discord"""
     try:
-        # Forzar que la sesión se guarde antes de redirigir
         session.permanent = True
         session.modified = True
         return discord.authorize_redirect()
@@ -144,9 +135,7 @@ def login():
 
 @app.route('/callback')
 def callback():
-    """Callback de Discord después de autenticación"""
     try:
-        # Obtener token (CSRF desactivado)
         token = discord.authorize_access_token()
         resp = discord.get('users/@me')
         user_data = resp.json()
@@ -155,7 +144,6 @@ def callback():
         username = user_data['username']
         avatar = f"https://cdn.discordapp.com/avatars/{discord_id}/{user_data['avatar']}.png" if user_data.get('avatar') else ""
         
-        # Buscar o crear usuario
         user = User.query.filter_by(discord_id=discord_id).first()
         if not user:
             user = User(
@@ -170,7 +158,6 @@ def callback():
         user.last_login = datetime.datetime.utcnow()
         db.session.commit()
         
-        # Iniciar sesión
         login_user(user, remember=True)
         session.permanent = True
         
@@ -190,9 +177,28 @@ def logout():
 def dashboard():
     if current_user.is_admin:
         scripts = Script.query.all()
+        licenses = License.query.all()
     else:
         scripts = Script.query.filter_by(owner_id=current_user.id).all()
-    return render_template('dashboard.html', user=current_user, scripts=scripts)
+        licenses = License.query.filter_by(created_by=current_user.id).all()
+    
+    # 🔥 AGREGAR ESTADÍSTICAS
+    stats = {
+        'total_scripts': Script.query.count(),
+        'active_scripts': Script.query.filter_by(active=True).count(),
+        'total_licenses': License.query.count(),
+        'active_licenses': License.query.filter_by(active=True).count(),
+        'total_users': User.query.count(),
+        'admin_users': User.query.filter_by(is_admin=True).count(),
+        'total_access': AccessLog.query.count(),
+        'success_access': AccessLog.query.filter_by(success=True).count()
+    }
+    
+    return render_template('dashboard.html', 
+                          user=current_user, 
+                          scripts=scripts, 
+                          licenses=licenses,
+                          stats=stats)
 
 @app.route('/scripts')
 @login_required
@@ -215,7 +221,6 @@ def keys_page():
 @app.route('/api/protect', methods=['POST'])
 @login_required
 def protect_script():
-    """Protege un script y genera su loader"""
     try:
         data = request.get_json()
         nombre = data.get('name', '').strip()
@@ -226,15 +231,10 @@ def protect_script():
         if not nombre or not codigo:
             return jsonify({'success': False, 'error': 'Nombre y código son requeridos'})
         
-        if len(codigo) < 10:
-            return jsonify({'success': False, 'error': 'El código debe tener al menos 10 caracteres'})
-        
-        # Generar hash único
         hash_id = generar_hash()
         while Script.query.filter_by(hash_id=hash_id).first():
             hash_id = generar_hash()
         
-        # Comprimir si está habilitado
         if compression:
             contenido = comprimir_codigo(codigo)
         else:
@@ -251,7 +251,6 @@ def protect_script():
         db.session.add(nuevo)
         db.session.commit()
         
-        # Generar loader
         loader = f'loadstring(game:HttpGet("{DOMINIO}/api/load/{hash_id}?key=TU_CLAVE&hwid="..tostring({{}}):gsub("table: ","")))()'
         
         return jsonify({
@@ -266,7 +265,6 @@ def protect_script():
 
 @app.route('/api/load/<hash_id>')
 def load_script(hash_id):
-    """Endpoint para cargar el script protegido"""
     try:
         key = request.args.get('key', '').strip()
         hwid = request.args.get('hwid', '').strip()
@@ -274,244 +272,37 @@ def load_script(hash_id):
         if not key:
             return "error: clave requerida", 400
         
-        # Buscar script
         script = Script.query.filter_by(hash_id=hash_id, active=True).first()
         if not script:
             return "error: script no encontrado", 404
         
-        # Buscar licencia
         lic = License.query.filter_by(key=key, script_hash=hash_id, active=True).first()
         if not lic:
             return "error: licencia inválida", 401
         
-        # Verificar expiración
         if lic.expires_at and lic.expires_at < datetime.datetime.utcnow():
             lic.active = False
             db.session.commit()
             return "error: licencia expirada", 401
         
-        # Verificar HWID
         if lic.hwid and lic.hwid != hwid:
             return "error: HWID no coincide", 401
         
-        # Asignar HWID si no tiene
         if not lic.hwid and hwid:
             lic.hwid = hwid
             db.session.commit()
         
-        # Registrar uso
         lic.used_count += 1
         script.downloads += 1
         db.session.commit()
         
-        # Registrar log
-        log = AccessLog(
-            key_hash=hashlib.md5(key.encode()).hexdigest()[:16],
-            hwid=hwid,
-            ip=request.remote_addr,
-            script_hash=hash_id,
-            success=True
-        )
-        db.session.add(log)
-        db.session.commit()
-        
-        # Devolver script
         return script.content
     except Exception as e:
         return f"error: {str(e)}", 500
 
-@app.route('/api/verify/<key>')
-def verify_key(key):
-    """Verifica si una clave es válida"""
-    try:
-        lic = License.query.filter_by(key=key).first()
-        if not lic:
-            return jsonify({'valid': False, 'error': 'Licencia no encontrada'}), 404
-        
-        if not lic.active:
-            return jsonify({'valid': False, 'error': 'Licencia inactiva'}), 401
-        
-        if lic.expires_at and lic.expires_at < datetime.datetime.utcnow():
-            lic.active = False
-            db.session.commit()
-            return jsonify({'valid': False, 'error': 'Licencia expirada'}), 401
-        
-        script = Script.query.filter_by(hash_id=lic.script_hash).first()
-        
-        return jsonify({
-            'valid': True,
-            'script': script.name if script else 'Unknown',
-            'hash': lic.script_hash,
-            'expires_at': lic.expires_at.isoformat() if lic.expires_at else None,
-            'used_count': lic.used_count,
-            'max_uses': lic.max_uses
-        })
-    except Exception as e:
-        return jsonify({'error': str(e)}), 500
-
-@app.route('/api/generate-key', methods=['POST'])
-@login_required
-def generate_key():
-    """Genera una nueva licencia"""
-    try:
-        data = request.get_json()
-        script_hash = data.get('script_hash', '').strip()
-        duration = data.get('duration', '30d')
-        max_uses = int(data.get('max_uses', 1))
-        
-        if not script_hash:
-            return jsonify({'success': False, 'error': 'Script hash es requerido'})
-        
-        script = Script.query.filter_by(hash_id=script_hash).first()
-        if not script:
-            return jsonify({'success': False, 'error': 'Script no encontrado'})
-        
-        # Calcular expiración
-        expires_at = None
-        if duration != '0':
-            if duration.endswith('h'):
-                value = int(duration[:-1])
-                expires_at = datetime.datetime.utcnow() + datetime.timedelta(hours=value)
-            elif duration.endswith('d'):
-                value = int(duration[:-1])
-                expires_at = datetime.datetime.utcnow() + datetime.timedelta(days=value)
-            elif duration.endswith('y'):
-                value = int(duration[:-1])
-                expires_at = datetime.datetime.utcnow() + datetime.timedelta(days=value*365)
-        
-        # Generar clave única
-        clave = generar_clave()
-        while License.query.filter_by(key=clave).first():
-            clave = generar_clave()
-        
-        nueva = License(
-            key=clave,
-            script_hash=script_hash,
-            max_uses=max_uses,
-            expires_at=expires_at,
-            created_by=current_user.id
-        )
-        db.session.add(nueva)
-        db.session.commit()
-        
-        return jsonify({
-            'success': True,
-            'key': clave,
-            'expires_at': expires_at.isoformat() if expires_at else None
-        })
-    except Exception as e:
-        return jsonify({'success': False, 'error': str(e)})
-
-@app.route('/api/toggle-script/<hash_id>', methods=['POST'])
-@login_required
-def toggle_script(hash_id):
-    """Activa o desactiva un script"""
-    try:
-        script = Script.query.filter_by(hash_id=hash_id).first()
-        if not script:
-            return jsonify({'success': False, 'error': 'Script no encontrado'})
-        
-        if not current_user.is_admin and script.owner_id != current_user.id:
-            return jsonify({'success': False, 'error': 'No tienes permiso'})
-        
-        script.active = not script.active
-        db.session.commit()
-        
-        return jsonify({
-            'success': True,
-            'active': script.active
-        })
-    except Exception as e:
-        return jsonify({'success': False, 'error': str(e)})
-
-@app.route('/api/toggle-key', methods=['POST'])
-@login_required
-def toggle_key():
-    """Activa o desactiva una licencia"""
-    try:
-        data = request.get_json()
-        key = data.get('key', '').strip()
-        
-        lic = License.query.filter_by(key=key).first()
-        if not lic:
-            return jsonify({'success': False, 'error': 'Licencia no encontrada'})
-        
-        lic.active = not lic.active
-        db.session.commit()
-        
-        return jsonify({
-            'success': True,
-            'active': lic.active
-        })
-    except Exception as e:
-        return jsonify({'success': False, 'error': str(e)})
-
-@app.route('/api/reset-key-hwid', methods=['POST'])
-@login_required
-def reset_key_hwid():
-    """Resetea el HWID de una licencia"""
-    try:
-        data = request.get_json()
-        key = data.get('key', '').strip()
-        
-        lic = License.query.filter_by(key=key).first()
-        if not lic:
-            return jsonify({'success': False, 'error': 'Licencia no encontrada'})
-        
-        lic.hwid = None
-        db.session.commit()
-        
-        return jsonify({'success': True})
-    except Exception as e:
-        return jsonify({'success': False, 'error': str(e)})
-
-@app.route('/api/upload-script', methods=['POST'])
-@login_required
-def upload_script():
-    """Sube un script desde un archivo"""
-    try:
-        if 'file' not in request.files:
-            return jsonify({'success': False, 'error': 'No se envió ningún archivo'})
-        
-        file = request.files['file']
-        if file.filename == '':
-            return jsonify({'success': False, 'error': 'Archivo vacío'})
-        
-        # Leer contenido
-        contenido = file.read().decode('utf-8')
-        nombre = file.filename.rsplit('.', 1)[0]
-        
-        # Proteger el script
-        hash_id = generar_hash()
-        while Script.query.filter_by(hash_id=hash_id).first():
-            hash_id = generar_hash()
-        
-        contenido_comprimido = comprimir_codigo(contenido)
-        
-        nuevo = Script(
-            name=nombre,
-            hash_id=hash_id,
-            content=contenido_comprimido,
-            owner_id=current_user.id
-        )
-        db.session.add(nuevo)
-        db.session.commit()
-        
-        loader = f'loadstring(game:HttpGet("{DOMINIO}/api/load/{hash_id}?key=TU_CLAVE&hwid="..tostring({{}}):gsub("table: ","")))()'
-        
-        return jsonify({
-            'success': True,
-            'name': nombre,
-            'hash_id': hash_id,
-            'loader': loader
-        })
-    except Exception as e:
-        return jsonify({'success': False, 'error': str(e)})
-
 @app.route('/loader/<hash_id>')
 @login_required
 def view_loader(hash_id):
-    """Muestra el loader de un script"""
     script = Script.query.filter_by(hash_id=hash_id).first_or_404()
     loader = f'loadstring(game:HttpGet("{DOMINIO}/api/load/{hash_id}?key=TU_CLAVE&hwid="..tostring({{}}):gsub("table: ","")))()'
     return render_template('loader.html', script=script, loader=loader)

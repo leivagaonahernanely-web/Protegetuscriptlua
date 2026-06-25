@@ -34,42 +34,67 @@ def get_app():
     return app, db, User, License, Script, HWIDBan, AccessLog
 
 # ============================================================
-# COMANDO /panel
+# COMANDO /panel - CON API KEY
 # ============================================================
 
-@bot.tree.command(name="panel", description="Abre el panel de control del script")
-async def panel(interaction: discord.Interaction):
-    """Panel principal con todos los botones"""
+@bot.tree.command(name="panel", description="Abre el panel de control con tu API Key")
+@app_commands.describe(key="Tu API Key para acceder al panel")
+async def panel(interaction: discord.Interaction, key: str = None):
+    """Panel principal con API Key"""
     try:
-        # Obtener la aplicación Flask y modelos dentro del contexto
         app, db, User, License, Script, HWIDBan, AccessLog = get_app()
         
         with app.app_context():
-            # Buscar usuario
-            user = User.query.filter_by(discord_id=str(interaction.user.id)).first()
-            if not user:
-                embed = discord.Embed(
-                    title="❌ No registrado",
-                    description="No estás registrado en el sistema. Inicia sesión en la web primero.",
-                    color=0xe74c3c
-                )
-                embed.add_field(name="🌐 Web", value=DOMINIO, inline=False)
-                await interaction.response.send_message(embed=embed, ephemeral=True)
-                return
-            
-            # Buscar licencia del usuario
-            license = License.query.filter_by(hwid=str(interaction.user.id)).first()
-            if not license:
+            # Si no se proporciona key, intentar buscar por Discord ID
+            if not key:
+                user = User.query.filter_by(discord_id=str(interaction.user.id)).first()
+                if not user:
+                    embed = discord.Embed(
+                        title="❌ No registrado",
+                        description="No estás registrado en el sistema.\nUsa `/panel key:TU_API_KEY` o inicia sesión en la web.",
+                        color=0xe74c3c
+                    )
+                    embed.add_field(name="🌐 Web", value=DOMINIO, inline=False)
+                    await interaction.response.send_message(embed=embed, ephemeral=True)
+                    return
+                
                 license = License.query.filter_by(created_by=user.id).first()
+                if not license:
+                    license = License.query.filter_by(hwid=str(interaction.user.id)).first()
+            else:
+                # Buscar por API Key
+                license = License.query.filter_by(key=key, active=True).first()
+                if not license:
+                    embed = discord.Embed(
+                        title="❌ Key inválida",
+                        description="La API Key proporcionada no es válida o está inactiva.",
+                        color=0xe74c3c
+                    )
+                    await interaction.response.send_message(embed=embed, ephemeral=True)
+                    return
+                
+                user = User.query.filter_by(id=license.created_by).first()
+                if not user:
+                    embed = discord.Embed(
+                        title="❌ Usuario no encontrado",
+                        description="No se encontró el usuario asociado a esta key.",
+                        color=0xe74c3c
+                    )
+                    await interaction.response.send_message(embed=embed, ephemeral=True)
+                    return
             
             # Buscar script (el primero activo)
             script = Script.query.filter_by(active=True).first()
             
+            # Título personalizado del usuario
+            panel_title = user.panel_title if user and user.panel_title else 'Vanta_OnTop'
+            panel_description = user.panel_description if user and user.panel_description else 'Script protegido con LuauProtect'
+            
             # Crear embed
             if script:
                 embed = discord.Embed(
-                    title=f"🛡️ {script.name} - Panel de Control",
-                    description=script.description or "Script protegido con LuauProtect",
+                    title=f"🛡️ {panel_title} - Panel de Control",
+                    description=panel_description,
                     color=0x5865F2,
                     timestamp=datetime.datetime.utcnow()
                 )
@@ -77,17 +102,18 @@ async def panel(interaction: discord.Interaction):
                 embed.add_field(name="🔗 URL", value=f"{DOMINIO}/panel", inline=True)
             else:
                 embed = discord.Embed(
-                    title="🛡️ Panel de Control",
-                    description="No hay scripts disponibles. Sube un script desde la web.",
+                    title=f"🛡️ {panel_title} - Panel de Control",
+                    description=panel_description,
                     color=0x5865F2,
                     timestamp=datetime.datetime.utcnow()
                 )
                 embed.add_field(name="🌐 Web", value=DOMINIO, inline=False)
+                embed.add_field(name="⚠️ Info", value="No hay scripts disponibles. Sube un script desde la web.", inline=False)
             
             # Estado de la licencia
             if license and license.is_valid():
                 embed.add_field(name="✅ Estado", value="Activa", inline=True)
-                embed.add_field(name="🔑 Key", value=f"`{license.key}`", inline=True)
+                embed.add_field(name="🔑 API Key", value=f"`{license.key}`", inline=True)
                 embed.add_field(name="🖥️ HWID", value=f"`{license.hwid or 'Sin asignar'}`", inline=True)
                 embed.add_field(name="📊 Usos", value="Ilimitado", inline=True)
                 embed.add_field(name="📅 Expira", value=license.expires_at.strftime('%d/%m/%Y') if license.expires_at else "Nunca", inline=True)
@@ -155,7 +181,10 @@ async def view_script(interaction: discord.Interaction):
         with app.app_context():
             user = User.query.filter_by(discord_id=str(interaction.user.id)).first()
             if not user:
-                await interaction.response.send_message("❌ No estás registrado.", ephemeral=True)
+                await interaction.response.send_message(
+                    "❌ No estás registrado.\nUsa `/panel key:TU_API_KEY` para acceder.",
+                    ephemeral=True
+                )
                 return
             
             license = License.query.filter_by(hwid=str(interaction.user.id)).first()
@@ -246,7 +275,10 @@ async def key_info(interaction: discord.Interaction):
         with app.app_context():
             user = User.query.filter_by(discord_id=str(interaction.user.id)).first()
             if not user:
-                await interaction.response.send_message("❌ No estás registrado.", ephemeral=True)
+                await interaction.response.send_message(
+                    "❌ No estás registrado.\nUsa `/panel key:TU_API_KEY` para acceder.",
+                    ephemeral=True
+                )
                 return
             
             license = License.query.filter_by(hwid=str(interaction.user.id)).first()
@@ -284,7 +316,10 @@ async def reset_hwid(interaction: discord.Interaction):
         with app.app_context():
             user = User.query.filter_by(discord_id=str(interaction.user.id)).first()
             if not user:
-                await interaction.response.send_message("❌ No estás registrado.", ephemeral=True)
+                await interaction.response.send_message(
+                    "❌ No estás registrado.\nUsa `/panel key:TU_API_KEY` para acceder.",
+                    ephemeral=True
+                )
                 return
             
             license = License.query.filter_by(hwid=str(interaction.user.id)).first()

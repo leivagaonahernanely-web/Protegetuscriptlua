@@ -7,11 +7,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
     <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
             background: #0a0e17;
             font-family: 'Inter', sans-serif;
@@ -36,16 +32,6 @@
             position: relative;
             overflow: hidden;
         }
-        .container::before {
-            content: '';
-            position: absolute;
-            top: -50%;
-            left: -50%;
-            width: 200%;
-            height: 200%;
-            background: radial-gradient(circle at 50% 0%, rgba(88, 101, 242, 0.03) 0%, transparent 70%);
-            pointer-events: none;
-        }
         .badge {
             display: inline-block;
             background: rgba(88, 101, 242, 0.15);
@@ -58,34 +44,10 @@
             margin-bottom: 24px;
             border: 1px solid rgba(88, 101, 242, 0.2);
         }
-        h1 {
-            font-size: 48px;
-            font-weight: 800;
-            margin-bottom: 8px;
-            background: linear-gradient(135deg, #e8edf5 0%, #8892a0 100%);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-        }
-        h1 .highlight {
-            background: linear-gradient(135deg, #5865F2 0%, #4752c4 100%);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-        }
-        .subtitle {
-            font-size: 18px;
-            color: #8892a0;
-            margin-bottom: 16px;
-            font-weight: 300;
-        }
-        .description {
-            color: #a0a8b4;
-            line-height: 1.7;
-            margin-bottom: 36px;
-            max-width: 550px;
-            margin-left: auto;
-            margin-right: auto;
-            font-size: 15px;
-        }
+        h1 { font-size: 48px; font-weight: 800; margin-bottom: 8px; background: linear-gradient(135deg, #e8edf5 0%, #8892a0 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+        h1 .highlight { background: linear-gradient(135deg, #5865F2 0%, #4752c4 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+        .subtitle { font-size: 18px; color: #8892a0; margin-bottom: 16px; font-weight: 300; }
+        .description { color: #a0a8b4; line-height: 1.7; margin-bottom: 36px; max-width: 550px; margin-left: auto; margin-right: auto; font-size: 15px; }
         .features {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
@@ -100,26 +62,10 @@
             padding: 16px;
             transition: all 0.2s;
         }
-        .feature-item:hover {
-            border-color: #2a3a50;
-            transform: translateY(-2px);
-        }
-        .feature-item i {
-            color: #5865F2;
-            font-size: 20px;
-            margin-bottom: 8px;
-            display: block;
-        }
-        .feature-item h4 {
-            font-size: 14px;
-            font-weight: 600;
-            margin-bottom: 4px;
-        }
-        .feature-item p {
-            font-size: 12px;
-            color: #8892a0;
-            line-height: 1.4;
-        }
+        .feature-item:hover { border-color: #2a3a50; transform: translateY(-2px); }
+        .feature-item i { color: #5865F2; font-size: 20px; margin-bottom: 8px; display: block; }
+        .feature-item h4 { font-size: 14px; font-weight: 600; margin-bottom: 4px; }
+        .feature-item p { font-size: 12px; color: #8892a0; line-height: 1.4; }
         .btn-login {
             display: inline-flex;
             align-items: center;
@@ -136,28 +82,10 @@
             cursor: pointer;
             box-shadow: 0 8px 30px rgba(88, 101, 242, 0.3);
         }
-        .btn-login:hover {
-            background: #4752c4;
-            transform: translateY(-2px);
-            box-shadow: 0 12px 40px rgba(88, 101, 242, 0.4);
-        }
-        .btn-login i {
-            font-size: 20px;
-        }
-        .footer-text {
-            margin-top: 30px;
-            font-size: 13px;
-            color: #4a5568;
-        }
-        .footer-text a {
-            color: #5865F2;
-            text-decoration: none;
-        }
-        @media (max-width: 640px) {
-            .container { padding: 30px 20px; }
-            h1 { font-size: 32px; }
-            .features { grid-template-columns: 1fr 1fr; }
-        }
+        .btn-login:hover { background: #4752c4; transform: translateY(-2px); box-shadow: 0 12px 40px rgba(88, 101, 242, 0.4); }
+        .footer-text { margin-top: 30px; font-size: 13px; color: #4a5568; }
+        .footer-text a { color: #5865F2; text-decoration: none; }
+        @media (max-width: 640px) { .container { padding: 30px 20px; } h1 { font-size: 32px; } .features { grid-template-columns: 1fr 1fr; } }
     </style>
 </head>
 <body>
@@ -169,30 +97,12 @@
             Sistema profesional para proteger tus scripts, controlar accesos, gestionar licencias 
             y distribuir solo a usuarios autorizados con HWID locking.
         </p>
-
         <div class="features">
-            <div class="feature-item">
-                <i class="fas fa-code"></i>
-                <h4>Scripts Protegidos</h4>
-                <p>Ofuscación y compresión avanzada</p>
-            </div>
-            <div class="feature-item">
-                <i class="fas fa-key"></i>
-                <h4>Licencias</h4>
-                <p>Claves únicas con expiración</p>
-            </div>
-            <div class="feature-item">
-                <i class="fas fa-fingerprint"></i>
-                <h4>HWID Lock</h4>
-                <p>Bloqueo por hardware ID</p>
-            </div>
-            <div class="feature-item">
-                <i class="fas fa-robot"></i>
-                <h4>Bot de Discord</h4>
-                <p>Gestión desde tu servidor</p>
-            </div>
+            <div class="feature-item"><i class="fas fa-code"></i><h4>Scripts Protegidos</h4><p>Ofuscación y compresión avanzada</p></div>
+            <div class="feature-item"><i class="fas fa-key"></i><h4>Licencias</h4><p>Claves únicas con expiración</p></div>
+            <div class="feature-item"><i class="fas fa-fingerprint"></i><h4>HWID Lock</h4><p>Bloqueo por hardware ID</p></div>
+            <div class="feature-item"><i class="fas fa-robot"></i><h4>Bot de Discord</h4><p>Gestión desde tu servidor</p></div>
         </div>
-
         <a href="/login" class="btn-login">
             <i class="fab fa-discord"></i> Iniciar sesión con Discord
         </a>
@@ -202,4 +112,4 @@
         </p>
     </div>
 </body>
-                                           </html>
+</html>

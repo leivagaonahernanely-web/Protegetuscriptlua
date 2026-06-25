@@ -33,7 +33,7 @@ app.config['SESSION_COOKIE_DOMAIN'] = None
 # Variables de Discord (desde entorno)
 DISCORD_CLIENT_ID = os.getenv("DISCORD_CLIENT_ID")
 DISCORD_CLIENT_SECRET = os.getenv("DISCORD_CLIENT_SECRET")
-DOMINIO = os.getenv("DOMINIO", "https://tu-app.railway.app")
+DOMINIO = os.getenv("DOMINIO", "https://protegetuscriptlua-production.up.railway.app")
 ADMIN_DISCORD_ID = os.getenv("ADMIN_DISCORD_ID", "1501316920975036611")
 
 # Verificar que las variables esenciales existen
@@ -47,7 +47,7 @@ login_manager.login_view = 'login'
 login_manager.login_message = "🔐 Inicia sesión con Discord"
 CORS(app, supports_credentials=True)
 
-# OAuth Discord con configuración corregida
+# ========== OAUTH DISCORD CON CSRF DESACTIVADO ==========
 oauth = OAuth(app)
 discord = oauth.register(
     name='discord',
@@ -58,8 +58,7 @@ discord = oauth.register(
     api_base_url='https://discord.com/api/',
     redirect_uri=f'{DOMINIO}/callback',
     client_kwargs={'scope': 'identify'},
-    # Guardar estado en sesión
-    save_session_state=True
+    authorize_state=None  # 🔑 DESACTIVA LA VERIFICACIÓN CSRF
 )
 
 # ========== MODELOS ==========
@@ -138,10 +137,7 @@ def login():
     try:
         # Forzar que la sesión se guarde antes de redirigir
         session.permanent = True
-        session['_csrf_token'] = '123'
         session.modified = True
-        
-        # Redirige a Discord
         return discord.authorize_redirect()
     except Exception as e:
         return f"Error al iniciar sesión: {str(e)}"
@@ -150,10 +146,8 @@ def login():
 def callback():
     """Callback de Discord después de autenticación"""
     try:
-        # Obtener token sin verificar state
+        # Obtener token (CSRF desactivado)
         token = discord.authorize_access_token()
-        
-        # Obtener datos del usuario
         resp = discord.get('users/@me')
         user_data = resp.json()
         
@@ -528,4 +522,4 @@ with app.app_context():
 
 if __name__ == '__main__':
     port = int(os.getenv("PORT", 5000))
-    app.run(host='0.0.0.0', port=port, debug=False)        
+    app.run(host='0.0.0.0', port=port, debug=False)

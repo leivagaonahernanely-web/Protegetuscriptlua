@@ -1,0 +1,163 @@
+{% extends "base.html" %}
+{% block title %}Scripts - VantaProtect{% endblock %}
+
+{% block content %}
+<div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-8">
+    <div>
+        <h1 class="text-3xl font-bold">📊 Scripts</h1>
+        <p class="text-textMuted mt-1">Gestiona todos tus scripts protegidos y sus cargadores.</p>
+    </div>
+    <div class="flex gap-2 flex-wrap">
+        <label for="fileInput" class="btn-success cursor-pointer text-sm py-2 px-4">
+            <i class="fas fa-upload"></i> Subir .lua / .txt
+            <input type="file" id="fileInput" accept=".lua,.txt" class="hidden">
+        </label>
+    </div>
+</div>
+
+<div class="card mb-6">
+    <h3 class="text-lg font-semibold mb-4 flex items-center gap-2">
+        <i class="fas fa-edit text-primary"></i> Crear Nuevo Script
+    </h3>
+    <form id="scriptForm" class="space-y-4">
+        <div>
+            <label class="text-sm font-medium text-textMuted block mb-1">Nombre del Script</label>
+            <input type="text" id="scriptName" placeholder="Ej: Anti-Cheat System" required>
+        </div>
+        <div>
+            <label class="text-sm font-medium text-textMuted block mb-1">Código Lua</label>
+            <textarea id="scriptCode" rows="8" placeholder="-- Pega aquí tu código Lua" class="font-mono text-sm" required></textarea>
+        </div>
+        <button type="submit" class="btn-primary w-full justify-center">
+            <i class="fas fa-shield-alt"></i> Proteger Script
+        </button>
+    </form>
+    <div id="uploadStatus" class="mt-3 text-sm"></div>
+</div>
+
+{% if scripts %}
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {% for s in scripts %}
+        <div class="card hover:border-primary/30 transition">
+            <div class="flex justify-between items-start gap-2">
+                <div class="min-w-0 flex-1">
+                    <h3 class="font-semibold text-lg truncate">{{ s.name }}</h3>
+                    <div class="flex items-center gap-3 text-xs text-textMuted mt-1 flex-wrap">
+                        <span><i class="fas fa-hashtag"></i> {{ s.hash_id[:8] }}...</span>
+                        <span><i class="fas fa-calendar-alt"></i> {{ s.created_at.strftime('%d/%m/%Y') if s.created_at else 'N/A' }}</span>
+                        <span><i class="fas fa-download"></i> {{ s.downloads|default(0) }}</span>
+                    </div>
+                </div>
+                <span class="text-xs px-2 py-1 rounded flex-shrink-0 
+                    {% if s.active %}bg-success/20 text-success{% else %}bg-danger/20 text-danger{% endif %}">
+                    <i class="fas fa-circle text-[6px] mr-1 align-middle"></i>
+                    {{ 'Activo' if s.active else 'Inactivo' }}
+                </span>
+            </div>
+            <div class="mt-3 flex flex-wrap gap-2">
+                <button onclick="copiarLoader('{{ s.hash_id }}')" class="btn-primary text-xs py-1.5 px-3">
+                    <i class="fas fa-copy"></i> Copiar Loader
+                </button>
+                <button onclick="toggleScript('{{ s.hash_id }}')" class="btn-secondary text-xs py-1.5 px-3">
+                    <i class="fas fa-sync-alt"></i> {{ 'Desactivar' if s.active else 'Activar' }}
+                </button>
+                <a href="/loader/{{ s.hash_id }}" target="_blank" class="text-xs bg-dark border border-border hover:border-primary/50 text-textMuted hover:text-primary px-3 py-1.5 rounded transition">
+                    <i class="fas fa-external-link-alt"></i> Ver
+                </a>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+{% else %}
+    <div class="card text-center py-12 text-textMuted">
+        <i class="fas fa-inbox text-4xl block mb-2 opacity-30"></i>
+        <p>No tienes scripts aún</p>
+        <p class="text-sm">Crea tu primer script usando el formulario o sube un archivo .lua</p>
+    </div>
+{% endif %}
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const DOMINIO = "{{ dominio }}";
+
+document.getElementById('scriptForm').addEventListener('submit', async function(e) {
+    e.preventDefault();
+    const nombre = document.getElementById('scriptName').value.trim();
+    const codigo = document.getElementById('scriptCode').value.trim();
+
+    if (!nombre || !codigo) {
+        showToast('Completa todos los campos', 'error');
+        return;
+    }
+
+    try {
+        const res = await fetch('/api/protect', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name: nombre, code: codigo })
+        });
+        const data = await res.json();
+
+        if (data.success) {
+            showToast('✅ Script protegido exitosamente', 'success');
+            setTimeout(() => location.reload(), 1500);
+        } else {
+            showToast('❌ Error: ' + data.error, 'error');
+        }
+    } catch (error) {
+        showToast('Error al conectar con el servidor', 'error');
+    }
+});
+
+document.getElementById('fileInput').addEventListener('change', async (e) => {
+    const archivo = e.target.files[0];
+    if (!archivo) return;
+
+    const formData = new FormData();
+    formData.append('file', archivo);
+    const statusDiv = document.getElementById('uploadStatus');
+    statusDiv.innerHTML = '<span class="text-primary"><i class="fas fa-spinner fa-spin"></i> Subiendo...</span>';
+
+    try {
+        const res = await fetch('/api/upload-script', { method: 'POST', body: formData });
+        const data = await res.json();
+
+        if (data.success) {
+            statusDiv.innerHTML = `<span class="text-success">✅ Subido: <b>${data.name}</b><br>Loader: <code class="bg-dark px-2 py-0.5 rounded text-primary text-xs">${data.loader}</code></span>`;
+            showToast('✅ Script subido exitosamente', 'success');
+            setTimeout(() => location.reload(), 1800);
+        } else {
+            statusDiv.innerHTML = `<span class="text-danger">❌ Error: ${data.error}</span>`;
+            showToast('❌ Error: ' + data.error, 'error');
+        }
+    } catch (error) {
+        statusDiv.innerHTML = '<span class="text-danger">❌ Error al subir el archivo</span>';
+        showToast('Error al conectar con el servidor', 'error');
+    }
+    e.target.value = '';
+});
+
+function copiarLoader(hash) {
+    const txt = `script_key = "TU_KEY"\n\nloadstring(game:HttpGet("${DOMINIO}/scripts/hosted/${hash}.lua"))()`;
+    navigator.clipboard.writeText(txt);
+    showToast('✅ Loader copiado al portapapeles', 'success');
+}
+
+async function toggleScript(hashId) {
+    if (!confirm('¿Cambiar el estado de este script?')) return;
+    try {
+        const res = await fetch(`/api/toggle-script/${hashId}`, { method: 'POST' });
+        const data = await res.json();
+        if (data.success) {
+            showToast('✅ Estado actualizado', 'success');
+            setTimeout(() => location.reload(), 1000);
+        } else {
+            showToast('❌ Error: ' + data.error, 'error');
+        }
+    } catch {
+        showToast('Error al conectar con el servidor', 'error');
+    }
+}
+</script>
+{% endblock %}

@@ -1,155 +1,17 @@
 {% extends "base.html" %}
-{% block title %}Dashboard - LuauProtect Pro{% endblock %}
-
+{% block title %}Overview · Vanta.vs Protector{% endblock %}
+{% block crumb %}Overview{% endblock %}
 {% block content %}
-<div class="mb-8">
-    <h1 class="text-3xl font-bold">Dashboard</h1>
-    <p class="text-textMuted mt-1">Bienvenido de vuelta, {{ user.username }}. Aquí tienes un resumen de tu actividad.</p>
+<section class="hero"><div class="eyebrow">Vanta.vs Protector / Overview</div><h1>Protection, hosting<br><span style="color:#a78bfa">and access control.</span></h1><p>Un workspace profesional para proteger tus scripts Lua, administrar licencias y entregar loaders únicamente a usuarios autorizados.</p><div class="hero-actions"><a class="btn btn-primary" href="/scripts"><i class="fas fa-plus"></i> New script</a><a class="btn btn-ghost" href="/keys"><i class="fas fa-key"></i> Manage keys</a></div></section>
+<div class="stat-grid">
+ <div class="stat"><i class="stat-icon fas fa-folder-open"></i><div class="stat-label">Hosted scripts</div><div class="stat-value">{{ stats.total_scripts|default(0) }}</div><div class="stat-foot">{{ stats.active_scripts|default(0) }} active</div></div>
+ <div class="stat"><i class="stat-icon fas fa-key"></i><div class="stat-label">License keys</div><div class="stat-value">{{ stats.total_licenses|default(0) }}</div><div class="stat-foot">{{ stats.active_licenses|default(0) }} currently active</div></div>
+ <div class="stat"><i class="stat-icon fas fa-users"></i><div class="stat-label">Workspace users</div><div class="stat-value">{{ stats.total_users|default(0) }}</div><div class="stat-foot">{{ stats.admin_users|default(0) }} administrators</div></div>
+ <div class="stat"><i class="stat-icon fas fa-chart-line"></i><div class="stat-label">Access events</div><div class="stat-value">{{ stats.total_access|default(0) }}</div><div class="stat-foot">{{ stats.success_access|default(0) }} successful requests</div></div>
 </div>
-
-<div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
-    <div class="stat-card">
-        <div class="flex justify-between items-start">
-            <div>
-                <div class="stat-label">Scripts</div>
-                <div class="stat-number">{{ stats.total_scripts|default(0) }}</div>
-            </div>
-            <div class="stat-icon"><i class="fas fa-code"></i></div>
-        </div>
-        <div class="text-xs text-textMuted mt-2">Activos: {{ stats.active_scripts|default(0) }}</div>
-    </div>
-    <div class="stat-card">
-        <div class="flex justify-between items-start">
-            <div>
-                <div class="stat-label">Licencias</div>
-                <div class="stat-number">{{ stats.total_licenses|default(0) }}</div>
-            </div>
-            <div class="stat-icon"><i class="fas fa-key"></i></div>
-        </div>
-        <div class="text-xs text-textMuted mt-2">Activas: {{ stats.active_licenses|default(0) }}</div>
-    </div>
-    <div class="stat-card">
-        <div class="flex justify-between items-start">
-            <div>
-                <div class="stat-label">Usuarios</div>
-                <div class="stat-number">{{ stats.total_users|default(0) }}</div>
-            </div>
-            <div class="stat-icon"><i class="fas fa-users"></i></div>
-        </div>
-        <div class="text-xs text-textMuted mt-2">Administradores: {{ stats.admin_users|default(0) }}</div>
-    </div>
-    <div class="stat-card">
-        <div class="flex justify-between items-start">
-            <div>
-                <div class="stat-label">Accesos</div>
-                <div class="stat-number">{{ stats.total_access|default(0) }}</div>
-            </div>
-            <div class="stat-icon"><i class="fas fa-eye"></i></div>
-        </div>
-        <div class="text-xs text-textMuted mt-2">Exitosos: {{ stats.success_access|default(0) }}</div>
-    </div>
+<div class="grid2">
+ <div class="card"><div class="card-title"><div><h3>Protect</h3><span class="muted">Create and secure a new Lua script</span></div><i style="color:#a78bfa" class="fas fa-shield-halved"></i></div><form method="POST" action="/scripts/new"><div class="field" style="margin-bottom:12px"><label>Script name</label><input name="name" placeholder="e.g. Vanta Duels" required></div><div class="field" style="margin-bottom:12px"><label>Description</label><input name="description" placeholder="Short description"></div><div class="field" style="margin-bottom:12px"><label>Source code</label><textarea name="code" rows="6" placeholder="Paste your Lua source here" required></textarea></div><button class="btn btn-primary" style="width:100%;justify-content:center"><i class="fas fa-lock"></i> Protect and host script</button></form></div>
+ <div class="card"><div class="card-title"><div><h3>Recent scripts</h3><span class="muted">Your protected library</span></div><a class="muted" href="/scripts">View all <i class="fas fa-arrow-right"></i></a></div>{% if scripts %}<div class="table-container"><table><thead><tr><th>Name</th><th>Status</th><th>Downloads</th></tr></thead><tbody>{% for s in scripts[:5] %}<tr><td><strong>{{ s.name }}</strong><div class="muted">{{ s.hash_id[:10] }}...</div></td><td>{% if s.active %}<span style="color:#44e3a0">● Active</span>{% else %}<span style="color:#ff6b82">● Disabled</span>{% endif %}</td><td>{{ s.downloads|default(0) }}</td></tr>{% endfor %}</tbody></table></div>{% else %}<div class="empty"><i class="fas fa-folder-open"></i><div>No scripts yet</div><span class="muted">Create your first protected script.</span></div>{% endif %}</div>
 </div>
-
-<div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-    <div class="card">
-        <h3 class="text-lg font-semibold mb-4 flex items-center gap-2">
-            <i class="fas fa-upload text-primary"></i> Subir Nuevo Script
-        </h3>
-        <form method="POST" action="/scripts/new">
-            <div class="space-y-4">
-                <div>
-                    <label class="text-sm font-medium text-textMuted block mb-1">Nombre del Script</label>
-                    <input type="text" name="name" placeholder="Ej: Anti-Cheat System" required>
-                </div>
-                <div>
-                    <label class="text-sm font-medium text-textMuted block mb-1">Descripción (opcional)</label>
-                    <input type="text" name="description" placeholder="Breve descripción del script">
-                </div>
-                <div>
-                    <label class="text-sm font-medium text-textMuted block mb-1">Código Lua</label>
-                    <textarea name="code" rows="6" placeholder="-- Pega aquí tu código Lua protegido" required></textarea>
-                </div>
-                <button type="submit" class="btn-primary w-full justify-center">
-                    <i class="fas fa-shield-alt"></i> Proteger y Guardar
-                </button>
-            </div>
-        </form>
-    </div>
-
-    <div class="card">
-        <h3 class="text-lg font-semibold mb-4 flex items-center gap-2">
-            <i class="fas fa-list text-primary"></i> Mis Scripts
-        </h3>
-        {% if scripts %}
-            <div class="table-container">
-                <table>
-                    <thead>
-                        <tr>
-                            <th>Nombre</th>
-                            <th>Hash</th>
-                            <th>Estado</th>
-                            <th>Acciones</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {% for s in scripts %}
-                        <tr>
-                            <td class="font-medium">{{ s.name }}</td>
-                            <td><code class="text-xs bg-dark px-2 py-1 rounded">{{ s.hash_id[:8] }}...</code></td>
-                            <td>
-                                {% if s.active %}
-                                    <span class="text-success text-xs bg-success/10 px-2 py-1 rounded-full">Activo</span>
-                                {% else %}
-                                    <span class="text-danger text-xs bg-danger/10 px-2 py-1 rounded-full">Inactivo</span>
-                                {% endif %}
-                            </td>
-                            <td>
-                                <div class="flex gap-2 flex-wrap">
-                                    <a href="/loader/{{ s.hash_id }}" class="text-primary text-sm hover:underline">Loader</a>
-                                    <form method="POST" action="/scripts/delete/{{ s.hash_id }}" class="inline">
-                                        <button type="submit" class="text-danger text-sm hover:underline">Eliminar</button>
-                                    </form>
-                                </div>
-                            </td>
-                        </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
-            </div>
-        {% else %}
-            <div class="text-center py-8 text-textMuted">
-                <i class="fas fa-inbox text-4xl block mb-2 opacity-30"></i>
-                <p>No tienes scripts aún</p>
-                <p class="text-sm">Sube tu primer script usando el formulario</p>
-            </div>
-        {% endif %}
-    </div>
-</div>
-
-{% if user.is_admin %}
-<div class="card mt-6">
-    <h3 class="text-lg font-semibold mb-4 flex items-center gap-2">
-        <i class="fas fa-key text-success"></i> Generar Licencia (Admin)
-    </h3>
-    <form method="POST" action="/licenses/generate" class="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <div>
-            <label class="text-sm font-medium text-textMuted block mb-1">Hash del Script</label>
-            <input type="text" name="script_hash" placeholder="Ej: a3f5g7h9" required>
-        </div>
-        <div>
-            <label class="text-sm font-medium text-textMuted block mb-1">Días de Validez</label>
-            <input type="number" name="days_valid" value="30" min="1">
-        </div>
-        <div>
-            <label class="text-sm font-medium text-textMuted block mb-1">Usos Máximos</label>
-            <input type="number" name="max_uses" value="999999" min="1">
-        </div>
-        <div class="flex items-end">
-            <button type="submit" class="btn-success w-full justify-center">
-                <i class="fas fa-key"></i> Generar
-            </button>
-        </div>
-    </form>
-</div>
-{% endif %}
+<div class="card" style="margin-top:16px"><div class="card-title"><div><h3>Control center</h3><span class="muted">Shortcuts for your workspace</span></div></div><div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px"><a class="btn btn-ghost" href="/scripts"><i class="fas fa-code"></i> Obfuscator</a><a class="btn btn-ghost" href="/keys"><i class="fas fa-key"></i> License keys</a><a class="btn btn-ghost" href="/panel"><i class="fas fa-sliders"></i> API key & panel</a></div></div>
 {% endblock %}

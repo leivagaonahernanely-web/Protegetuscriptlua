@@ -128,3 +128,25 @@ async function unbanHWID(hwid) {
 }
 </script>
 {% endblock %}
+    if (!confirm('¿Estás seguro de desbloquear este HWID?')) return;
+
+    try {
+        const res = await fetch('/api/unban-hwid', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ hwid })
+        });
+        const data = await res.json();
+
+        if (data.success) {
+            showToast('HWID desbloqueado', 'success');
+            setTimeout(() => location.reload(), 1500);
+        } else {
+            showToast('Error: ' + data.error, 'error');
+        }
+    } catch (error) {
+        showToast('Error al conectar con el servidor', 'error');
+    }
+}
+</script>
+{% endblock %}

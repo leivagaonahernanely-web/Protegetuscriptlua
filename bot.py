@@ -137,8 +137,14 @@ async def whitelist(interaction: discord.Interaction, user: discord.Member, key:
         if not await require_manager(interaction, RolePermission): return
         lic = License.query.filter_by(key=key.strip()).first()
         if not lic: await interaction.response.send_message('Key no encontrada.', ephemeral=True); return
-        lic.discord_id = str(user.id); lic.hwid = None; db.session.commit()
-        await interaction.response.send_message(f'✅ {user.mention} fue whitelisted para `{key}`.', ephemeral=True)
+        lic.discord_id = str(user.id); lic.hwid = None
+        script=Script.query.filter_by(hash_id=lic.script_hash).first()
+        creator=User.query.filter_by(id=script.owner_id).first() if script else None
+        db.session.commit()
+        if not creator or not creator.panel_guild_id or not creator.panel_channel_id or not creator.panel_message_id:
+            await interaction.response.send_message(f'{user.mention} You have been whitelisted!\nConfigura primero `/panel` para publicar el panel.', ephemeral=True); return
+        panel_url=f'https://discord.com/channels/{creator.panel_guild_id}/{creator.panel_channel_id}/{creator.panel_message_id}'
+        await interaction.response.send_message(f'{user.mention} You have been whitelisted!\nYou can access the script via this message --> {panel_url}')
 
 
 @bot.tree.command(name='unwhitelist', description='Quita la asociación de usuario de una key')
@@ -227,14 +233,90 @@ async def prices(interaction: discord.Interaction):
     await interaction.response.send_message(embed=embed)
 
 
-@bot.tree.command(name='panel', description='Muestra el panel web de VantaProtect')
-async def panel(interaction: discord.Interaction):
-    await interaction.response.send_message(f'🛡️ Panel VantaProtect: {DOMAIN}/dashboard', ephemeral=True)
+class UserPanelView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    @discord.ui.button(label='Redeem Key', style=discord.ButtonStyle.primary, custom_id='vp_panel_redeem')
+    async def redeem(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_modal(RedeemKeyModal())
+
+    @discord.ui.button(label='Get Script', style=discord.ButtonStyle.success, custom_id='vp_panel_script')
+    async def get_script(self, interaction: discord.Interaction, button: discord.ui.Button):
+        app, db, User, License, Script, *_ = models()
+        with app.app_context():
+            licenses = License.query.filter_by(discord_id=str(interaction.user.id), active=True).all()
+            rows=[]
+            for lic in licenses:
+                script=Script.query.filter_by(hash_id=lic.script_hash).first()
+                if script and lic.is_valid():
+                    rows.append(f"{script.name}: `script_key = \"{lic.key}\"`\n{DOMAIN}/scripts/hosted/{script.hash_id}.lua")
+        if not rows:
+            await interaction.response.send_message('No tienes una key whitelisteada activa.', ephemeral=True); return
+        await interaction.response.send_message('\n\n'.join(rows), ephemeral=True)
+
+    @discord.ui.button(label='Reset HWID', style=discord.ButtonStyle.secondary, custom_id='vp_panel_reset')
+    async def reset_hwid(self, interaction: discord.Interaction, button: discord.ui.Button):
+        app, db, User, License, Script, *_ = models()
+        with app.app_context():
+            changed=License.query.filter_by(discord_id=str(interaction.user.id)).update({'hwid': None})
+            db.session.commit()
+        await interaction.response.send_message(f'✅ HWID restablecido para {changed} key(s).', ephemeral=True)
+
+    @discord.ui.button(label='Check Key', style=discord.ButtonStyle.secondary, custom_id='vp_panel_check')
+    async def check_key(self, interaction: discord.Interaction, button: discord.ui.Button):
+        app, db, User, License, Script, *_ = models()
+        with app.app_context():
+            licenses=License.query.filter_by(discord_id=str(interaction.user.id)).all()
+            lines=[]
+            for lic in licenses:
+                script=Script.query.filter_by(hash_id=lic.script_hash).first()
+                expiry=lic.expires_at.strftime('%Y-%m-%d') if lic.expires_at else 'Permanente'
+                lines.append(f"{script.name if script else lic.script_hash} — {'Activa' if lic.is_valid() else 'Inactiva'} — HWID {'vinculado' if lic.hwid else 'sin vincular'} — Expira {expiry}")
+        await interaction.response.send_message('\n'.join(lines) if lines else 'No tienes keys vinculadas.', ephemeral=True)
+
+class RedeemKeyModal(discord.ui.Modal, title='Redeem Script Key'):
+    key = discord.ui.TextInput(label='Key de script', placeholder='Pega tu key de 32 caracteres', required=True, max_length=64)
+    async def on_submit(self, interaction: discord.Interaction):
+        app, db, User, License, Script, *_ = models()
+        with app.app_context():
+            lic=License.query.filter_by(key=str(self.key).strip()).first()
+            if not lic or not lic.is_valid():
+                await interaction.response.send_message('Key inválida, expirada o desactivada.', ephemeral=True); return
+            lic.discord_id=str(interaction.user.id); lic.hwid=None; db.session.commit()
+            script=Script.query.filter_by(hash_id=lic.script_hash).first()
+        await interaction.response.send_message(f'✅ Key vinculada a tu Discord para **{script.name if script else "el script"}**. Pulsa **Get Script**.', ephemeral=True)
+
+@bot.tree.command(name='panel', description='Publica el panel del creador con sus scripts')
+@app_commands.describe(channel='Canal donde se publicará el panel')
+async def panel(interaction: discord.Interaction, channel: discord.TextChannel):
+    app, db, User, License, Script, HWIDBan, AccessLog, RolePermission, Warning, PriceConfig = models()
+    with app.app_context():
+        if not await require_manager(interaction, RolePermission): return
+        creator=User.query.filter_by(discord_id=str(interaction.user.id)).first()
+        if not creator:
+            await interaction.response.send_message('Primero inicia sesión en la web con Discord.', ephemeral=True); return
+        scripts=Script.query.filter_by(owner_id=creator.id, active=True).order_by(Script.created_at.desc()).all()
+        if not scripts:
+            await interaction.response.send_message('No tienes scripts activos creados para mostrar.', ephemeral=True); return
+        creator.panel_guild_id=str(interaction.guild_id or '')
+        creator.panel_channel_id=str(channel.id)
+        db.session.commit()
+        names='\n'.join(f'• **{script.name}**' for script in scripts)
+    embed=discord.Embed(title=creator.panel_title or 'VantaProtect', description=(creator.panel_description or 'Gestiona tus keys y scripts desde este panel.')+'\n\nScripts disponibles:\n'+names, color=discord.Color.blurple())
+    embed.set_footer(text='VantaProtect · Panel de usuario')
+    await interaction.response.defer(ephemeral=True)
+    message=await channel.send(embed=embed, view=UserPanelView())
+    with app.app_context():
+        creator=User.query.filter_by(discord_id=str(interaction.user.id)).first()
+        creator.panel_message_id=str(message.id); db.session.commit()
+    await interaction.followup.send(f'✅ Panel publicado en {channel.mention}: {message.jump_url}', ephemeral=True)
 
 
 @bot.event
 async def on_ready():
     try:
+        bot.add_view(UserPanelView())
         synced = await bot.tree.sync()
         logger.info('Bot conectado como %s; %s comandos sincronizados', bot.user, len(synced))
     except Exception:

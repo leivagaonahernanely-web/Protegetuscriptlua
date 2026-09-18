@@ -1,333 +1,316 @@
-import asyncio
+"""VantaProtect Discord control plane: Luarmor-style panel and licensing."""
 import datetime as dt
 import logging
 import os
+import re
 import secrets
 import string
-
+from typing import Optional
 import discord
 from discord import app_commands
 from discord.ext import commands
 from dotenv import load_dotenv
-
 load_dotenv()
-TOKEN = os.getenv('DISCORD_BOT_TOKEN')
-if not TOKEN:
-    raise ValueError('DISCORD_BOT_TOKEN no está configurado')
-OWNER_ID = int(os.getenv('ADMIN_DISCORD_ID', '1501316920975036611'))
-DOMAIN = os.getenv('DOMINIO', 'vantaprotect-web-production.up.railway.app').rstrip('/')
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger('VantaProtectBot')
+TOKEN=os.getenv('DISCORD_BOT_TOKEN') or os.getenv('DISCORD_TOKEN')
+if not TOKEN: raise ValueError('DISCORD_BOT_TOKEN no está configurado')
+OWNER_ID=int(os.getenv('ADMIN_DISCORD_ID','1501316920975036611'))
+DOMAIN=os.getenv('DOMINIO','https://vantaprotect.up.railway.app').rstrip('/')
+logging.basicConfig(level=logging.INFO); log=logging.getLogger('VantaProtectBot')
+intents=discord.Intents.default(); intents.members=True
+bot=commands.Bot(command_prefix='!', intents=intents, help_command=None)
 
-intents = discord.Intents.default()
-intents.members = True
-bot = commands.Bot(command_prefix='!', intents=intents, help_command=None)
+def M():
+    from app import app,db,User,License,Script,HWIDBan,AccessLog,RolePermission,Warning,PriceConfig,DiscordPanel
+    return locals()
+def key(License):
+    a=string.ascii_letters+string.digits; v=''.join(secrets.choice(a) for _ in range(32))
+    while License.query.filter_by(key=v).first(): v=''.join(secrets.choice(a) for _ in range(32))
+    return v
+def exp(days): return None if not days or days<1 else dt.datetime.utcnow()+dt.timedelta(days=days)
+def is_owner(u): return int(u.id)==OWNER_ID
+def guild_owner(i): return bool(i.guild and i.guild.owner_id==i.user.id)
+def allowed(i,RP):
+    if is_owner(i.user) or guild_owner(i): return True
+    roles={str(x.id) for x in getattr(i.user,'roles',[])}
+    return RP.query.filter(RP.guild_id==str(i.guild_id),RP.role_id.in_(roles),RP.enabled.is_(True)).first() is not None
+async def manager(i,RP):
+    if allowed(i,RP): return True
+    await i.response.send_message("You don't have permission to manage any panels.\nYou must have the manager role to use this command. *(you specified what role it is while running /setpanel)*",ephemeral=True); return False
+def panel(i,DP): return DP.query.filter_by(guild_id=str(i.guild_id)).first()
+def hash_from_loader(s):
+    m=re.search(r'/hosted/([A-Za-z0-9_-]{8,64})\.lua',s or ''); return m.group(1) if m else None
+def loader(p,k):
+    s=p.loader_script.strip()
+    if '{{KEY}}' in s: return s.replace('{{KEY}}',k)
+    if 'script_key' in s: return s
+    return f'script_key = "{k}"\n\nloadstring(game:HttpGet("{s}"))()'
+
+class Redeem(discord.ui.Modal,title='Redeem Key'):
+    value=discord.ui.TextInput(label='Key',placeholder='32-character script key',min_length=32,max_length=64)
+    async def on_submit(self,i):
+        m=M()
+        with m['app'].app_context():
+            p=panel(i,m['DiscordPanel']); l=m['License'].query.filter_by(key=str(self.value).strip()).first(); expected=hash_from_loader(p.loader_script) if p else None
+            if not l or not l.is_valid() or (expected and l.script_hash!=expected): await i.response.send_message('Invalid, expired or incorrect-project key.',ephemeral=True); return
+            l.discord_id=str(i.user.id); l.hwid=None; m['db'].session.commit(); role_id=p.buyer_role_id if p else None
+        if role_id:
+            r=i.guild.get_role(int(role_id))
+            if r:
+                try: await i.user.add_roles(r,reason='VantaProtect key redemption')
+                except discord.Forbidden: pass
+        await i.response.send_message('✅ Key redeemed. Press **Get Script** to receive your protected loader.',ephemeral=True)
+
+class Panel(discord.ui.View):
+    def __init__(self): super().__init__(timeout=None)
+    async def p(self,i):
+        m=M()
+        with m['app'].app_context(): p=panel(i,m['DiscordPanel'])
+        if not p: await i.response.send_message('This server has no panel configured.',ephemeral=True); return None,m
+        return p,m
+    @discord.ui.button(label='🔑 Redeem Key',style=discord.ButtonStyle.success,custom_id='vp:redeem')
+    async def redeem(self,i,b):
+        p,_=await self.p(i)
+        if p: await i.response.send_modal(Redeem())
+    @discord.ui.button(label='📜 Get Script',style=discord.ButtonStyle.primary,custom_id='vp:script')
+    async def script(self,i,b):
+        p,m=await self.p(i)
+        if not p:return
+        h=hash_from_loader(p.loader_script)
+        with m['app'].app_context():
+            ls=m['License'].query.filter_by(discord_id=str(i.user.id),active=True).all(); ls=[x for x in ls if x.is_valid() and (not h or x.script_hash==h)]
+            if not ls: await i.response.send_message('You do not have a valid key for this project.',ephemeral=True); return
+            out=[]
+            for l in ls:
+                s=m['Script'].query.filter_by(hash_id=l.script_hash).first(); out.append(f"**{s.name if s else 'Script'}**\n```lua\n{loader(p,l.key)}\n```")
+        await i.response.send_message('\n\n'.join(out)[:3900],ephemeral=True)
+    @discord.ui.button(label='👤 Get Role',style=discord.ButtonStyle.primary,custom_id='vp:role')
+    async def role(self,i,b):
+        p,_=await self.p(i)
+        if not p:return
+        if not p.buyer_role_id: await i.response.send_message('No buyer role is configured.',ephemeral=True); return
+        r=i.guild.get_role(int(p.buyer_role_id))
+        try: await i.user.add_roles(r,reason='VantaProtect buyer panel'); await i.response.send_message('✅ Buyer role assigned.',ephemeral=True)
+        except (discord.Forbidden,AttributeError): await i.response.send_message('The bot cannot assign that role. Move its role above the buyer role.',ephemeral=True)
+    @discord.ui.button(label='⚙ Reset HWID',style=discord.ButtonStyle.secondary,custom_id='vp:reset')
+    async def reset(self,i,b):
+        p,m=await self.p(i)
+        if not p:return
+        with m['app'].app_context(): n=m['License'].query.filter_by(discord_id=str(i.user.id),active=True).update({'hwid':None}); m['db'].session.commit()
+        await i.response.send_message(f'✅ Reset HWID for {n} key(s).',ephemeral=True)
+    @discord.ui.button(label='📊 Get Stats',style=discord.ButtonStyle.secondary,custom_id='vp:stats')
+    async def stats(self,i,b):
+        p,m=await self.p(i)
+        if not p:return
+        with m['app'].app_context():
+            ls=m['License'].query.filter_by(discord_id=str(i.user.id)).all(); out=[]
+            for l in ls:
+                s=m['Script'].query.filter_by(hash_id=l.script_hash).first(); e=l.expires_at.strftime('%Y-%m-%d') if l.expires_at else 'Never'; out.append(f"{s.name if s else l.script_hash}: {'Active' if l.is_valid() else 'Inactive'} | HWID {'linked' if l.hwid else 'not linked'} | expires {e} | executions {l.used_count}")
+        await i.response.send_message('\n'.join(out) if out else 'No linked keys.',ephemeral=True)
+
+@bot.tree.command(name='setpanel',description='Create the server user panel')
+@app_commands.describe(loader_script='Protected loader URL/text; use {{KEY}} as placeholder',manager_role='Role allowed to manage the panel',buyer_role='Optional buyer role')
+async def setpanel(i,loader_script:str,manager_role:discord.Role,buyer_role:Optional[discord.Role]=None):
+    m=M()
+    if not i.guild: await i.response.send_message('This command can only be used in a server.',ephemeral=True); return
+    if not guild_owner(i) and not is_owner(i.user): await i.response.send_message('Only the server owner can configure the panel.',ephemeral=True); return
+    with m['app'].app_context():
+        p=panel(i,m['DiscordPanel'])
+        if not p: p=m['DiscordPanel'](guild_id=str(i.guild_id),channel_id=str(i.channel_id),created_by=str(i.user.id),loader_script=loader_script,manager_role_id=str(manager_role.id));m['db'].session.add(p)
+        p.channel_id=str(i.channel_id);p.loader_script=loader_script;p.manager_role_id=str(manager_role.id);p.buyer_role_id=str(buyer_role.id) if buyer_role else None
+        m['RolePermission'].query.filter_by(guild_id=str(i.guild_id)).delete();m['db'].session.add(m['RolePermission'](guild_id=str(i.guild_id),role_id=str(manager_role.id),role_name=manager_role.name,enabled=True));m['db'].session.commit()
+    e=discord.Embed(title='VantaProtect',description='This control panel is for the configured project.\n\nIf you\'re a buyer, click on the buttons below to redeem your key, get the script or get your role.',color=discord.Color.blurple());e.set_footer(text=f'Set by {i.user}')
+    await i.response.defer(ephemeral=True); msg=await i.channel.send(embed=e,view=Panel())
+    with m['app'].app_context(): p=panel(i,m['DiscordPanel']);p.message_id=str(msg.id);m['db'].session.commit()
+    await i.followup.send(f'✅ Panel created: {msg.jump_url}',ephemeral=True)
+
+@bot.tree.command(name='whitelist',description='Whitelist a user for the panel project')
+@app_commands.describe(user='User to whitelist',days='Days; 0 means indefinite',note='Optional note')
+async def whitelist(i,user:discord.Member,days:int=0,note:str=''):
+    m=M()
+    with m['app'].app_context():
+        if not await manager(i,m['RolePermission']):return
+        p=panel(i,m['DiscordPanel']);h=hash_from_loader(p.loader_script) if p else None;s=m['Script'].query.filter_by(hash_id=h,active=True).first() if h else None
+        if not s: await i.response.send_message('Configure /setpanel with a hosted script loader first.',ephemeral=True);return
+        l=m['License'].query.filter_by(discord_id=str(user.id),script_hash=s.hash_id).first() or m['License'](key=key(m['License']),script_hash=s.hash_id,created_by=None);l.discord_id=str(user.id);l.active=True;l.hwid=None;l.expires_at=exp(days);m['db'].session.add(l);m['db'].session.commit();url=f'https://discord.com/channels/{p.guild_id}/{p.channel_id}/{p.message_id}'
+    await i.response.send_message(f'{user.mention} You have been whitelisted!\nYou can access the script via this message --> {url}')
+    if p.buyer_role_id:
+        r=i.guild.get_role(int(p.buyer_role_id))
+        if r:
+            try:await user.add_roles(r,reason='VantaProtect whitelist')
+            except discord.Forbidden:pass
+
+@bot.tree.command(name='unwhitelist',description='Remove a user license')
+@app_commands.describe(user='User')
+async def unwhitelist(i,user:discord.Member):
+    m=M()
+    with m['app'].app_context():
+        if not await manager(i,m['RolePermission']):return
+        n=m['License'].query.filter_by(discord_id=str(user.id)).update({'active':False,'discord_id':None,'hwid':None});m['db'].session.commit()
+    await i.response.send_message(f'✅ Removed {n} license(s) from {user.mention}.',ephemeral=True)
+
+@bot.tree.command(name='force-resethwid',description='Force reset a user HWID')
+@app_commands.describe(user='User')
+async def force_resethwid(i,user:discord.Member):
+    m=M()
+    with m['app'].app_context():
+        if not await manager(i,m['RolePermission']):return
+        n=m['License'].query.filter_by(discord_id=str(user.id)).update({'hwid':None});m['db'].session.commit()
+    await i.response.send_message(f'✅ Force-reset {n} HWID(s).',ephemeral=True)
+
+@bot.tree.command(name='generatekey',description='Generate a 32-character script key')
+@app_commands.describe(days='Days; 0 means indefinite',user='Optional bound user')
+async def generatekey(i,days:int=0,user:Optional[discord.Member]=None):
+    m=M()
+    with m['app'].app_context():
+        if not await manager(i,m['RolePermission']):return
+        p=panel(i,m['DiscordPanel']);h=hash_from_loader(p.loader_script) if p else None;s=m['Script'].query.filter_by(hash_id=h,active=True).first() if h else None
+        if not s: await i.response.send_message('Configure /setpanel first.',ephemeral=True);return
+        l=m['License'](key=key(m['License']),script_hash=s.hash_id,discord_id=str(user.id) if user else None,expires_at=exp(days),created_by=None);m['db'].session.add(l);m['db'].session.commit();v=l.key
+    await i.response.send_message(f'✅ Key generated for **{s.name}**\n`{v}`\nDays: `{days or "indefinite"}`',ephemeral=True)
+
+@bot.tree.command(name='dropkey',description='Drop keys with countdown')
+@app_commands.describe(amount='Number of keys',days='Days; 0 means indefinite')
+async def dropkey(i,amount:app_commands.Range[int,1,100],days:int=0):
+    m=M()
+    with m['app'].app_context():
+        if not await manager(i,m['RolePermission']):return
+        p=panel(i,m['DiscordPanel']);h=hash_from_loader(p.loader_script) if p else None;s=m['Script'].query.filter_by(hash_id=h,active=True).first() if h else None
+        if not s: await i.response.send_message('Configure /setpanel first.',ephemeral=True);return
+        vs=[]
+        for _ in range(amount):l=m['License'](key=key(m['License']),script_hash=s.hash_id,expires_at=exp(days),created_by=None);m['db'].session.add(l);vs.append(l.key)
+        m['db'].session.commit()
+    await i.response.send_message('# Key drop!!\n@everyone',allowed_mentions=discord.AllowedMentions(everyone=True))
+    for n in range(amount,0,-1):await i.channel.send(str(n))
+    await i.channel.send('# GO!!')
+    for v in vs:await i.channel.send(f'`{v}`')
+
+@bot.tree.command(name='deletekey',description='Revoke a key')
+@app_commands.describe(key='Script key')
+async def deletekey(i,key:str):
+    m=M()
+    with m['app'].app_context():
+        if not await manager(i,m['RolePermission']):return
+        l=m['License'].query.filter_by(key=key.strip()).first()
+        if not l:await i.response.send_message('Key not found.',ephemeral=True);return
+        l.active=False;m['db'].session.commit()
+    await i.response.send_message('✅ Key revoked.',ephemeral=True)
+
+@bot.tree.command(name='resethdwi',description='Reset HWID for a key')
+@app_commands.describe(key='Script key')
+async def resethdwi(i,key:str):
+    m=M()
+    with m['app'].app_context():
+        if not await manager(i,m['RolePermission']):return
+        l=m['License'].query.filter_by(key=key.strip()).first()
+        if not l:await i.response.send_message('Key not found.',ephemeral=True);return
+        l.hwid=None;m['db'].session.commit()
+    await i.response.send_message('✅ HWID reset.',ephemeral=True)
+
+@bot.tree.command(name='hdwiban',description='Ban a HWID')
+@app_commands.describe(hwid='HWID',reason='Reason')
+async def hdwiban(i,hwid:str,reason:str='Blocked by manager'):
+    m=M()
+    with m['app'].app_context():
+        if not await manager(i,m['RolePermission']):return
+        if not m['HWIDBan'].query.filter_by(hwid=hwid).first():m['db'].session.add(m['HWIDBan'](hwid=hwid,reason=reason,created_by=OWNER_ID));m['db'].session.commit()
+    await i.response.send_message('✅ HWID banned.',ephemeral=True)
+
+@bot.tree.command(name='unbanhdwi',description='Unban a HWID')
+@app_commands.describe(hwid='HWID')
+async def unbanhdwi(i,hwid:str):
+    m=M()
+    with m['app'].app_context():
+        if not await manager(i,m['RolePermission']):return
+        b=m['HWIDBan'].query.filter_by(hwid=hwid).first()
+        if b:m['db'].session.delete(b);m['db'].session.commit()
+    await i.response.send_message('✅ HWID unbanned.',ephemeral=True)
+
+@bot.tree.command(name='warn',description='Warn a user')
+@app_commands.describe(user='User',reason='Reason')
+async def warn(i,user:discord.Member,reason:str):
+    m=M()
+    with m['app'].app_context():
+        if not await manager(i,m['RolePermission']):return
+        m['db'].session.add(m['Warning'](discord_id=str(user.id),reason=reason,created_by=str(i.user.id)));m['db'].session.commit()
+    await i.response.send_message(f'⚠️ Warning recorded for {user.mention}.',ephemeral=True)
+
+@bot.tree.command(name='prices',description='Publish configured prices')
+async def prices(i):
+    m=M()
+    with m['app'].app_context():c=m['PriceConfig'].query.get(1)
+    if not c:await i.response.send_message('No prices configured.',ephemeral=True);return
+    e=discord.Embed(title=c.title,description=c.description,color=discord.Color.from_str(c.color or '#5865f2'));e.add_field(name='Pricing',value=c.body[:1024],inline=False);await i.response.send_message(embed=e)
 
 
-def models():
-    from app import app, db, User, License, Script, HWIDBan, AccessLog, RolePermission, Warning, PriceConfig
-    return app, db, User, License, Script, HWIDBan, AccessLog, RolePermission, Warning, PriceConfig
+@bot.tree.command(name='generatekeyrol',description='Set the manager role for this server panel')
+@app_commands.describe(role='Manager role')
+async def generatekeyrol(i, role: discord.Role):
+    m=M()
+    if not (is_owner(i.user) or guild_owner(i)):
+        await i.response.send_message('Only the server owner can configure the manager role.',ephemeral=True); return
+    with m['app'].app_context():
+        old=m['RolePermission'].query.filter_by(guild_id=str(i.guild_id)).first()
+        if old: old.role_id=str(role.id); old.role_name=role.name; old.enabled=True
+        else: m['db'].session.add(m['RolePermission'](guild_id=str(i.guild_id),role_id=str(role.id),role_name=role.name,enabled=True))
+        m['db'].session.commit()
+    await i.response.send_message(f'✅ Manager role set to {role.mention}. Use `/setpanel` to bind it to a panel.',ephemeral=True)
 
+@bot.tree.command(name='ungeneratekeyrol',description='Remove the manager role')
+async def ungeneratekeyrol(i):
+    m=M()
+    if not (is_owner(i.user) or guild_owner(i)):
+        await i.response.send_message('Only the server owner can remove the manager role.',ephemeral=True); return
+    with m['app'].app_context(): m['RolePermission'].query.filter_by(guild_id=str(i.guild_id)).update({'enabled':False});m['db'].session.commit()
+    await i.response.send_message('✅ Manager role disabled.',ephemeral=True)
 
-def key_value():
-    return ''.join(secrets.choice(string.ascii_letters + string.digits) for _ in range(32))
+@bot.tree.command(name='mass-whitelist',description='Whitelist every member of a role')
+@app_commands.describe(role='Buyer role',days='Days; 0 means indefinite')
+async def mass_whitelist(i,role:discord.Role,days:int=0):
+    m=M()
+    with m['app'].app_context():
+        if not await manager(i,m['RolePermission']):return
+        p=panel(i,m['DiscordPanel']);h=hash_from_loader(p.loader_script) if p else None;sc=m['Script'].query.filter_by(hash_id=h,active=True).first() if h else None
+        if not sc: await i.response.send_message('Configure /setpanel first.',ephemeral=True);return
+        ok=0
+        for member in role.members:
+            l=m['License'].query.filter_by(discord_id=str(member.id),script_hash=sc.hash_id).first() or m['License'](key=key(m['License']),script_hash=sc.hash_id,created_by=None)
+            l.discord_id=str(member.id);l.active=True;l.expires_at=exp(days);m['db'].session.add(l);ok+=1
+        m['db'].session.commit()
+    await i.response.send_message(f'✅ Mass whitelist complete. Total successful: {ok}.',ephemeral=True)
 
+@bot.tree.command(name='blacklist',description='Blacklist a user from this project')
+@app_commands.describe(user='User',days='Days; 0 means indefinite',reason='Reason')
+async def blacklist(i,user:discord.Member,days:int=0,reason:str='Blocked by manager'):
+    m=M()
+    with m['app'].app_context():
+        if not await manager(i,m['RolePermission']):return
+        n=m['License'].query.filter_by(discord_id=str(user.id)).update({'active':False});m['db'].session.commit()
+    await i.response.send_message(f'✅ {user.mention} blacklisted. {n} license(s) disabled. Reason: {reason}',ephemeral=True)
 
-def owner(user: discord.abc.User) -> bool:
-    return user.id == OWNER_ID
+@bot.tree.command(name='compensate',description='Add days to all licenses in this project')
+@app_commands.describe(days='Days to add')
+async def compensate(i,days:int):
+    m=M()
+    with m['app'].app_context():
+        if not await manager(i,m['RolePermission']):return
+        p=panel(i,m['DiscordPanel']);h=hash_from_loader(p.loader_script) if p else None;ls=m['License'].query.filter_by(script_hash=h,active=True).all() if h else []
+        now=dt.datetime.utcnow()
+        for l in ls:l.expires_at=(l.expires_at if l.expires_at and l.expires_at>now else now)+dt.timedelta(days=days) if l.expires_at or days else None
+        m['db'].session.commit()
+    await i.response.send_message(f'✅ Compensated {len(ls)} license(s) by {days} day(s).',ephemeral=True)
 
-
-def has_manager_role(interaction: discord.Interaction, RolePermission) -> bool:
-    if owner(interaction.user) or (interaction.guild and interaction.guild.owner_id == interaction.user.id):
-        return True
-    role_ids = {str(role.id) for role in getattr(interaction.user, 'roles', [])}
-    guild_id = str(interaction.guild_id or '')
-    return RolePermission.query.filter(RolePermission.guild_id == guild_id, RolePermission.role_id.in_(role_ids), RolePermission.enabled.is_(True)).first() is not None
-
-
-def permission_error():
-    return discord.Embed(title='Sin permisos', description='Necesitas el rol de gestión configurado por el owner.', color=0xff5864)
-
-
-def new_key(License):
-    value = key_value()
-    while License.query.filter_by(key=value).first():
-        value = key_value()
-    return value
-
-
-async def require_manager(interaction, RolePermission):
-    if has_manager_role(interaction, RolePermission):
-        return True
-    await interaction.response.send_message("You don't have permission to manage any panels.\nYou must have the manager role to use this command. *(you specified what role it is while running /setpanel)*", ephemeral=True)
-    return False
-
-
-@bot.tree.command(name='generatekey', description='Genera una key aleatoria de 32 caracteres')
-@app_commands.describe(duration='Duración: 0 permanente, 7d, 30d, 1y', script_hash='ID del script; vacío usa el primero activo')
-async def generatekey(interaction: discord.Interaction, duration: str = '0', script_hash: str = ''):
-    app, db, User, License, Script, HWIDBan, AccessLog, RolePermission, Warning, PriceConfig = models()
-    with app.app_context():
-        if not await require_manager(interaction, RolePermission): return
-        script = Script.query.filter_by(hash_id=script_hash, active=True).first() if script_hash else Script.query.filter_by(active=True).first()
-        if not script:
-            await interaction.response.send_message('No hay un script activo disponible.', ephemeral=True); return
-        expires = app_module_expiry(duration)
-        key = new_key(License)
-        lic = License(key=key, script_hash=script.hash_id, expires_at=expires, created_by=None)
-        db.session.add(lic); db.session.commit()
-        await interaction.response.send_message(f'✅ Key generada\n`{key}`\nScript: `{script.name}`\nExpira: `{expires.strftime("%Y-%m-%d") if expires else "Permanente"}`', ephemeral=True)
-
-
-def app_module_expiry(duration):
-    if duration == '0': return None
-    try:
-        amount, unit = int(duration[:-1]), duration[-1].lower()
-        days = amount * (365 if unit == 'y' else 30 if unit == 'm' else 1)
-        return dt.datetime.utcnow() + dt.timedelta(days=days)
-    except (ValueError, IndexError):
-        return dt.datetime.utcnow() + dt.timedelta(days=30)
-
-
-@bot.tree.command(name='deletekey', description='Desactiva una key')
-@app_commands.describe(key='Key de 32 caracteres')
-async def deletekey(interaction: discord.Interaction, key: str):
-    app, db, User, License, Script, HWIDBan, AccessLog, RolePermission, Warning, PriceConfig = models()
-    with app.app_context():
-        if not await require_manager(interaction, RolePermission): return
-        lic = License.query.filter_by(key=key.strip()).first()
-        if not lic:
-            await interaction.response.send_message('Key no encontrada.', ephemeral=True); return
-        lic.active = False; db.session.commit()
-        await interaction.response.send_message(f'✅ Key `{key}` desactivada.', ephemeral=True)
-
-
-@bot.tree.command(name='generatekeyrol', description='Configura un rol de gestión para keys y whitelist')
-@app_commands.describe(role='Rol que podrá ejecutar comandos de gestión')
-async def generatekeyrol(interaction: discord.Interaction, role: discord.Role):
-    app, db, User, License, Script, HWIDBan, AccessLog, RolePermission, Warning, PriceConfig = models()
-    with app.app_context():
-        if not owner(interaction.user):
-            await interaction.response.send_message('Solo el owner puede configurar roles.', ephemeral=True); return
-        item = RolePermission.query.filter_by(role_id=str(role.id)).first()
-        if not item:
-            item = RolePermission(guild_id=str(interaction.guild_id), role_id=str(role.id), role_name=role.name, enabled=True); db.session.add(item)
-        else: item.enabled = True; item.role_name = role.name
-        db.session.commit()
-        await interaction.response.send_message(f'✅ El rol {role.mention} ahora puede generar/eliminar keys y administrar whitelist.', ephemeral=True)
-
-
-@bot.tree.command(name='ungeneratekeyrol', description='Quita permisos de gestión a un rol')
-@app_commands.describe(role='Rol que dejará de gestionar keys')
-async def ungeneratekeyrol(interaction: discord.Interaction, role: discord.Role):
-    app, db, User, License, Script, HWIDBan, AccessLog, RolePermission, Warning, PriceConfig = models()
-    with app.app_context():
-        if not owner(interaction.user):
-            await interaction.response.send_message('Solo el owner puede configurar roles.', ephemeral=True); return
-        item = RolePermission.query.filter_by(role_id=str(role.id)).first()
-        if item: item.enabled = False; db.session.commit()
-        await interaction.response.send_message(f'✅ El rol {role.mention} ya no tiene permisos de gestión.', ephemeral=True)
-
-
-@bot.tree.command(name='whitelist', description='Asocia una key a un usuario de Discord')
-@app_commands.describe(user='Usuario autorizado', key='Key de 32 caracteres')
-async def whitelist(interaction: discord.Interaction, user: discord.Member, key: str):
-    app, db, User, License, Script, HWIDBan, AccessLog, RolePermission, Warning, PriceConfig = models()
-    with app.app_context():
-        if not await require_manager(interaction, RolePermission): return
-        lic = License.query.filter_by(key=key.strip()).first()
-        if not lic: await interaction.response.send_message('Key no encontrada.', ephemeral=True); return
-        lic.discord_id = str(user.id); lic.hwid = None
-        script=Script.query.filter_by(hash_id=lic.script_hash).first()
-        creator=User.query.filter_by(id=script.owner_id).first() if script else None
-        db.session.commit()
-        if not creator or not creator.panel_guild_id or not creator.panel_channel_id or not creator.panel_message_id:
-            await interaction.response.send_message(f'{user.mention} You have been whitelisted!\nConfigura primero `/panel` para publicar el panel.', ephemeral=True); return
-        panel_url=f'https://discord.com/channels/{creator.panel_guild_id}/{creator.panel_channel_id}/{creator.panel_message_id}'
-        await interaction.response.send_message(f'{user.mention} You have been whitelisted!\nYou can access the script via this message --> {panel_url}')
-
-
-@bot.tree.command(name='unwhitelist', description='Quita la asociación de usuario de una key')
-@app_commands.describe(key='Key de 32 caracteres')
-async def unwhitelist(interaction: discord.Interaction, key: str):
-    app, db, User, License, Script, HWIDBan, AccessLog, RolePermission, Warning, PriceConfig = models()
-    with app.app_context():
-        if not await require_manager(interaction, RolePermission): return
-        lic = License.query.filter_by(key=key.strip()).first()
-        if not lic: await interaction.response.send_message('Key no encontrada.', ephemeral=True); return
-        lic.discord_id = None; lic.hwid = None; db.session.commit()
-        await interaction.response.send_message(f'✅ Whitelist retirada de `{key}`.', ephemeral=True)
-
-
-@bot.tree.command(name='dropkey', description='Publica un drop con cuenta regresiva y una key por mensaje')
-@app_commands.describe(amount='Cantidad obligatoria de keys a dropear', duration='Duración de las keys', script_hash='ID opcional del script')
-async def dropkey(interaction: discord.Interaction, amount: app_commands.Range[int, 1, 100], duration: str = '0', script_hash: str = ''):
-    app, db, User, License, Script, HWIDBan, AccessLog, RolePermission, Warning, PriceConfig = models()
-    with app.app_context():
-        if not await require_manager(interaction, RolePermission): return
-        script = Script.query.filter_by(hash_id=script_hash, active=True).first() if script_hash else Script.query.filter_by(active=True).first()
-        if not script: await interaction.response.send_message('No hay un script activo.', ephemeral=True); return
-        keys = []
-        expires = app_module_expiry(duration)
-        for _ in range(amount):
-            value = new_key(License); keys.append(value); db.session.add(License(key=value, script_hash=script.hash_id, expires_at=expires))
-        db.session.commit()
-    await interaction.response.send_message('# Key drop!!\n@everyone', allowed_mentions=discord.AllowedMentions(everyone=True))
-    for n in range(amount, 0, -1):
-        await interaction.channel.send(str(n))
-        await asyncio.sleep(1)
-    await interaction.channel.send('# GO!!')
-    for value in keys:
-        await interaction.channel.send(f'`{value}`')
-
-
-@bot.tree.command(name='hdwiban', description='Bloquea un HWID')
-@app_commands.describe(hwid='HWID a bloquear', reason='Motivo')
-async def hdwiban(interaction: discord.Interaction, hwid: str, reason: str = 'Bloqueado por el equipo'):
-    app, db, User, License, Script, HWIDBan, AccessLog, RolePermission, Warning, PriceConfig = models()
-    with app.app_context():
-        if not await require_manager(interaction, RolePermission): return
-        if not HWIDBan.query.filter_by(hwid=hwid).first(): db.session.add(HWIDBan(hwid=hwid, reason=reason, created_by=OWNER_ID)); db.session.commit()
-        await interaction.response.send_message(f'✅ HWID `{hwid}` bloqueado.', ephemeral=True)
-
-
-@bot.tree.command(name='unbanhdwi', description='Desbloquea un HWID')
-@app_commands.describe(hwid='HWID a desbloquear')
-async def unbanhdwi(interaction: discord.Interaction, hwid: str):
-    app, db, User, License, Script, HWIDBan, AccessLog, RolePermission, Warning, PriceConfig = models()
-    with app.app_context():
-        if not await require_manager(interaction, RolePermission): return
-        ban = HWIDBan.query.filter_by(hwid=hwid).first()
-        if ban: db.session.delete(ban); db.session.commit()
-        await interaction.response.send_message(f'✅ HWID `{hwid}` desbloqueado.', ephemeral=True)
-
-
-@bot.tree.command(name='resethdwi', description='Resetea el HWID de una key')
-@app_commands.describe(key='Key cuyo HWID se reseteará')
-async def resethdwi(interaction: discord.Interaction, key: str):
-    app, db, User, License, Script, HWIDBan, AccessLog, RolePermission, Warning, PriceConfig = models()
-    with app.app_context():
-        if not await require_manager(interaction, RolePermission): return
-        lic = License.query.filter_by(key=key.strip()).first()
-        if not lic: await interaction.response.send_message('Key no encontrada.', ephemeral=True); return
-        lic.hwid = None; db.session.commit(); await interaction.response.send_message(f'✅ HWID reseteado para `{key}`.', ephemeral=True)
-
-
-@bot.tree.command(name='warn', description='Registra una advertencia para un usuario')
-@app_commands.describe(user='Usuario', reason='Motivo de la advertencia')
-async def warn(interaction: discord.Interaction, user: discord.Member, reason: str):
-    app, db, User, License, Script, HWIDBan, AccessLog, RolePermission, Warning, PriceConfig = models()
-    with app.app_context():
-        if not await require_manager(interaction, RolePermission): return
-        db.session.add(Warning(discord_id=str(user.id), reason=reason, created_by=str(interaction.user.id))); db.session.commit()
-        await interaction.response.send_message(f'⚠️ Advertencia registrada para {user.mention}: {reason}', ephemeral=True)
-
-
-@bot.tree.command(name='prices', description='Publica los precios configurados desde la web')
-async def prices(interaction: discord.Interaction):
-    app, db, User, License, Script, HWIDBan, AccessLog, RolePermission, Warning, PriceConfig = models()
-    with app.app_context():
-        config = db.session.get(PriceConfig, 1) or PriceConfig(id=1)
-        embed = discord.Embed(title=config.title, description=config.description, color=discord.Color.from_str(config.color or '#8b5cf6'))
-        embed.add_field(name='Planes', value=config.body[:1024], inline=False); embed.set_footer(text='VantaProtect')
-    await interaction.response.send_message(embed=embed)
-
-
-class UserPanelView(discord.ui.View):
-    def __init__(self):
-        super().__init__(timeout=None)
-
-    @discord.ui.button(label='Redeem Key', style=discord.ButtonStyle.primary, custom_id='vp_panel_redeem')
-    async def redeem(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.send_modal(RedeemKeyModal())
-
-    @discord.ui.button(label='Get Script', style=discord.ButtonStyle.success, custom_id='vp_panel_script')
-    async def get_script(self, interaction: discord.Interaction, button: discord.ui.Button):
-        app, db, User, License, Script, *_ = models()
-        with app.app_context():
-            licenses = License.query.filter_by(discord_id=str(interaction.user.id), active=True).all()
-            rows=[]
-            for lic in licenses:
-                script=Script.query.filter_by(hash_id=lic.script_hash).first()
-                if script and lic.is_valid():
-                    rows.append(f"{script.name}: `script_key = \"{lic.key}\"`\n{DOMAIN}/scripts/hosted/{script.hash_id}.lua")
-        if not rows:
-            await interaction.response.send_message('No tienes una key whitelisteada activa.', ephemeral=True); return
-        await interaction.response.send_message('\n\n'.join(rows), ephemeral=True)
-
-    @discord.ui.button(label='Reset HWID', style=discord.ButtonStyle.secondary, custom_id='vp_panel_reset')
-    async def reset_hwid(self, interaction: discord.Interaction, button: discord.ui.Button):
-        app, db, User, License, Script, *_ = models()
-        with app.app_context():
-            changed=License.query.filter_by(discord_id=str(interaction.user.id)).update({'hwid': None})
-            db.session.commit()
-        await interaction.response.send_message(f'✅ HWID restablecido para {changed} key(s).', ephemeral=True)
-
-    @discord.ui.button(label='Check Key', style=discord.ButtonStyle.secondary, custom_id='vp_panel_check')
-    async def check_key(self, interaction: discord.Interaction, button: discord.ui.Button):
-        app, db, User, License, Script, *_ = models()
-        with app.app_context():
-            licenses=License.query.filter_by(discord_id=str(interaction.user.id)).all()
-            lines=[]
-            for lic in licenses:
-                script=Script.query.filter_by(hash_id=lic.script_hash).first()
-                expiry=lic.expires_at.strftime('%Y-%m-%d') if lic.expires_at else 'Permanente'
-                lines.append(f"{script.name if script else lic.script_hash} — {'Activa' if lic.is_valid() else 'Inactiva'} — HWID {'vinculado' if lic.hwid else 'sin vincular'} — Expira {expiry}")
-        await interaction.response.send_message('\n'.join(lines) if lines else 'No tienes keys vinculadas.', ephemeral=True)
-
-class RedeemKeyModal(discord.ui.Modal, title='Redeem Script Key'):
-    key = discord.ui.TextInput(label='Key de script', placeholder='Pega tu key de 32 caracteres', required=True, max_length=64)
-    async def on_submit(self, interaction: discord.Interaction):
-        app, db, User, License, Script, *_ = models()
-        with app.app_context():
-            lic=License.query.filter_by(key=str(self.key).strip()).first()
-            if not lic or not lic.is_valid():
-                await interaction.response.send_message('Key inválida, expirada o desactivada.', ephemeral=True); return
-            lic.discord_id=str(interaction.user.id); lic.hwid=None; db.session.commit()
-            script=Script.query.filter_by(hash_id=lic.script_hash).first()
-        await interaction.response.send_message(f'✅ Key vinculada a tu Discord para **{script.name if script else "el script"}**. Pulsa **Get Script**.', ephemeral=True)
-
-@bot.tree.command(name='setpanel', description='Crea el panel de usuarios en este canal')
-@app_commands.describe(loader_script='Loader que recibirá el usuario al pulsar Get Script', manager_role='Rol que puede administrar este panel', buyer_role='Rol opcional para compradores', project_name='Nombre del proyecto', description='Descripción del panel')
-async def setpanel(interaction: discord.Interaction, loader_script: str, manager_role: discord.Role, buyer_role: discord.Role | None = None, project_name: str = 'VantaProtect', description: str = 'If you are a buyer, click on the buttons below to redeem your key, get the script or get your role'):
-    app, db, User, License, Script, HWIDBan, AccessLog, RolePermission, Warning, PriceConfig = models()
-    from app import DiscordPanel
-    if not interaction.guild:
-        await interaction.response.send_message('Este comando solo puede usarse dentro de un servidor.', ephemeral=True); return
-    if not (owner(interaction.user) or interaction.guild.owner_id == interaction.user.id):
-        await interaction.response.send_message('Solo el dueño del servidor puede configurar el panel.', ephemeral=True); return
-    panel_obj=None
-    with app.app_context():
-        panel_obj=DiscordPanel.query.filter_by(guild_id=str(interaction.guild.id)).first()
-        if not panel_obj:
-            panel_obj=DiscordPanel(guild_id=str(interaction.guild.id), channel_id=str(interaction.channel.id), created_by=str(interaction.user.id), loader_script=loader_script, manager_role_id=str(manager_role.id))
-            db.session.add(panel_obj)
-        panel_obj.channel_id=str(interaction.channel.id); panel_obj.loader_script=loader_script; panel_obj.manager_role_id=str(manager_role.id); panel_obj.buyer_role_id=str(buyer_role.id) if buyer_role else None; panel_obj.project_name=project_name; panel_obj.description=description
-        db.session.commit()
-    embed=discord.Embed(title=project_name, description=f'This control panel is for the project: **{project_name}**\n{description}', color=discord.Color.blurple())
-    embed.set_footer(text=f'Set by {interaction.user}')
-    await interaction.response.defer(ephemeral=True)
-    message=await interaction.channel.send(embed=embed, view=UserPanelView())
-    with app.app_context():
-        panel_obj=DiscordPanel.query.filter_by(guild_id=str(interaction.guild.id)).first(); panel_obj.message_id=str(message.id)
-        RolePermission.query.filter_by(guild_id=str(interaction.guild.id)).delete()
-        db.session.add(RolePermission(guild_id=str(interaction.guild.id), role_id=str(manager_role.id), role_name=manager_role.name, enabled=True))
-        db.session.commit()
-    await interaction.followup.send(f'✅ Panel creado en {interaction.channel.mention}: {message.jump_url}', ephemeral=True)
-
-@bot.tree.command(name='panel', description='Muestra cómo configurar el panel de Luarmor')
-async def panel_legacy(interaction: discord.Interaction):
-    await interaction.response.send_message('Usa `/setpanel` en el canal donde quieres publicar el panel. Campos: `loader_script`, `manager_role` y `buyer_role` opcional.', ephemeral=True)
+@bot.tree.command(name='setlogs',description='Select a channel for bot audit messages')
+@app_commands.describe(channel='Log channel')
+async def setlogs(i,channel:discord.TextChannel):
+    m=M()
+    with m['app'].app_context():
+        if not await manager(i,m['RolePermission']):return
+        p=panel(i,m['DiscordPanel'])
+        if not p: await i.response.send_message('Configure /setpanel first.',ephemeral=True); return
+        p.logs_channel_id=str(channel.id); m['db'].session.commit()
+    await i.response.send_message(f'✅ Audit log channel saved: {channel.mention}.',ephemeral=True)
 
 @bot.event
 async def on_ready():
-    try:
-        bot.add_view(UserPanelView())
-        synced = await bot.tree.sync()
-        logger.info('Bot conectado como %s; %s comandos sincronizados', bot.user, len(synced))
-    except Exception:
-        logger.exception('Error sincronizando comandos')
-
-
-if __name__ == '__main__':
-    bot.run(TOKEN)
+    bot.add_view(Panel());synced=await bot.tree.sync();log.info('Connected as %s; synchronized %d commands',bot.user,len(synced))
+if __name__=='__main__':bot.run(TOKEN)

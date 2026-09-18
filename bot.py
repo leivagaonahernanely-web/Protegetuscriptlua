@@ -15,7 +15,7 @@ TOKEN = os.getenv('DISCORD_BOT_TOKEN')
 if not TOKEN:
     raise ValueError('DISCORD_BOT_TOKEN no está configurado')
 OWNER_ID = int(os.getenv('ADMIN_DISCORD_ID', '1501316920975036611'))
-DOMAIN = os.getenv('DOMINIO', 'https://vantaprotect.up.railway.app').rstrip('/')
+DOMAIN = os.getenv('DOMINIO', 'vantaprotect-web-production.up.railway.app').rstrip('/')
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger('VantaProtectBot')
 
@@ -38,7 +38,7 @@ def owner(user: discord.abc.User) -> bool:
 
 
 def has_manager_role(interaction: discord.Interaction, RolePermission) -> bool:
-    if owner(interaction.user):
+    if owner(interaction.user) or (interaction.guild and interaction.guild.owner_id == interaction.user.id):
         return True
     role_ids = {str(role.id) for role in getattr(interaction.user, 'roles', [])}
     guild_id = str(interaction.guild_id or '')
@@ -59,7 +59,7 @@ def new_key(License):
 async def require_manager(interaction, RolePermission):
     if has_manager_role(interaction, RolePermission):
         return True
-    await interaction.response.send_message(embed=permission_error(), ephemeral=True)
+    await interaction.response.send_message("You don't have permission to manage any panels.\nYou must have the manager role to use this command. *(you specified what role it is while running /setpanel)*", ephemeral=True)
     return False
 
 
@@ -287,31 +287,37 @@ class RedeemKeyModal(discord.ui.Modal, title='Redeem Script Key'):
             script=Script.query.filter_by(hash_id=lic.script_hash).first()
         await interaction.response.send_message(f'✅ Key vinculada a tu Discord para **{script.name if script else "el script"}**. Pulsa **Get Script**.', ephemeral=True)
 
-@bot.tree.command(name='panel', description='Publica el panel del creador con sus scripts')
-@app_commands.describe(channel='Canal donde se publicará el panel')
-async def panel(interaction: discord.Interaction, channel: discord.TextChannel):
+@bot.tree.command(name='setpanel', description='Crea el panel de usuarios en este canal')
+@app_commands.describe(loader_script='Loader que recibirá el usuario al pulsar Get Script', manager_role='Rol que puede administrar este panel', buyer_role='Rol opcional para compradores', project_name='Nombre del proyecto', description='Descripción del panel')
+async def setpanel(interaction: discord.Interaction, loader_script: str, manager_role: discord.Role, buyer_role: discord.Role | None = None, project_name: str = 'VantaProtect', description: str = 'If you are a buyer, click on the buttons below to redeem your key, get the script or get your role'):
     app, db, User, License, Script, HWIDBan, AccessLog, RolePermission, Warning, PriceConfig = models()
+    from app import DiscordPanel
+    if not interaction.guild:
+        await interaction.response.send_message('Este comando solo puede usarse dentro de un servidor.', ephemeral=True); return
+    if not (owner(interaction.user) or interaction.guild.owner_id == interaction.user.id):
+        await interaction.response.send_message('Solo el dueño del servidor puede configurar el panel.', ephemeral=True); return
+    panel_obj=None
     with app.app_context():
-        if not await require_manager(interaction, RolePermission): return
-        creator=User.query.filter_by(discord_id=str(interaction.user.id)).first()
-        if not creator:
-            await interaction.response.send_message('Primero inicia sesión en la web con Discord.', ephemeral=True); return
-        scripts=Script.query.filter_by(owner_id=creator.id, active=True).order_by(Script.created_at.desc()).all()
-        if not scripts:
-            await interaction.response.send_message('No tienes scripts activos creados para mostrar.', ephemeral=True); return
-        creator.panel_guild_id=str(interaction.guild_id or '')
-        creator.panel_channel_id=str(channel.id)
+        panel_obj=DiscordPanel.query.filter_by(guild_id=str(interaction.guild.id)).first()
+        if not panel_obj:
+            panel_obj=DiscordPanel(guild_id=str(interaction.guild.id), channel_id=str(interaction.channel.id), created_by=str(interaction.user.id), loader_script=loader_script, manager_role_id=str(manager_role.id))
+            db.session.add(panel_obj)
+        panel_obj.channel_id=str(interaction.channel.id); panel_obj.loader_script=loader_script; panel_obj.manager_role_id=str(manager_role.id); panel_obj.buyer_role_id=str(buyer_role.id) if buyer_role else None; panel_obj.project_name=project_name; panel_obj.description=description
         db.session.commit()
-        names='\n'.join(f'• **{script.name}**' for script in scripts)
-    embed=discord.Embed(title=creator.panel_title or 'VantaProtect', description=(creator.panel_description or 'Gestiona tus keys y scripts desde este panel.')+'\n\nScripts disponibles:\n'+names, color=discord.Color.blurple())
-    embed.set_footer(text='VantaProtect · Panel de usuario')
+    embed=discord.Embed(title=project_name, description=f'This control panel is for the project: **{project_name}**\n{description}', color=discord.Color.blurple())
+    embed.set_footer(text=f'Set by {interaction.user}')
     await interaction.response.defer(ephemeral=True)
-    message=await channel.send(embed=embed, view=UserPanelView())
+    message=await interaction.channel.send(embed=embed, view=UserPanelView())
     with app.app_context():
-        creator=User.query.filter_by(discord_id=str(interaction.user.id)).first()
-        creator.panel_message_id=str(message.id); db.session.commit()
-    await interaction.followup.send(f'✅ Panel publicado en {channel.mention}: {message.jump_url}', ephemeral=True)
+        panel_obj=DiscordPanel.query.filter_by(guild_id=str(interaction.guild.id)).first(); panel_obj.message_id=str(message.id)
+        RolePermission.query.filter_by(guild_id=str(interaction.guild.id)).delete()
+        db.session.add(RolePermission(guild_id=str(interaction.guild.id), role_id=str(manager_role.id), role_name=manager_role.name, enabled=True))
+        db.session.commit()
+    await interaction.followup.send(f'✅ Panel creado en {interaction.channel.mention}: {message.jump_url}', ephemeral=True)
 
+@bot.tree.command(name='panel', description='Muestra cómo configurar el panel de Luarmor')
+async def panel_legacy(interaction: discord.Interaction):
+    await interaction.response.send_message('Usa `/setpanel` en el canal donde quieres publicar el panel. Campos: `loader_script`, `manager_role` y `buyer_role` opcional.', ephemeral=True)
 
 @bot.event
 async def on_ready():

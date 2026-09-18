@@ -256,6 +256,20 @@ class WebPlanKey(db.Model):
     created_by = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
+class DiscordPanel(db.Model):
+    __tablename__ = 'discord_panels'
+    id = db.Column(db.Integer, primary_key=True)
+    guild_id = db.Column(db.String(32), nullable=False, unique=True, index=True)
+    channel_id = db.Column(db.String(32), nullable=False)
+    message_id = db.Column(db.String(32))
+    project_name = db.Column(db.String(255), nullable=False, default='VantaProtect')
+    description = db.Column(db.Text, nullable=False, default='If you are a buyer, click the buttons below.')
+    loader_script = db.Column(db.Text, nullable=False)
+    manager_role_id = db.Column(db.String(32), nullable=False)
+    buyer_role_id = db.Column(db.String(32))
+    created_by = db.Column(db.String(32), nullable=False)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
 class Warning(db.Model):
     __tablename__ = 'warnings'
     id = db.Column(db.Integer, primary_key=True)

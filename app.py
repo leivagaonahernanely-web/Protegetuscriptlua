@@ -267,6 +267,7 @@ class DiscordPanel(db.Model):
     loader_script = db.Column(db.Text, nullable=False)
     manager_role_id = db.Column(db.String(32), nullable=False)
     buyer_role_id = db.Column(db.String(32))
+    logs_channel_id = db.Column(db.String(32))
     created_by = db.Column(db.String(32), nullable=False)
     updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -1283,6 +1284,7 @@ with app.app_context():
             db.session.execute(text('ALTER TABLE users ADD COLUMN IF NOT EXISTS panel_guild_id VARCHAR(32)'))
             db.session.execute(text('ALTER TABLE users ADD COLUMN IF NOT EXISTS panel_channel_id VARCHAR(32)'))
             db.session.execute(text('ALTER TABLE users ADD COLUMN IF NOT EXISTS panel_message_id VARCHAR(32)'))
+            db.session.execute(text('ALTER TABLE discord_panels ADD COLUMN IF NOT EXISTS logs_channel_id VARCHAR(32)'))
             db.session.commit()
     except Exception:
         db.session.rollback()

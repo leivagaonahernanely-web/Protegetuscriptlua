@@ -307,7 +307,10 @@ async def blacklist(i,user:discord.Member,days:int=0,reason:str='Blocked by mana
     with m['app'].app_context():
         if not await manager(i,m['RolePermission']):return
         n=m['License'].query.filter_by(discord_id=str(user.id)).update({'active':False});m['db'].session.commit()
-    await i.response.send_message(f'âœ… {user.mention} blacklisted. {n} license(s) disabled. Reason: {reason}',ephemeral=True)
+    with m['app'].app_context():
+        p=panel(i,m['DiscordPanel'])
+        stats_url=f'https://discord.com/channels/{p.guild_id}/{p.channel_id}/{p.message_id}' if p and p.message_id else f'{DOMAIN}/dashboard'
+    await i.response.send_message(f'{user.mention} You have been blacklisted! :no_entry:\nTo find out why, go to {stats_url} and click on **Stats** button\n\nReason: {reason}')
 
 @bot.tree.command(name='compensate',description='Add days to all licenses in this project')
 @app_commands.describe(days='Days to add')
@@ -331,6 +334,34 @@ async def setlogs(i,channel:discord.TextChannel):
         if not p: await i.response.send_message('Configure /setpanel first.',ephemeral=True); return
         p.logs_channel_id=str(channel.id); m['db'].session.commit()
     await i.response.send_message(f'âœ… Audit log channel saved: {channel.mention}.',ephemeral=True)
+
+
+link_group=app_commands.Group(name='link',description='Link VantaProtect scripts to this Discord server')
+
+@link_group.command(name='script',description='Link a hosted script to this server using its API key')
+@app_commands.describe(script='Script to link',api_key='API key generated for that script')
+@app_commands.autocomplete(script=script_autocomplete)
+async def link_script(i,script:str,api_key:str):
+    m=M()
+    if not i.guild:
+        await i.response.send_message('This command can only be used in a server.',ephemeral=True); return
+    if not (is_owner(i.user) or guild_owner(i)):
+        await i.response.send_message('Only the server owner can link a script.',ephemeral=True); return
+    with m['app'].app_context():
+        creator=m['User'].query.filter_by(discord_id=str(i.user.id)).first()
+        item=m['Script'].query.filter_by(hash_id=script.strip(),api_key=api_key.strip(),active=True,owner_id=creator.id if creator else -1).first()
+        if not item:
+            await i.response.send_message('Invalid API key or script. Select a script you own and use its exact API key.',ephemeral=True); return
+        loader_url=f'{DOMAIN}/scripts/hosted/{item.hash_id}.lua'
+        p=panel(i,m['DiscordPanel'])
+        if not p:
+            p=m['DiscordPanel'](guild_id=str(i.guild_id),channel_id=str(i.channel_id),created_by=str(i.user.id),loader_script=loader_url,manager_role_id='0')
+            m['db'].session.add(p)
+        p.channel_id=str(i.channel_id);p.loader_script=loader_url;p.project_name=item.name;p.description=item.description or 'Protected script control panel.'
+        m['db'].session.commit(); name=item.name
+    await i.response.send_message(f'âœ… Script linked to this server: **{name}**\nRun `/setpanel` to choose the manager and buyer roles.',ephemeral=True)
+
+bot.tree.add_command(link_group)
 
 @bot.event
 async def on_ready():

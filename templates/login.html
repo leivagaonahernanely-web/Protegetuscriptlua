@@ -1,32 +1,33 @@
-{% extends "base.html" %}
-{% block title %}Iniciar Sesión - VantaProtect{% endblock %}
-
-{% block content %}
-<div class="flex items-center justify-center min-h-[80vh]">
-    <div class="card w-full max-w-md text-center p-10">
-        <div class="flex justify-center mb-6">
-            <div class="w-20 h-20 rounded-full bg-primary/10 flex items-center justify-center">
-                <i class="fa-brands fa-discord text-5xl text-primary"></i>
-            </div>
-        </div>
-        <h2 class="text-3xl font-bold mb-2">Bienvenido</h2>
-        <p class="text-textMuted mb-8">Inicia sesión con tu cuenta de Discord para acceder al panel de control.</p>
-
-        <a href="{{ discord_url }}" class="btn-primary w-full justify-center text-lg py-3">
-            <i class="fa-brands fa-discord"></i> Continuar con Discord
-        </a>
-
-        <div class="mt-6 flex items-center gap-3 text-xs text-textMuted">
-            <span class="flex-1 h-px bg-border"></span>
-            <span>Protegido con VantaProtect</span>
-            <span class="flex-1 h-px bg-border"></span>
-        </div>
-
-        <div class="mt-4 flex justify-center gap-6 text-xs text-textMuted">
-            <a href="#" class="hover:text-primary transition">Términos</a>
-            <a href="#" class="hover:text-primary transition">Privacidad</a>
-            <a href="https://discord.gg/tu-servidor" target="_blank" class="hover:text-primary transition">Soporte</a>
-        </div>
-    </div>
-</div>
-{% endblock %}
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Iniciar sesión · VantaProtect</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;600;700&family=Space+Grotesk:wght@600;700&display=swap" rel="stylesheet">
+  <style>
+    :root{color-scheme:dark;--bg:#07080d;--card:#111522;--line:#282f43;--text:#f5f7fb;--muted:#98a1b5;--discord:#5865f2}
+    *{box-sizing:border-box}
+    body{margin:0;min-height:100vh;display:grid;place-items:center;padding:24px;background:radial-gradient(700px 420px at 50% 0,rgba(139,92,246,.22),transparent 70%),var(--bg);color:var(--text);font-family:'DM Sans',sans-serif}
+    .card{width:min(430px,100%);padding:38px;border:1px solid var(--line);border-radius:20px;background:rgba(17,21,34,.94);box-shadow:0 30px 90px #0008;text-align:center}
+    .mark{width:58px;height:58px;margin:0 auto 22px;display:grid;place-items:center;border-radius:16px;background:linear-gradient(145deg,#332169,#16112b);border:1px solid #5741a8;color:#c8b7ff;font-size:25px}
+    .eyebrow{color:#a996ed;font-size:10px;font-weight:700;letter-spacing:.18em;text-transform:uppercase}
+    h1{font:700 32px 'Space Grotesk',sans-serif;margin:10px 0}
+    p{color:var(--muted);line-height:1.7;font-size:14px;margin:0 0 26px}
+    .btn{display:flex;align-items:center;justify-content:center;gap:10px;width:100%;padding:13px 18px;border-radius:9px;background:var(--discord);color:white;text-decoration:none;font-weight:700;transition:filter .15s,transform .15s}
+    .btn:hover{filter:brightness(1.12)}.btn:active{transform:scale(.98)}
+    .back{display:inline-block;margin-top:22px;color:var(--muted);font-size:12px;text-decoration:none}.back:hover{color:var(--text)}
+  </style>
+</head>
+<body>
+  <main class="card">
+    <div class="mark">◆</div>
+    <div class="eyebrow">VantaProtect workspace</div>
+    <h1>Bienvenido</h1>
+    <p>Inicia sesión con Discord para abrir tu dashboard, administrar scripts y gestionar tus claves.</p>
+    <a class="btn" href="{{ discord_url }}"><span>◈</span> Continuar con Discord</a>
+    <a class="back" href="/">Volver al inicio</a>
+  </main>
+</body>
+</html>

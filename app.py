@@ -750,7 +750,6 @@ def users_page():
     return render_template('users.html', user=current_user, scripts=scripts, dominio=DOMINIO)
 
 @app.route('/loader/<hash_id>')
-@login_required
 def view_loader(hash_id):
     script = Script.query.filter_by(hash_id=hash_id).first_or_404()
     loader = build_trial_loader(hash_id) if script.trial_enabled else build_public_loader(hash_id)
@@ -889,6 +888,15 @@ def public_script_loader(hash_id):
     script = Script.query.filter_by(hash_id=hash_id, active=True).first()
     if not script:
         return "-- script not found", 404, {'Content-Type': 'text/plain; charset=utf-8'}
+    # A direct browser visit gets the same friendly preview as Luarmor. Roblox
+    # clients still receive only executable Lua so the loadstring keeps working.
+    user_agent = request.headers.get('User-Agent', '')
+    accepts_html = request.accept_mimetypes.accept_html and not any(
+        marker in user_agent.lower() for marker in ('roblox', 'wininet', 'synapse', 'krnl', 'scriptware')
+    )
+    if accepts_html:
+        preview_loader = build_trial_loader(hash_id) if script.trial_enabled else build_public_loader(hash_id, 'KEY')
+        return render_template('loader.html', script=script, loader=preview_loader, dominio=DOMINIO)
     return build_loader_runtime(hash_id), 200, {'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store'}
 
 @app.route('/api/load/<hash_id>')

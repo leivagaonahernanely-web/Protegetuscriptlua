@@ -1,0 +1,91 @@
+{% extends "base.html" %}
+{% block title %}Plan Keys · VantaProtect{% endblock %}
+{% block crumb %}Plan Keys{% endblock %}
+
+{% block content %}
+<section class="hero">
+  <div class="eyebrow">Owner</div>
+  <h1>Generate Pro / Premium keys</h1>
+  <p>Buyers redeem these on <a href="/plans" style="color:#a78bfa">/plans</a> to upgrade their account's plan.</p>
+</section>
+
+<div class="grid2">
+  <div class="card">
+    <h3 style="margin-top:0">Generate keys</h3>
+    <form id="genForm">
+      <div class="field" style="margin-bottom:12px">
+        <label>Plan</label>
+        <select id="genPlan"><option value="PRO">Pro</option><option value="PREMIUM">Premium</option></select>
+      </div>
+      <div class="field" style="margin-bottom:12px">
+        <label>Duration (e.g. 30d, 12m, 1y, 0 = no expiry on the key itself)</label>
+        <input id="genDuration" value="30d">
+      </div>
+      <div class="field" style="margin-bottom:12px">
+        <label>Amount</label>
+        <input id="genAmount" type="number" min="1" max="100" value="1">
+      </div>
+      <button class="btn btn-primary" type="submit" style="width:100%;justify-content:center"><i class="fas fa-key"></i> Generate</button>
+    </form>
+    <div id="genResult" class="hidden" style="margin-top:14px">
+      <label class="muted" style="display:block;margin-bottom:6px">Generated keys</label>
+      <textarea id="genOutput" readonly rows="6" style="font-family:monospace;font-size:11px"></textarea>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title"><h3>Existing keys</h3><span class="muted">{{ plan_keys|length }}</span></div>
+    {% if plan_keys %}
+    <div class="table-container">
+      <table>
+        <thead><tr><th>Key</th><th>Plan</th><th>Status</th><th>Expires</th><th></th></tr></thead>
+        <tbody>
+          {% for k in plan_keys %}
+          <tr>
+            <td style="font-family:monospace">{{ k.key[:10] }}...</td>
+            <td>{{ k.plan }}</td>
+            <td>{% if k.redeemed_by %}<span class="muted">Redeemed</span>{% elif k.active %}<span style="color:#44e3a0">Available</span>{% else %}<span style="color:#ff6b82">Disabled</span>{% endif %}</td>
+            <td>{{ k.expires_at.strftime('%d/%m/%Y') if k.expires_at else 'No expiry' }}</td>
+            <td><a href="#" onclick="deleteKey({{ k.id }});return false;" style="color:#ff6b82"><i class="fas fa-trash"></i></a></td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div class="empty"><i class="fas fa-key"></i><div>No plan keys generated yet</div></div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.getElementById('genForm').addEventListener('submit', async function(e){
+  e.preventDefault();
+  const body = {
+    plan: document.getElementById('genPlan').value,
+    duration: document.getElementById('genDuration').value.trim(),
+    amount: parseInt(document.getElementById('genAmount').value || '1', 10)
+  };
+  try{
+    const res = await fetch('/api/owner/web-plan-keys', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+    const data = await res.json();
+    if (data.success){
+      document.getElementById('genOutput').value = data.keys.join('\n');
+      document.getElementById('genResult').classList.remove('hidden');
+      showToast('✅ Generated ' + data.amount + ' key(s)');
+      setTimeout(()=>location.reload(), 1200);
+    } else showToast('❌ ' + data.error, 'error');
+  }catch{ showToast('Error generating keys', 'error'); }
+});
+
+async function deleteKey(id){
+  if (!confirm('Delete this key?')) return;
+  const res = await fetch('/api/owner/web-plan-keys/' + id, { method:'DELETE' });
+  const data = await res.json();
+  if (data.success){ showToast('Deleted'); setTimeout(()=>location.reload(), 600); }
+  else showToast('❌ ' + (data.error||'Error'), 'error');
+}
+</script>
+{% endblock %}

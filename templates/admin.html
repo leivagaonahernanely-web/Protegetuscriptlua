@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+{% block title %}Admin · VantaProtect{% endblock %}
+{% block crumb %}Admin{% endblock %}
+
+{% block content %}
+<section class="hero">
+  <div class="eyebrow">Owner / Admin</div>
+  <h1>Global overview</h1>
+  <p>Every script, license and user across the whole VantaProtect instance.</p>
+</section>
+
+<div class="stat-grid">
+  <div class="stat"><i class="stat-icon fas fa-folder-open"></i><div class="stat-label">Scripts</div><div class="stat-value">{{ stats.total_scripts }}</div><div class="stat-foot">{{ stats.active_scripts }} active</div></div>
+  <div class="stat"><i class="stat-icon fas fa-key"></i><div class="stat-label">License keys</div><div class="stat-value">{{ stats.total_licenses }}</div><div class="stat-foot">{{ stats.active_licenses }} active</div></div>
+  <div class="stat"><i class="stat-icon fas fa-users"></i><div class="stat-label">Users</div><div class="stat-value">{{ stats.total_users }}</div></div>
+  <div class="stat"><i class="stat-icon fas fa-database"></i><div class="stat-label">Storage</div><div class="stat-value">{{ stats.total_size_mb }}<span style="font-size:14px">MB</span></div><div class="stat-foot">{{ stats.total_logs }} access logs</div></div>
+</div>
+
+<div class="grid2">
+  <div class="card">
+    <div class="card-title"><h3>Scripts</h3><span class="muted">{{ scripts|length }} total</span></div>
+    <div class="table-container">
+      <table>
+        <thead><tr><th>Name</th><th>Hash</th><th>Status</th><th>Downloads</th></tr></thead>
+        <tbody>
+          {% for s in scripts[:25] %}
+          <tr><td>{{ s.name }}</td><td>{{ s.hash_id[:10] }}...</td><td>{% if s.active %}<span style="color:#44e3a0">● Active</span>{% else %}<span style="color:#ff6b82">● Disabled</span>{% endif %}</td><td>{{ s.downloads }}</td></tr>
+          {% else %}
+          <tr><td colspan="4" class="empty">No scripts yet</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  <div class="card">
+    <div class="card-title"><h3>Recent access logs</h3><span class="muted">Last 100</span></div>
+    <div class="table-container">
+      <table>
+        <thead><tr><th>Script</th><th>HWID</th><th>Result</th><th>When</th></tr></thead>
+        <tbody>
+          {% for l in logs[:25] %}
+          <tr>
+            <td>{{ l.script_hash[:10] if l.script_hash else '-' }}...</td>
+            <td>{{ (l.hwid or '-')[:12] }}</td>
+            <td>{% if l.success %}<span style="color:#44e3a0">OK</span>{% else %}<span style="color:#ff6b82">{{ l.error_message or 'failed' }}</span>{% endif %}</td>
+            <td>{{ l.timestamp.strftime('%d/%m %H:%M') if l.timestamp else '-' }}</td>
+          </tr>
+          {% else %}
+          <tr><td colspan="4" class="empty">No access logs yet</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<div class="card" style="margin-top:16px">
+  <div class="card-title"><h3>Users</h3><span class="muted">{{ users|length }} total</span></div>
+  <div class="table-container">
+    <table>
+      <thead><tr><th>Username</th><th>Discord ID</th><th>Plan</th><th>Admin</th><th>Joined</th></tr></thead>
+      <tbody>
+        {% for u in users[:50] %}
+        <tr>
+          <td>{{ u.username }}</td>
+          <td>{{ u.discord_id }}</td>
+          <td>{{ u.plan or 'FREE' }}</td>
+          <td>{% if u.is_admin %}<span style="color:#44e3a0">Yes</span>{% else %}<span class="muted">No</span>{% endif %}</td>
+          <td>{{ u.created_at.strftime('%d/%m/%Y') if u.created_at else '-' }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="5" class="empty">No users yet</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

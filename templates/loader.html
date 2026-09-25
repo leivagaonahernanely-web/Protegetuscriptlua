@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{{ script.name }} · Loadstring</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#0b0e17; --card:#141928; --line:#252c40; --text:#f5f7fb; --muted:#8891a5;
+    --green:#7ee787; --blue:#79c0ff; --orange:#e2b26b; --comment:#6a7387; --accent:#8b5cf6;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; min-height:100vh; display:flex; flex-direction:column; align-items:center; justify-content:center;
+    gap:18px; padding:32px 16px;
+    background:radial-gradient(600px 320px at 50% 0%, rgba(139,92,246,.10), transparent 70%), var(--bg);
+    color:var(--text); font-family:'DM Sans',sans-serif;
+  }
+  .title{display:flex;align-items:center;gap:10px;font-size:18px;font-weight:700}
+  .card{
+    width:min(720px,100%); background:var(--card); border:1px solid var(--line); border-radius:14px;
+    padding:18px 20px 14px; box-shadow:0 24px 60px rgba(0,0,0,.35); position:relative;
+  }
+  .copy-btn{
+    position:absolute; top:14px; right:14px; background:#232a3d; border:1px solid #313a54; color:#dfe3ef;
+    font:600 11px 'DM Sans'; padding:6px 12px; border-radius:7px; cursor:pointer;
+  }
+  .copy-btn:hover{background:#2a3348}
+  .copy-btn.copied{background:rgba(126,231,135,.15); border-color:#3d6b46; color:var(--green)}
+  pre{
+    margin:6px 0 0; font-family:'JetBrains Mono',monospace; font-size:13px; line-height:1.7;
+    white-space:pre; overflow-x:auto; padding-bottom:6px;
+  }
+  .cm{color:var(--comment); font-style:italic}
+  .kw{color:var(--blue)}
+  .fn{color:var(--blue)}
+  .str{color:var(--orange)}
+  .divider{height:1px; background:linear-gradient(90deg,transparent,var(--line) 20%,var(--line) 80%,transparent); margin-top:8px}
+  .footnote{color:#5b6479; font-size:11px; text-align:center}
+  .footnote a{color:#7a84a0}
+  .badge{
+    display:inline-flex; align-items:center; gap:6px; font-size:10px; text-transform:uppercase; letter-spacing:.08em;
+    color:#a996ed; background:rgba(139,92,246,.12); border:1px solid rgba(139,92,246,.3); padding:4px 10px; border-radius:20px;
+  }
+</style>
+</head>
+<body>
+  <div class="title">📜 Loadstring</div>
+  <div class="card">
+    <button class="copy-btn" id="copyBtn" onclick="copyLoader()">Copy</button>
+    <pre id="loaderCode"><span class="kw">script_key</span> = <span class="str">"KEY"</span>; <span class="cm">-- A key might be required, if not, delete this line.</span>
+<span class="fn">loadstring</span>(<span class="kw">game</span>:<span class="fn">HttpGet</span>(<span class="str">"{{ request.url_root.rstrip('/') }}/scripts/hosted/{{ script.hash_id }}.lua"</span>))()</pre>
+  </div>
+  <div class="footnote">Contents can not be displayed on browser • {{ request.url_root }}</div>
+
+  <textarea id="rawLoader" style="position:absolute;left:-9999px;top:-9999px;">script_key = "KEY"; -- A key might be required, if not, delete this line.
+loadstring(game:HttpGet("{{ request.url_root.rstrip('/') }}/scripts/hosted/{{ script.hash_id }}.lua"))()</textarea>
+
+<script>
+function copyLoader(){
+  const raw = document.getElementById('rawLoader').value;
+  navigator.clipboard.writeText(raw).then(() => {
+    const btn = document.getElementById('copyBtn');
+    btn.textContent = 'Copied!';
+    btn.classList.add('copied');
+    setTimeout(() => { btn.textContent = 'Copy'; btn.classList.remove('copied'); }, 1800);
+  });
+}
+</script>
+</body>
+</html>

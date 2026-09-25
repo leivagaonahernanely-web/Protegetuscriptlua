@@ -23,8 +23,8 @@
             </div>
             <div class="flex items-center gap-3">
                 <label class="flex items-center gap-2 text-sm text-textMuted cursor-pointer">
-                    <input type="checkbox" id="enableKillswitch" checked>
-                    <i class="fas fa-power-off"></i> Activar Killswitch
+                    <input type="checkbox" id="enableTrial">
+                    <i class="fas fa-key"></i> Activar Key Trial
                 </label>
                 <label class="flex items-center gap-2 text-sm text-textMuted cursor-pointer">
                     <input type="checkbox" id="enableCompression" checked>
@@ -88,7 +88,7 @@
                                 </div>
                             </div>
                             <div class="flex flex-col items-end gap-2 flex-shrink-0">
-                                <button onclick="toggleKillswitch('{{ s.hash_id }}')" 
+                                <button onclick="toggleScript('{{ s.hash_id }}')"
                                         class="text-xs px-3 py-1 rounded transition flex items-center gap-1
                                         {% if s.active %}bg-success/20 text-success hover:bg-success/30{% else %}bg-danger/20 text-danger hover:bg-danger/30{% endif %}">
                                     <i class="fas {% if s.active %}fa-check-circle{% else %}fa-times-circle{% endif %}"></i>
@@ -116,8 +116,8 @@
                 <i class="fas fa-lightbulb text-warning"></i> Consejo Rápido
             </h4>
             <p class="text-textMuted text-sm mt-2">
-                El <strong>Killswitch</strong> te permite desactivar remotamente un script en caso de abuso.
-                El <strong>loader</strong> generado contiene tu script protegido y la lógica de verificación.
+                <strong>Key Trial</strong> permite probar el script con <code>script_key = "trial"</code>.
+                El <strong>loader</strong> generado contiene el runtime protegido y la lógica de verificación.
             </p>
         </div>
     </div>
@@ -130,7 +130,7 @@ document.getElementById('protectForm').addEventListener('submit', async function
     e.preventDefault();
     const nombre = document.getElementById('scriptName').value.trim();
     const codigo = document.getElementById('scriptCode').value.trim();
-    const killswitch = document.getElementById('enableKillswitch').checked;
+    const trial_enabled = document.getElementById('enableTrial').checked;
     const compression = document.getElementById('enableCompression').checked;
 
     if (!nombre || !codigo) {
@@ -142,7 +142,7 @@ document.getElementById('protectForm').addEventListener('submit', async function
         const res = await fetch('/api/protect', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ name: nombre, code: codigo, killswitch, compression })
+            body: JSON.stringify({ name: nombre, code: codigo, trial_enabled, compression })
         });
         const data = await res.json();
 
@@ -152,7 +152,7 @@ document.getElementById('protectForm').addEventListener('submit', async function
             document.getElementById('scriptVersion').textContent = 'v' + data.version;
             document.getElementById('verLoaderLink').href = '/loader/' + data.hash_id;
             document.getElementById('resultado').classList.remove('hidden');
-            showToast('✅ Script protegido exitosamente', 'success');
+            showToast(`Script creado. API key para /link: ${data.api_key}`, 'success');
             document.getElementById('scriptName').value = '';
             document.getElementById('scriptCode').value = '';
         } else {
@@ -183,10 +183,10 @@ function descargarLoader() {
     showToast('✅ Loader descargado', 'success');
 }
 
-async function toggleKillswitch(hashId) {
+async function toggleScript(hashId) {
     if (!confirm('¿Cambiar el estado de este script?')) return;
     try {
-        const res = await fetch(`/api/toggle-kill/${hashId}`, { method: 'POST' });
+        const res = await fetch(`/api/toggle-script/${hashId}`, { method: 'POST' });
         const data = await res.json();
         if (data.success) {
             showToast('✅ Estado actualizado', 'success');

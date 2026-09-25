@@ -50,13 +50,11 @@
   <div class="title">📜 Loadstring</div>
   <div class="card">
     <button class="copy-btn" id="copyBtn" onclick="copyLoader()">Copy</button>
-    <pre id="loaderCode"><span class="kw">script_key</span> = <span class="str">"KEY"</span>; <span class="cm">-- A key might be required, if not, delete this line.</span>
-<span class="fn">loadstring</span>(<span class="kw">game</span>:<span class="fn">HttpGet</span>(<span class="str">"{{ request.url_root.rstrip('/') }}/scripts/hosted/{{ script.hash_id }}.lua"</span>))()</pre>
+    <pre id="loaderCode">{{ loader|safe }}</pre>
   </div>
   <div class="footnote">Contents can not be displayed on browser • {{ request.url_root }}</div>
 
-  <textarea id="rawLoader" style="position:absolute;left:-9999px;top:-9999px;">script_key = "KEY"; -- A key might be required, if not, delete this line.
-loadstring(game:HttpGet("{{ request.url_root.rstrip('/') }}/scripts/hosted/{{ script.hash_id }}.lua"))()</textarea>
+  <textarea id="rawLoader" style="position:absolute;left:-9999px;top:-9999px;">{{ loader|safe }}</textarea>
 
 <script>
 function copyLoader(){

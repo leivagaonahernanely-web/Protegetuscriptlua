@@ -146,6 +146,11 @@ class Script(db.Model):
     content = db.Column(db.Text, nullable=False)
     content_hash = db.Column(db.String(64))
     description = db.Column(db.Text)
+    # API key belongs to the script and is only shown at creation / Discord /link.
+    api_key = db.Column(db.String(64), unique=True, nullable=False, index=True)
+    linked_guild_id = db.Column(db.String(32), index=True)
+    linked_at = db.Column(db.DateTime)
+    trial_enabled = db.Column(db.Boolean, default=False, nullable=False)
     active = db.Column(db.Boolean, default=True, index=True)
     version = db.Column(db.Integer, default=1)
     owner_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
@@ -161,6 +166,8 @@ class Script(db.Model):
             'id': self.hash_id,
             'name': self.name,
             'description': self.description,
+            'api_key': self.api_key,
+            'trial_enabled': self.trial_enabled,
             'version': self.version,
             'active': self.active,
             'downloads': self.downloads,
@@ -292,6 +299,15 @@ class AccessLog(db.Model):
     error_message = db.Column(db.String(100))
     timestamp = db.Column(db.DateTime, default=datetime.utcnow, index=True)
 
+class ChatMessage(db.Model):
+    __tablename__ = 'chat_messages'
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
+    username = db.Column(db.String(100), nullable=False)
+    avatar = db.Column(db.String(255))
+    content = db.Column(db.String(500), nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+
 class HWIDBan(db.Model):
     __tablename__ = 'hwid_bans'
     
@@ -381,18 +397,19 @@ def generar_api_key() -> str:
     return ''.join(random.choices(string.ascii_uppercase + string.digits, k=16))
 
 def build_public_loader(hash_id: str, key_placeholder: str = "TU_KEY") -> str:
-    return f'''script_key = "{key_placeholder}"
+    return f"""script_key = "{key_placeholder}"
 
-loadstring(game:HttpGet("{DOMINIO}/scripts/hosted/{hash_id}.lua"))()'''
+loadstring(game:HttpGet("{DOMINIO}/scripts/hosted/{hash_id}.lua"))()"""
 
 def build_loader_runtime(hash_id: str) -> str:
-    return f'''local key = script_key
+    return f"""local key = script_key
 if not key or key == "" then error("script_key is required") end
 local hwid = game:GetService("RbxAnalyticsService"):GetClientId()
 local source = game:HttpGet("{DOMINIO}/api/load/{hash_id}?key=" .. key .. "&hwid=" .. hwid)
-return loadstring(source)()'''
+return loadstring(source)()"""
 
-# ============================================================
+def build_trial_loader(hash_id: str) -> str:
+    return build_public_loader(hash_id, "trial")
 # 7. RUTAS PRINCIPALES
 # ============================================================
 
@@ -466,6 +483,8 @@ def callback():
             db.session.commit()
             logger.info(f"Nuevo usuario: {username} ({discord_id}) - API Key: {api_key}")
         
+        user.username = username
+        user.avatar = avatar
         user.last_login = datetime.utcnow()
         user.login_count += 1
         db.session.commit()
@@ -527,82 +546,26 @@ def dashboard():
 @app.route('/panel')
 @login_required
 def panel_page():
-    """Panel de control con API Key personal"""
-    # Buscar licencia del usuario
-    license = License.query.filter_by(created_by=current_user.id).first()
-    
-    # Buscar script
-    script = Script.query.filter_by(active=True).first()
-    
-    # Configuración del panel
-    panel_config = {
-        'title': current_user.panel_title or 'VantaProtect',
-        'description': current_user.panel_description or 'Script protegido con VantaProtect'
-    }
-    
-    return render_template('panel.html', 
-                          user=current_user, 
-                          license=license,
-                          script=script,
-                          panel_config=panel_config,
-                          dominio=DOMINIO)
+    scripts = Script.query.filter_by(owner_id=current_user.id).order_by(Script.created_at.desc()).all()
+    selected = request.args.get('script')
+    script = Script.query.filter_by(hash_id=selected, owner_id=current_user.id).first() if selected else (scripts[0] if scripts else None)
+    panel_config = {'title': current_user.panel_title or 'VantaProtect', 'description': current_user.panel_description or ''}
+    return render_template('panel.html', user=current_user, scripts=scripts, script=script, panel_config=panel_config, dominio=DOMINIO)
 
 @app.route('/api/panel-config', methods=['POST'])
 @login_required
 def save_panel_config():
-    """Guarda la configuración del panel"""
-    try:
-        data = request.get_json()
-        title = data.get('title', '').strip()
-        description = data.get('description', '').strip()
-        
-        if not title:
-            return jsonify({'success': False, 'error': 'El título es requerido'})
-        
-        current_user.panel_title = title
-        current_user.panel_description = description
-        db.session.commit()
-        
-        return jsonify({
-            'success': True,
-            'title': title,
-            'description': description
-        })
-    except Exception as e:
-        logger.error(f"Error guardando configuración: {str(e)}")
-        return jsonify({'success': False, 'error': str(e)})
-
-@app.route('/api/regenerate-key', methods=['POST'])
-@login_required
-def regenerate_key():
-    """Regenera la API Key del usuario"""
-    try:
-        nueva_key = generar_api_key()
-        while User.query.filter_by(api_key=nueva_key).first():
-            nueva_key = generar_api_key()
-        
-        old_key = current_user.api_key
-        current_user.api_key = nueva_key
-        db.session.commit()
-        
-        logger.info(f"API Key regenerada: {old_key} -> {nueva_key} por {current_user.username}")
-        
-        return jsonify({
-            'success': True,
-            'api_key': nueva_key
-        })
-    except Exception as e:
-        logger.error(f"Error regenerando API Key: {str(e)}")
-        return jsonify({'success': False, 'error': str(e)})
-
-@app.route('/api/my-key')
-@login_required
-def get_my_key():
-    """Obtiene la API Key del usuario actual"""
-    return jsonify({
-        'success': True,
-        'api_key': current_user.api_key
-    })
+    data = request.get_json(silent=True) or {}
+    title = str(data.get('title', '')).strip()[:255]
+    description = str(data.get('description', '')).strip()[:2000]
+    script_hash = str(data.get('script_hash', '')).strip()
+    script = Script.query.filter_by(hash_id=script_hash, owner_id=current_user.id).first()
+    if not title or not script:
+        return jsonify({'success': False, 'error': 'Título y script son requeridos'}), 400
+    current_user.panel_title, current_user.panel_description = title, description
+    script.description = description or script.description
+    db.session.commit()
+    return jsonify({'success': True, 'title': title, 'description': description, 'script_hash': script.hash_id})
 
 # ============================================================
 # 9.5 OWNER: SOURCES TXT Y PRECIOS
@@ -783,15 +746,74 @@ def hwid_bans_page():
 @login_required
 @owner_required
 def users_page():
-    usuarios = User.query.order_by(User.created_at.desc()).all()
-    return render_template('users.html', user=current_user, usuarios=usuarios)
+    scripts = Script.query.order_by(Script.created_at.desc()).all()
+    return render_template('users.html', user=current_user, scripts=scripts, dominio=DOMINIO)
 
 @app.route('/loader/<hash_id>')
 @login_required
 def view_loader(hash_id):
     script = Script.query.filter_by(hash_id=hash_id).first_or_404()
-    loader = build_public_loader(hash_id)
+    loader = build_trial_loader(hash_id) if script.trial_enabled else build_public_loader(hash_id)
     return render_template('loader.html', script=script, loader=loader)
+
+@app.route('/logs')
+@login_required
+def logs_page():
+    scripts = Script.query.filter_by(owner_id=current_user.id).all()
+    ids = [s.hash_id for s in scripts]
+    logs = AccessLog.query.filter(AccessLog.script_hash.in_(ids)).order_by(AccessLog.timestamp.desc()).limit(200).all() if ids else []
+    return render_template('logs.html', user=current_user, logs=logs, scripts=scripts)
+
+@app.route('/updates')
+@login_required
+def updates_page():
+    return render_template('updates.html', user=current_user)
+
+@app.route('/chat')
+@login_required
+def chat_page():
+    messages = ChatMessage.query.order_by(ChatMessage.created_at.desc()).limit(100).all()[::-1]
+    return render_template('chat.html', user=current_user, messages=messages)
+
+@app.route('/api/chat/messages')
+@login_required
+def chat_messages():
+    after = request.args.get('after', 0, type=int)
+    rows = ChatMessage.query.filter(ChatMessage.id > after).order_by(ChatMessage.id.asc()).limit(100).all()
+    return jsonify({'messages': [{'id': m.id, 'username': m.username, 'avatar': m.avatar, 'content': m.content, 'created_at': m.created_at.isoformat()} for m in rows]})
+
+@app.route('/api/chat/messages', methods=['POST'])
+@login_required
+def post_chat_message():
+    data = request.get_json(silent=True) or {}
+    content = re.sub(r'https?://\S+|www\.\S+|discord\.gg/\S+', '[link eliminado]', str(data.get('content', '')).strip(), flags=re.I)
+    content = re.sub(r'\b(?:https?://|www\.|discord\.gg|t\.me/|bit\.ly/)[^\s]+', '[link eliminado]', content, flags=re.I)[:500]
+    if not content:
+        return jsonify({'success': False, 'error': 'El mensaje está vacío'}), 400
+    m = ChatMessage(user_id=current_user.id, username=current_user.username, avatar=current_user.avatar, content=content)
+    db.session.add(m); db.session.commit()
+    return jsonify({'success': True, 'message': {'id': m.id, 'username': m.username, 'avatar': m.avatar, 'content': m.content, 'created_at': m.created_at.isoformat()}})
+
+@app.route('/scripts/<hash_id>/download')
+@login_required
+def download_script(hash_id):
+    script = Script.query.filter_by(hash_id=hash_id, owner_id=current_user.id).first_or_404()
+    from flask import Response
+    decoded = descomprimir_codigo(script.content) or base64.b64decode(script.content).decode('utf-8')
+    return Response(decoded, mimetype='text/plain', headers={'Content-Disposition': f'attachment; filename="{script.name}.lua"'})
+
+@app.route('/scripts/<hash_id>/edit', methods=['GET', 'POST'])
+@login_required
+def edit_script(hash_id):
+    script = Script.query.filter_by(hash_id=hash_id, owner_id=current_user.id).first_or_404()
+    if request.method == 'POST':
+        data = request.get_json(silent=True) or {}
+        name, description = str(data.get('name', script.name)).strip()[:255], str(data.get('description', script.description or '')).strip()[:2000]
+        if not name: return jsonify({'success': False, 'error': 'El nombre es requerido'}), 400
+        script.name, script.description, script.updated_at = name, description, datetime.utcnow()
+        db.session.commit()
+        return jsonify({'success': True})
+    return render_template('edit_script.html', user=current_user, script=script)
 
 # ============================================================
 # 11. API - PROTECCIÓN DE SCRIPTS
@@ -804,8 +826,8 @@ def protect_script():
         data = request.get_json()
         nombre = data.get('name', '').strip()
         codigo = data.get('code', '').strip()
-        killswitch = data.get('killswitch', True)
         compression = data.get('compression', True)
+        trial_enabled = bool(data.get('trial_enabled', False))
         description = data.get('description', '').strip()
         
         if not nombre or not codigo:
@@ -824,13 +846,18 @@ def protect_script():
         contenido, protection_stats = proteger_codigo(codigo) if compression else (base64.b64encode(codigo.encode()).decode(), {'renamed_locals': 0})
         content_hash = hashlib.sha256(codigo.encode()).hexdigest()
         
+        api_key = generar_api_key()
+        while Script.query.filter_by(api_key=api_key).first():
+            api_key = generar_api_key()
         nuevo = Script(
             name=nombre,
             hash_id=hash_id,
+            api_key=api_key,
             content=contenido,
             content_hash=content_hash,
             description=description,
-            active=killswitch,
+            trial_enabled=trial_enabled,
+            active=True,
             owner_id=current_user.id,
             version=1,
             size_mb=size_mb
@@ -845,9 +872,11 @@ def protect_script():
         return jsonify({
             'success': True,
             'hash_id': hash_id,
-            'loader': loader,
+            'loader': build_trial_loader(hash_id) if trial_enabled else build_public_loader(hash_id),
+            'api_key': api_key,
             'version': 1,
-            'active': killswitch,
+            'active': True,
+            'trial_enabled': trial_enabled,
             'size_mb': size_mb,
             'protection': protection_stats
         })
@@ -883,8 +912,9 @@ def load_script(hash_id):
             return "error: script no encontrado", 404
         
         # 🔥 Buscar licencia por API Key
-        lic = License.query.filter_by(key=key, script_hash=hash_id, active=True).first()
-        if not lic:
+        is_trial = key.lower() == 'trial' and script.trial_enabled
+        lic = None if is_trial else License.query.filter_by(key=key, script_hash=hash_id, active=True).first()
+        if not lic and not is_trial:
             AccessLog(key_hash=hashlib.md5(key.encode()).hexdigest()[:16], 
                      hwid=hwid, ip=obtener_ip_segura(), 
                      script_hash=hash_id, success=False, 
@@ -892,7 +922,7 @@ def load_script(hash_id):
             db.session.commit()
             return "error: API Key inválida", 401
         
-        if not lic.is_valid():
+        if not is_trial and not lic.is_valid():
             error_msg = "licencia_expirada" if lic.expires_at and lic.expires_at < datetime.utcnow() else "licencia_inactiva"
             AccessLog(key_hash=hashlib.md5(key.encode()).hexdigest()[:16], 
                      hwid=hwid, ip=obtener_ip_segura(), 
@@ -901,7 +931,7 @@ def load_script(hash_id):
             db.session.commit()
             return f"error: {error_msg}", 401
         
-        if lic.hwid and lic.hwid != hwid:
+        if not is_trial and lic.hwid and lic.hwid != hwid:
             AccessLog(key_hash=hashlib.md5(key.encode()).hexdigest()[:16], 
                      hwid=hwid, ip=obtener_ip_segura(), 
                      script_hash=hash_id, success=False, 
@@ -909,7 +939,7 @@ def load_script(hash_id):
             db.session.commit()
             return "error: HWID no coincide", 401
         
-        if not lic.use(hwid):
+        if not is_trial and not lic.use(hwid):
             return "error: error al usar licencia", 500
         
         script.downloads += 1
@@ -956,9 +986,13 @@ def upload_script():
         
         contenido_comprimido, protection_stats = proteger_codigo(contenido)
         
+        api_key = generar_api_key()
+        while Script.query.filter_by(api_key=api_key).first():
+            api_key = generar_api_key()
         nuevo = Script(
             name=nombre,
             hash_id=hash_id,
+            api_key=api_key,
             content=contenido_comprimido,
             owner_id=current_user.id,
             size_mb=size_mb
@@ -972,7 +1006,8 @@ def upload_script():
             'success': True,
             'name': nombre,
             'hash_id': hash_id,
-            'loader': loader,
+            'loader': build_public_loader(hash_id),
+            'api_key': api_key,
             'size_mb': size_mb,
             'protection': protection_stats
         })
@@ -1279,6 +1314,10 @@ with app.app_context():
     db.create_all()
     try:
         if db.engine.dialect.name == 'postgresql':
+            db.session.execute(text('ALTER TABLE scripts ADD COLUMN IF NOT EXISTS api_key VARCHAR(64)'))
+            db.session.execute(text('ALTER TABLE scripts ADD COLUMN IF NOT EXISTS linked_guild_id VARCHAR(32)'))
+            db.session.execute(text('ALTER TABLE scripts ADD COLUMN IF NOT EXISTS linked_at TIMESTAMP'))
+            db.session.execute(text('ALTER TABLE scripts ADD COLUMN IF NOT EXISTS trial_enabled BOOLEAN DEFAULT FALSE'))
             db.session.execute(text('ALTER TABLE licenses ADD COLUMN IF NOT EXISTS discord_id VARCHAR(32)'))
             db.session.execute(text('ALTER TABLE licenses ADD COLUMN IF NOT EXISTS role_id VARCHAR(32)'))
             db.session.execute(text('ALTER TABLE users ADD COLUMN IF NOT EXISTS panel_guild_id VARCHAR(32)'))
@@ -1289,6 +1328,23 @@ with app.app_context():
     except Exception:
         db.session.rollback()
         logger.exception('No se pudieron aplicar columnas nuevas de licencias')
+    # SQLite does not support ALTER TABLE IF NOT EXISTS; add legacy columns explicitly.
+    try:
+        if db.engine.dialect.name == 'sqlite':
+            cols = {row[1] for row in db.session.execute(text('PRAGMA table_info(scripts)')).fetchall()}
+            for name, sql_type in [('api_key', 'VARCHAR(64)'), ('linked_guild_id', 'VARCHAR(32)'), ('linked_at', 'DATETIME'), ('trial_enabled', 'BOOLEAN DEFAULT 0')]:
+                if name not in cols:
+                    db.session.execute(text(f'ALTER TABLE scripts ADD COLUMN {name} {sql_type}'))
+            db.session.commit()
+        for script in Script.query.filter(Script.api_key.is_(None)).all():
+            key = generar_api_key()
+            while Script.query.filter_by(api_key=key).first():
+                key = generar_api_key()
+            script.api_key = key
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        logger.exception('No se pudieron migrar las API keys por script')
     logger.info("📦 Base de datos inicializada")
 
 if __name__ == '__main__':

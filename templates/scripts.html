@@ -28,6 +28,7 @@
             <label class="text-sm font-medium text-textMuted block mb-1">Código Lua</label>
             <textarea id="scriptCode" rows="8" placeholder="-- Pega aquí tu código Lua" class="font-mono text-sm" required></textarea>
         </div>
+        <label class="flex items-center gap-2 text-sm text-textMuted"><input type="checkbox" id="trialEnabled"> Activar <code>script_key = "trial"</code> para que todos puedan probar este script</label>
         <button type="submit" class="btn-primary w-full justify-center">
             <i class="fas fa-shield-alt"></i> Proteger Script
         </button>
@@ -95,13 +96,14 @@ document.getElementById('scriptForm').addEventListener('submit', async function(
         const res = await fetch('/api/protect', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ name: nombre, code: codigo })
+            body: JSON.stringify({ name: nombre, code: codigo, trial_enabled: document.getElementById('trialEnabled').checked })
         });
         const data = await res.json();
 
         if (data.success) {
-            showToast('✅ Script protegido exitosamente', 'success');
-            setTimeout(() => location.reload(), 1500);
+            showToast(`Script creado. API key: ${data.api_key}`, 'success');
+            if (data.api_key) { statusDiv.innerHTML = '<b>API key del script — úsala solo con /link:</b><br><code>' + data.api_key + '</code>'; }
+            setTimeout(() => location.reload(), 8000);
         } else {
             showToast('❌ Error: ' + data.error, 'error');
         }

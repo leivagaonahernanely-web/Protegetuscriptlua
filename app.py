@@ -15,6 +15,7 @@ import logging
 import re
 import json
 import requests
+from urllib.parse import urlencode
 from typing import Optional, Dict, Any, List, Tuple
 from sqlalchemy import text
 from lua_protector import protect_lua
@@ -420,17 +421,22 @@ def index():
 @app.route('/login')
 def login():
     try:
+        if current_user.is_authenticated:
+            return redirect(url_for('dashboard'))
         session.permanent = True
         session.modified = True
+        next_url = request.args.get('next', '/dashboard')
+        if not next_url.startswith('/') or next_url.startswith('//'):
+            next_url = '/dashboard'
+        session['next_url'] = next_url
         redirect_uri = f'{DOMINIO}/callback'
-        discord_url = (
-            f'https://discord.com/api/oauth2/authorize'
-            f'?client_id={DISCORD_CLIENT_ID}'
-            f'&redirect_uri={redirect_uri}'
-            f'&response_type=code'
-            f'&scope=identify'
-        )
-        return redirect(discord_url)
+        discord_url = 'https://discord.com/api/oauth2/authorize?' + urlencode({
+            'client_id': DISCORD_CLIENT_ID,
+            'redirect_uri': redirect_uri,
+            'response_type': 'code',
+            'scope': 'identify',
+        })
+        return render_template('login.html', discord_url=discord_url, next_url=next_url, user={})
     except Exception as e:
         logger.error(f"Error en login: {str(e)}")
         return f"Error al iniciar sesión: {str(e)}"
@@ -492,7 +498,10 @@ def callback():
         login_user(user, remember=True)
         session.permanent = True
         
-        return redirect(url_for('dashboard'))
+        next_url = session.pop('next_url', '/dashboard')
+        if not next_url.startswith('/') or next_url.startswith('//'):
+            next_url = '/dashboard'
+        return redirect(next_url)
     except Exception as e:
         logger.error(f"Error en callback: {str(e)}")
         return f"Error en callback: {str(e)}"

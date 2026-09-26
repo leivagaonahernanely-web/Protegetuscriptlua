@@ -1,0 +1,183 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#0a0a0b">
+  <meta name="robots" content="noindex, nofollow">
+  <title>{% block title %}VantaProtect{% endblock %}</title>
+  <link rel="icon" type="image/png" href="/static/favicon.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Sora:wght@500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+  <style>
+    :root{
+      --bg:#0a0a0b; --panel:#131315; --panel-2:#1a1a1d; --line:#28282c;
+      --text:#f2f2f0; --muted:#8e8e93; --dim:#57575c;
+      --white:#ffffff; --white-soft:rgba(255,255,255,.08); --white-line:rgba(255,255,255,.24);
+      --red:#e2645f;
+      --mono:'JetBrains Mono',ui-monospace,Menlo,Consolas,monospace;
+    }
+    *{box-sizing:border-box}html{background:var(--bg)}
+    body{margin:0;background:var(--bg);color:var(--text);font-family:'Inter',sans-serif;min-height:100vh;-webkit-font-smoothing:antialiased}
+    h1,h2,h3,h4{font-family:'Sora',sans-serif}
+    a{color:inherit;text-decoration:none}button{font-family:inherit}
+    .scroll{overflow:auto}::-webkit-scrollbar{width:6px;height:6px}::-webkit-scrollbar-thumb{background:#232323;border-radius:10px}
+    :focus-visible{outline:2px solid var(--white);outline-offset:2px;border-radius:4px}
+    code{font:500 .88em var(--mono);background:var(--panel-2);padding:2px 7px;border-radius:4px;color:#d4d4d8;border:1px solid var(--line)}
+
+    .shell{display:flex;min-height:100vh}
+    .sidebar{width:256px;flex:0 0 256px;background:rgba(10,10,11,.92);border-right:1px solid var(--line);padding:20px 14px;display:flex;flex-direction:column;position:sticky;top:0;height:100vh;z-index:20}
+    .brand{display:flex;align-items:center;padding:8px 6px 25px}
+    .brand img{height:30px;width:auto;display:block}
+    .nav-title{font-size:11px;color:#57575c;font-weight:600;padding:16px 12px 6px}
+    .nav-item{display:flex;align-items:center;gap:11px;padding:10px 11px;border-radius:8px;color:#8b8b90;font-size:12.5px;margin:2px 0;transition:background .15s,color .15s}
+    .nav-item i{width:16px;text-align:center;font-size:13px;color:#5c5c61}
+    .nav-item:hover{background:#18181a;color:#f8f8f6}
+    .nav-item.active{background:var(--white-soft);color:var(--text);box-shadow:inset 2px 0 var(--white)}
+    .nav-item.active i{color:var(--text)}
+    .nav-badge{margin-left:auto;color:var(--muted);font-size:10px}
+    .sidebar-bottom{margin-top:auto;border-top:1px solid var(--line);padding-top:14px}
+    .profile{display:flex;gap:10px;align-items:center;padding:8px}
+    .avatar{width:32px;height:32px;border-radius:9px;background:#1c1c1f;border:1px solid var(--line);display:grid;place-items:center;color:var(--text);font-weight:700;font-size:12px;overflow:hidden}
+    .avatar img{width:100%;height:100%;object-fit:cover;border-radius:50%}
+    .profile b{display:block;font-size:12px}
+    .profile span{display:block;color:var(--muted);font-size:10px;margin-top:2px}
+    .logout{display:block;color:#727276;font-size:11px;padding:8px 10px}
+    .logout:hover{color:var(--red)}
+    .invite{display:flex;align-items:center;gap:9px;margin:12px 4px 5px;padding:10px 11px;background:var(--white);border-radius:8px;font-size:11px;font-weight:700;color:#0a0a0b}
+    .invite i:last-child{margin-left:auto;font-size:9px;opacity:.7}
+
+    .main{min-width:0;flex:1}
+    .topbar{height:66px;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;padding:0 34px;background:rgba(10,10,11,.6);backdrop-filter:blur(16px);position:sticky;top:0;z-index:10}
+    .crumb{font-size:11px;color:#75757a}.crumb strong{color:#e8e8e6;font-weight:600}
+    .bot-state{display:flex;align-items:center;gap:8px;font-size:10px;color:#7e7e83;letter-spacing:.03em}
+    .bot-state:before{content:'';width:7px;height:7px;background:var(--text);border-radius:50%}
+    .content{padding:34px;max-width:1500px}
+    .eyebrow{color:var(--muted);font-weight:600;font-size:11px}
+    .hero{border:1px solid var(--white-line);background:var(--panel);border-radius:15px;padding:28px 30px;position:relative;overflow:hidden;margin-bottom:24px}
+    .hero h1{font-size:32px;letter-spacing:-.03em;margin:8px 0}
+    .hero p{color:#a3a3a6;font-size:13px;line-height:1.7;max-width:650px;margin:0}
+    .hero-actions{display:flex;gap:10px;margin-top:20px;position:relative;z-index:2;flex-wrap:wrap}
+
+    .btn{border:0;border-radius:8px;padding:10px 15px;font-size:11.5px;font-weight:700;display:inline-flex;align-items:center;gap:8px;cursor:pointer;transition:filter .15s,transform .1s}
+    .btn:active{transform:translateY(1px)}
+    .btn-primary{background:var(--white);color:#0a0a0b}
+    .btn-primary:hover{filter:brightness(.92)}
+    .btn-ghost{background:#141416;border:1px solid #26262a;color:#bfbfc2}
+    .btn-ghost:hover{border-color:var(--dim)}
+
+    .card{background:rgba(19,19,21,.9);border:1px solid var(--line);border-radius:12px;padding:20px;box-shadow:0 15px 45px rgba(0,0,0,.16)}
+    .card-title{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px}
+    .card-title h3{font-size:14px;margin:0}
+    .muted{color:var(--muted);font-size:11px}
+
+    .stat-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:22px}
+    .stat{padding:17px 18px;background:rgba(19,19,21,.9);border:1px solid var(--line);border-radius:11px;position:relative}
+    .stat-label{font-size:11px;color:#7d7d82;font-weight:500}
+    .stat-value{font-family:'Sora';font-size:28px;font-weight:700;margin-top:9px;letter-spacing:-.03em}
+    .stat-foot{font-size:10.5px;color:#69696e;margin-top:6px}
+    .stat-icon{position:absolute;top:16px;right:16px;color:var(--muted);font-size:15px;opacity:.85}
+
+    .grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+    .table-container{border:1px solid var(--line);border-radius:9px;overflow:auto}
+    table{width:100%;border-collapse:collapse;min-width:560px}
+    th{background:#0d0d0f;color:#69696e;font-weight:600;font-size:10.5px;text-align:left;padding:12px;border-bottom:1px solid var(--line)}
+    td{font-size:11.5px;padding:12px;border-bottom:1px solid #1c1c1f;color:#cbcbce}
+    tr:hover td{background:#141416}
+    .empty{text-align:center;padding:34px;color:#69696e}
+    .empty i{display:block;color:#3a3a3d;font-size:24px;margin-bottom:10px}
+
+    .field label{display:block;color:#8e8e93;font-size:11px;font-weight:500;margin:0 0 6px}
+    .field input,.field textarea,.field select,input,textarea,select{width:100%;background:#0c0c0e;border:1px solid #2a2a2e;border-radius:8px;color:#e9e9ec;padding:10px 11px;font:inherit;font-size:12px}
+    .field input:focus,.field textarea:focus,input:focus,textarea:focus,select:focus{outline:none;border-color:var(--white);box-shadow:0 0 0 3px rgba(255,255,255,.1)}
+
+    .toast{position:fixed;right:24px;bottom:24px;background:#141416;border:1px solid #2c2c30;padding:12px 16px;border-radius:9px;font-size:11.5px;opacity:0;transform:translateY(10px);transition:opacity .2s,transform .2s;z-index:50;max-width:320px}
+    .toast.show{opacity:1;transform:none}
+    .toast.error{border-color:#5c2536}.toast.success{border-color:#2b3a2f}
+
+    .fatal{max-width:520px;margin:14vh auto;text-align:center;padding:0 24px}
+    .fatal i{font-size:30px;color:var(--text);margin-bottom:14px}
+    .fatal h2{font-size:20px;margin-bottom:8px}
+    .fatal p{color:var(--muted);font-size:13px;line-height:1.7}
+
+    .menu-toggle{display:none}
+    @media(max-width:900px){.sidebar{width:224px;flex-basis:224px}.content{padding:24px}.topbar{padding:0 24px}.stat-grid{grid-template-columns:repeat(2,1fr)}}
+    @media(max-width:680px){
+      .sidebar{position:fixed;transform:translateX(-100%);transition:transform .2s;width:260px}
+      .sidebar.open{transform:none}
+      .menu-toggle{display:grid;place-items:center;position:fixed;left:14px;top:14px;z-index:30;width:36px;height:36px;border-radius:8px;background:#141416;border:1px solid var(--line);color:white}
+      .topbar{padding-left:64px}.grid2{grid-template-columns:1fr}.stat-grid{grid-template-columns:1fr 1fr}
+      .content{padding:18px 14px}.hero{padding:22px 20px}.hero h1{font-size:26px}
+    }
+    {% block extra_css %}{% endblock %}
+  </style>
+</head>
+<body>
+{% if not user %}
+  <!--
+    Si esta plantilla se renderiza sin un "user" válido (sesión caída, callback de
+    Discord incompleto), en vez de leer user.avatar / user.is_admin y romper con un
+    500 que deja la pantalla negra, mostramos un aviso claro y mandamos a /login.
+  -->
+  <div class="fatal">
+    <i class="fas fa-triangle-exclamation" aria-hidden="true"></i>
+    <h2>Tu sesión no se pudo cargar</h2>
+    <p>Esto pasa si la sesión expiró o el login con Discord no terminó bien. Vuelve a iniciar sesión para continuar.</p>
+    <p style="margin-top:18px"><a class="btn btn-primary" href="/login" style="display:inline-flex">Ir a iniciar sesión</a></p>
+  </div>
+{% else %}
+<button class="menu-toggle" id="menuToggle" aria-label="Abrir menú" aria-expanded="false" aria-controls="sidebar"><i class="fas fa-bars" aria-hidden="true"></i></button>
+<div class="shell">
+<aside class="sidebar" id="sidebar">
+  <a class="brand" href="/dashboard"><img src="/static/logo.png" alt="VantaProtect" width="150" height="93"></a>
+  <nav aria-label="Navegación principal">
+    <div class="nav-title">Workspace</div>
+    <a class="nav-item {% if request.path == '/dashboard' %}active{% endif %}" href="/dashboard"><i class="fas fa-table-cells-large" aria-hidden="true"></i><span>Overview</span></a>
+    <a class="nav-item {% if request.path == '/scripts' %}active{% endif %}" href="/scripts"><i class="fas fa-folder-open" aria-hidden="true"></i><span>Scripts</span><span class="nav-badge">{{ scripts|length if scripts else 0 }}</span></a>
+    <a class="nav-item {% if request.path == '/protector' %}active{% endif %}" href="/protector"><i class="fas fa-code" aria-hidden="true"></i><span>Obfuscator</span></a>
+    <a class="nav-item {% if request.path == '/panel' %}active{% endif %}" href="/panel"><i class="fas fa-sliders" aria-hidden="true"></i><span>API key</span></a>
+    <div class="nav-title">Protection</div>
+    <a class="nav-item {% if request.path == '/keys' %}active{% endif %}" href="/keys"><i class="fas fa-key" aria-hidden="true"></i><span>License keys</span><span class="nav-badge">{{ keys|length if keys else 0 }}</span></a>
+    <a class="nav-item {% if request.path == '/hwid-bans' %}active{% endif %}" href="/hwid-bans"><i class="fas fa-fingerprint" aria-hidden="true"></i><span>HWID bans</span></a>
+    <a class="nav-item {% if request.path == '/logs' %}active{% endif %}" href="/logs"><i class="fas fa-list-check" aria-hidden="true"></i><span>Logs</span></a>
+    <div class="nav-title">Panels</div>
+    <a class="nav-item" href="/panel"><i class="fas fa-plus" aria-hidden="true"></i><span>Create New Panel</span></a>
+    <a class="nav-item" href="/prices"><i class="fas fa-receipt" aria-hidden="true"></i><span>Prices</span></a>
+    <a class="nav-item" href="/updates"><i class="fas fa-bullhorn" aria-hidden="true"></i><span>Updates</span></a>
+    <a class="nav-item {% if request.path == '/chat' %}active{% endif %}" href="/chat"><i class="fas fa-comments" aria-hidden="true"></i><span>Community chat</span></a>
+    {% if user.is_admin %}<div class="nav-title">Owner</div><a class="nav-item {% if request.path == '/users' %}active{% endif %}" href="/users"><i class="fas fa-file-lines" aria-hidden="true"></i><span>Published TXT</span></a>{% endif %}
+  </nav>
+  <a class="invite" href="https://discord.com/oauth2/authorize?client_id={{ discord_client_id|default('1519073151856803930') }}&permissions=8&scope=bot" target="_blank" rel="noopener noreferrer"><i class="fab fa-discord" aria-hidden="true"></i><span>Connect Discord bot</span><i class="fas fa-arrow-right" aria-hidden="true"></i></a>
+  <div class="sidebar-bottom">
+    <div class="profile">
+      <div class="avatar">{% if user.avatar %}<img src="{{ user.avatar }}" alt="" loading="lazy">{% else %}<i class="fas fa-user" aria-hidden="true"></i>{% endif %}</div>
+      <div><b>{{ user.username or 'Usuario' }}</b><span>{{ 'Administrator' if user.is_admin else 'Workspace member' }}</span></div>
+    </div>
+    <a class="logout" href="/logout"><i class="fas fa-arrow-right-from-bracket" aria-hidden="true"></i> Sign out</a>
+  </div>
+</aside>
+<section class="main">
+  <header class="topbar">
+    <div class="crumb">Workspace <span style="color:#4a4a4e">/</span> <strong>{% block crumb %}Overview{% endblock %}</strong></div>
+    <div class="bot-state">Bot online</div>
+  </header>
+  <main class="content">{% block content %}{% endblock %}</main>
+</section>
+</div>
+{% endif %}
+<div id="toast" class="toast" role="status" aria-live="polite"></div>
+<script>
+const sb=document.getElementById('sidebar'),mt=document.getElementById('menuToggle');
+mt?.addEventListener('click',()=>{
+  const open=sb.classList.toggle('open');
+  mt.setAttribute('aria-expanded',open?'true':'false');
+});
+function showToast(m,t='success'){const x=document.getElementById('toast');x.textContent=m;x.className='toast '+t+' show';clearTimeout(window.__toastTimer);window.__toastTimer=setTimeout(()=>x.classList.remove('show'),3500)}
+function copiarTexto(v){navigator.clipboard?.writeText(v).then(()=>showToast('Copied to clipboard')).catch(()=>showToast('No se pudo copiar','error'))}
+function confirmarAccion(m){return confirm(m)}
+{% with messages=get_flashed_messages(with_categories=true) %}{% for c,m in messages %}showToast({{ m|tojson }},{{ c|tojson }});{% endfor %}{% endwith %}
+</script>
+{% block extra_js %}{% endblock %}
+</body></html>

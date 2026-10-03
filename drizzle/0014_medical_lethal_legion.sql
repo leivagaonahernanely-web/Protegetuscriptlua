@@ -1,0 +1,2 @@
+ALTER TABLE `accessRules` ADD `hostedScriptId` int;--> statement-breakpoint
+ALTER TABLE `accessRules` ADD CONSTRAINT `accessRules_hostedScriptId_hostedScripts_id_fk` FOREIGN KEY (`hostedScriptId`) REFERENCES `hostedScripts`(`id`) ON DELETE no action ON UPDATE no action;

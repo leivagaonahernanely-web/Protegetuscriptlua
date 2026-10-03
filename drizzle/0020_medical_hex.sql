@@ -1,0 +1,2 @@
+ALTER TABLE `blacklists` ADD `hostedScriptId` int NOT NULL;--> statement-breakpoint
+ALTER TABLE `blacklists` ADD CONSTRAINT `blacklists_hostedScriptId_hostedScripts_id_fk` FOREIGN KEY (`hostedScriptId`) REFERENCES `hostedScripts`(`id`) ON DELETE no action ON UPDATE no action;

@@ -1,0 +1,5 @@
+# Referencia y criterio visual
+
+La URL de referencia `https://luamore-ftihe7q4.manus.space/` se mostró en mantenimiento, por lo que no se reutilizó identidad, contenido ni estructura específica. La guía adjunta enlaza a un repositorio público llamado Protegetuscriptlua; sus archivos describen un flujo de protección de scripts Lua con autenticación Discord, persistencia de scripts y estados operativos. Para Vanta.vs Protector se tomó solo el objetivo funcional general: introducir código Lua, elegir opciones, generar un resultado y consultar actividad.
+
+La dirección visual implementada es brutalista y propia: fondo negro, tipografía Barlow Condensed sobredimensionada, IBM Plex Mono para metadatos de código, rojo intenso como señal de control, divisores estructurales y superficies off-white en el workspace. La primera revisión visual mostró que el hero, el divisor rojo y las secciones editoriales transmiten bien la intención; el workspace claro necesita conservar la misma jerarquía industrial, y se debe revisar el responsive móvil y la consistencia del idioma español con etiquetas técnicas puntuales.

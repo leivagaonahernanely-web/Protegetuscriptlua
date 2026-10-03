@@ -1,0 +1,3 @@
+# Observaciones del video de referencia
+
+La referencia presenta un workspace oscuro y compacto con navegación lateral para Overview, Scripts, Obfuscator, Protection, Panels y Keys. El flujo de Scripts pide nombre, descripción opcional, modo FFA, código Luau o archivo `.lua`, y ofrece las acciones Host script y Obfuscate source. Después del hosting aparece una sección Hosted scripts que genera una URL pública y un loader `loadstring(game:HttpGet("..."))()` listo para copiar. La nueva dirección de Vanta.vs Protector debe conservar la claridad del flujo, pero usar identidad propia: negro, blanco y rojo Vanta, sin reutilizar textos, logo ni contenido de LuaMore.

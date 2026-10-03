@@ -1,0 +1,1 @@
+ALTER TABLE `blacklists` MODIFY COLUMN `hostedScriptId` int;

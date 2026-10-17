@@ -2,7 +2,7 @@
   "name": "vantarmor-frontend",
   "version": "1.0.0",
   "scripts": {
-    "start": "serve frotend -l $PORT"
+    "start": "serve frontend -l $PORT"
   },
   "dependencies": {
     "serve": "^14.2.1"

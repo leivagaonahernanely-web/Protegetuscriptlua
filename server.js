@@ -5,6 +5,8 @@ import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
 import path from 'path';
 import fs from 'fs';
+import os from 'os';
+import { execFile } from 'child_process';
 import { fileURLToPath } from 'url';
 import Database from 'better-sqlite3';
 import { startDiscordBot, ensureBotSchema } from './bot/discordBot.js';
@@ -149,7 +151,12 @@ function getSession(req) {
 
 function requireAuth(req, res, next) {
   const session = getSession(req);
-  if (!session) return res.status(401).json({ error: 'No auth' });
+  if (!session) {
+    const reason = !req.cookies[SESSION_COOKIE]
+      ? 'No hay cookie de sesión en este navegador (¿estás en el mismo dominio que el login?)'
+      : (!JWT_SECRET ? 'El servidor no tiene JWT_SECRET configurado' : 'Sesión inválida o expirada');
+    return res.status(401).json({ error: reason });
+  }
   req.userId = session.id;
   next();
 }
@@ -184,11 +191,66 @@ function validateScriptInput({ name, ffa, obfuscator, code }, current = null) {
 // ==========================================
 // 4. OFUSCACIÓN
 // ==========================================
-// Aquí se conecta el ofuscador real del servidor (Ofuscador 1 o 2).
-// Hasta que lo implementes, los scripts protegidos devuelven error en vez de
-// guardarse sin ofuscar, para no engañar al usuario.
+// Ofuscadores reales (CLIs locales). El Dockerfile instala Lua 5.1 / 5.4 y
+// clona ambos repos en OBFUSCATOR_DIR (por defecto /opt/obfuscators).
+//   Ofuscador 1 = Prometheus (Lua 5.1)
+//   Ofuscador 2 = Hercules  (Lua 5.4)
+// Se ejecutan sin shell (execFile + argumentos separados) para evitar inyección.
+const OBF_DIR = process.env.OBFUSCATOR_DIR || '/opt/obfuscators';
+const OBF_TIMEOUT_MS = Number(process.env.OBFUSCATOR_TIMEOUT_MS) || 120_000;
+const OBF_CONFIG = {
+  prometheus: {
+    bin: 'lua5.1',
+    dir: path.join(OBF_DIR, 'prometheus'),
+    args: (input, out) => ['cli.lua', '--preset', 'Medium', '--out', out, input],
+    output: (input, out) => out,
+  },
+  hercules: {
+    bin: 'lua5.4',
+    dir: path.join(OBF_DIR, 'hercules', 'src'),
+    args: (input) => ['hercules.lua', input, '--balanced'],
+    output: (input) => input.replace(/\.lua$/, '') + '_obfuscated.lua',
+  },
+};
+
+function runObfuscatorCli(bin, args, cwd, luaPath) {
+  return new Promise((resolve, reject) => {
+    execFile(bin, args, {
+      cwd,
+      timeout: OBF_TIMEOUT_MS,
+      maxBuffer: 32 * 1024 * 1024,
+      env: { ...process.env, LUA_PATH: `${cwd}/?.lua;${cwd}/?/init.lua;${luaPath};;` },
+    }, (err, stdout, stderr) => {
+      if (err) {
+        const detail = String(stderr || stdout || err.message).slice(0, 500);
+        return reject(Object.assign(new Error(`El ofuscador falló: ${detail}`), { status: 500 }));
+      }
+      resolve(stdout);
+    });
+  });
+}
+
 async function obfuscate(source, obfuscator) {
-  throw Object.assign(new Error(`Ofuscador "${obfuscator}" aún no está conectado en el servidor`), { status: 501 });
+  const cfg = OBF_CONFIG[obfuscator];
+  if (!cfg) throw Object.assign(new Error('Elige un ofuscador válido'), { status: 400 });
+  if (!fs.existsSync(cfg.dir)) {
+    throw Object.assign(new Error(`Ofuscador no instalado en el servidor (${cfg.dir})`), { status: 501 });
+  }
+
+  const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'vp-obf-'));
+  try {
+    const input = path.join(dir, 'script.lua');
+    const out = path.join(dir, 'out.lua');
+    await fs.promises.writeFile(input, source, 'utf8');
+
+    await runObfuscatorCli(cfg.bin, cfg.args(input, out), cfg.dir, cfg.dir);
+
+    const result = await fs.promises.readFile(cfg.output(input, out), 'utf8');
+    if (!result.trim()) throw Object.assign(new Error('El ofuscador no generó salida'), { status: 500 });
+    return result;
+  } finally {
+    await fs.promises.rm(dir, { recursive: true, force: true });
+  }
 }
 
 // ==========================================

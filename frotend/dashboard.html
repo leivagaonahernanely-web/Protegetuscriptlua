@@ -307,6 +307,7 @@
         <div class="auth-panel">
           <h2>No pudimos confirmar tu sesión</h2>
           <p>Tu cuenta no se pudo verificar después de iniciar sesión. Para no entrar en un bucle de redirecciones, lo detuvimos aquí.</p>
+          <p id="authReason" style="font-family:monospace;font-size:12px;color:var(--text-soft);word-break:break-word;"></p>
           <div class="auth-steps">
             1. Cierra todas las pestañas de Vantarmor.<br>
             2. Revisa que estés usando la misma dirección siempre (con o sin www, http o https).<br>
@@ -459,7 +460,7 @@
           </article>
         </div>
 
-        <article class="card" id="redeemBox" style="margin-top:20px;">
+        <article class="card" id="redeemBox" style="margin-top:20px;display:none;">
           <h3>Canjear key de plan</h3>
           <p style="margin:6px 0 14px;font-size:14px;color:var(--text-soft);">Compra tu Premium o Premium Plus, el dueño te entrega una key en Discord con <code>/plankey</code> y la pegas aquí. Cada key se usa una sola vez.</p>
           <form id="redeemForm" autocomplete="off" style="display:flex;gap:10px;flex-wrap:wrap;">
@@ -1077,7 +1078,9 @@
     try { sessionStorage.removeItem(AUTH_LOOP_KEY); } catch (_) {}
   }
 
-  function showAuthError() {
+  function showAuthError(reason = '') {
+    $('userName').textContent = 'Sin sesión';
+    $('authReason').textContent = reason ? `Motivo: ${reason}` : '';
     showView('auth');
     setSidebar(!isMobile());
   }
@@ -1090,14 +1093,15 @@
       if (err.status === 401 || err.status === 403) {
         if (authLoopCount() >= 2) {
           // Ya redirigimos dos veces en el último minuto: detenemos el bucle
-          showAuthError();
+          showAuthError(err.message);
           return;
         }
         recordAuthRedirect();
         location.href = '/login.html';
         return;
       }
-      toast('No se pudo cargar tu cuenta', 'error');
+      $('userName').textContent = 'Sin conexión';
+      toast(`No se pudo cargar tu cuenta: ${err.message}`, 'error');
       return;
     }
 
@@ -1188,6 +1192,7 @@
   document.querySelectorAll('[data-plan-btn]').forEach(btn => {
     btn.addEventListener('click', () => {
       if (btn.disabled) return;
+      $('redeemBox').style.display = '';
       $('redeemBox').scrollIntoView({ behavior: 'smooth', block: 'center' });
       $('redeemInput').focus();
     });

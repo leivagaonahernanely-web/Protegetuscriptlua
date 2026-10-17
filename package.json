@@ -1,10 +1,17 @@
 {
-  "name": "vantarmor-frontend",
+  "name": "vantarmor",
   "version": "1.0.0",
+  "type": "module",
   "scripts": {
-    "start": "serve frontend -l $PORT"
+    "start": "node server.js"
   },
   "dependencies": {
-    "serve": "^14.2.1"
+    "express": "^4.19.2",
+    "cookie-parser": "^1.4.6",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "jsonwebtoken": "^9.0.2",
+    "node-fetch": "^3.3.2",
+    "better-sqlite3": "^11.3.0"
   }
 }

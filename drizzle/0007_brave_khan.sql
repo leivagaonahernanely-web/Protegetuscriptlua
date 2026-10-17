@@ -1,1 +1,0 @@
-ALTER TABLE `hostedScripts` ADD `sourceCode` text;

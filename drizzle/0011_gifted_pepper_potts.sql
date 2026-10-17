@@ -1,1 +1,0 @@
-ALTER TABLE `licenses` ADD `plan` enum('free','pro','premium') DEFAULT 'free' NOT NULL;

@@ -1,0 +1,573 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dashboard · Vantarmor</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #050507; --bg-2: #0a0a0e; --panel: #111116; --panel-2: #16161c; --panel-3: #1e1e26;
+    --border: #26262e; --border-2: #32323c;
+    --text: #f5f5f8; --text-dim: #a0a0ac; --muted: #6e6e78;
+    --silver-1: #f5f5f8; --silver-2: #d0d0d8; --silver-3: #a0a0ac;
+    --ok: #22c55e; --warn: #f59e0b; --danger: #ef4444;
+    --radius: 12px; --radius-lg: 20px; --transition: .3s cubic-bezier(.4,0,.2,1);
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Inter', system-ui, sans-serif; background: var(--bg); color: var(--text);
+    font-size: 14px; line-height: 1.6; -webkit-font-smoothing: antialiased; min-height: 100vh;
+    overflow-x: hidden;
+  }
+  a { color: inherit; text-decoration: none; }
+  button, input, select { cursor: pointer; font: inherit; outline: none; border: none; background: none; }
+  
+  /* Fondo Ambiental */
+  body::before {
+    content: ''; position: fixed; inset: 0; z-index: -1; pointer-events: none;
+    background: radial-gradient(circle at 50% 0%, rgba(224,224,232,.05), transparent 50%),
+                radial-gradient(circle at 100% 100%, rgba(160,160,172,.03), transparent 50%);
+  }
+
+  /* =========================================
+     LAYOUT PRINCIPAL Y SIDEBAR
+     ========================================= */
+  .app { display: flex; min-height: 100vh; }
+  
+  .sidebar {
+    width: 260px; background: var(--panel); border-right: 1px solid var(--border);
+    display: flex; flex-direction: column; position: fixed; top: 0; bottom: 0; left: 0;
+    transition: transform var(--transition); z-index: 50;
+  }
+  
+  /* Sidebar Colapsado (Modo Hamburger) */
+  .sidebar.collapsed { transform: translateX(-100%); }
+  
+  .sidebar-header {
+    padding: 20px; border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .brand { display: flex; align-items: center; gap: 12px; font-weight: 900; font-size: 16px; }
+  .brand-logo {
+    width: 32px; height: 32px; border-radius: 8px; background: linear-gradient(135deg, var(--silver-1), var(--silver-3));
+    display: grid; place-items: center; color: var(--bg); font-size: 13px;
+  }
+
+  .nav { padding: 16px 12px; display: flex; flex-direction: column; gap: 4px; flex: 1; }
+  .nav-item {
+    padding: 12px 14px; border-radius: 10px; color: var(--text-dim); font-weight: 600; font-size: 13.5px;
+    display: flex; align-items: center; gap: 12px; transition: all .2s;
+  }
+  .nav-item:hover { background: var(--panel-2); color: var(--text); }
+  .nav-item.active {
+    background: linear-gradient(90deg, rgba(255,255,255,.1), transparent);
+    color: var(--text); box-shadow: inset 3px 0 0 var(--silver-2);
+  }
+  .nav-item svg { width: 18px; height: 18px; stroke-width: 2.2; }
+
+  .user-widget { padding: 16px; border-top: 1px solid var(--border); }
+  .user-box {
+    display: flex; align-items: center; gap: 12px; padding: 10px;
+    background: var(--bg-2); border: 1px solid var(--border); border-radius: 12px;
+  }
+  .avatar { width: 36px; height: 36px; border-radius: 50%; background: var(--silver-2); overflow: hidden; }
+  .avatar img { width: 100%; height: 100%; object-fit: cover; }
+  .user-info { flex: 1; min-width: 0; }
+  .user-name { font-weight: 700; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .user-plan { font-size: 10px; color: var(--silver-3); font-weight: 800; letter-spacing: .05em; text-transform: uppercase; }
+  .btn-logout { color: var(--muted); transition: color 0.2s; padding: 4px; }
+  .btn-logout:hover { color: var(--danger); }
+
+  /* =========================================
+     MAIN CONTENT
+     ========================================= */
+  .main-content {
+    flex: 1; margin-left: 260px; transition: margin var(--transition);
+    display: flex; flex-direction: column;
+  }
+  .main-content.expanded { margin-left: 0; }
+
+  .topbar {
+    height: 70px; padding: 0 32px; display: flex; align-items: center; justify-content: space-between;
+    border-bottom: 1px solid var(--border); background: rgba(5,5,7,0.8); backdrop-filter: blur(12px);
+    position: sticky; top: 0; z-index: 40;
+  }
+  .btn-menu {
+    color: var(--text); padding: 8px; border-radius: 8px; border: 1px solid var(--border);
+    display: flex; align-items: center; gap: 8px; font-weight: 700; font-size: 13px; transition: all 0.2s;
+  }
+  .btn-menu:hover { background: var(--panel-2); border-color: var(--border-2); }
+  .btn-menu svg { width: 18px; height: 18px; stroke-width: 2.5; }
+
+  .page-title { font-size: 16px; font-weight: 800; }
+
+  .content-area { padding: 32px; max-width: 1400px; margin: 0 auto; width: 100%; }
+
+  /* =========================================
+     VISTAS Y TARJETAS
+     ========================================= */
+  .view { display: none; animation: fadeIn .3s ease; }
+  .view.active { display: block; }
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+
+  .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 20px; margin-bottom: 32px; }
+  .stat-card {
+    background: linear-gradient(180deg, var(--panel-2), var(--panel)); border: 1px solid var(--border);
+    border-radius: var(--radius-lg); padding: 24px; position: relative; overflow: hidden;
+    transition: transform 0.2s;
+  }
+  .stat-card:hover { transform: translateY(-3px); border-color: var(--border-2); }
+  .stat-card::before {
+    content: ''; position: absolute; top: 0; left: 0; width: 100%; height: 1px;
+    background: linear-gradient(90deg, transparent, var(--silver-3), transparent); opacity: 0.5;
+  }
+  .stat-icon {
+    position: absolute; top: 20px; right: 20px; color: var(--muted); opacity: 0.5;
+  }
+  .stat-icon svg { width: 24px; height: 24px; stroke-width: 2; }
+  .stat-label { color: var(--muted); font-size: 11px; text-transform: uppercase; font-weight: 800; letter-spacing: .08em; margin-bottom: 8px; }
+  .stat-value { font-size: 36px; font-weight: 900; font-family: 'JetBrains Mono', monospace; line-height: 1; }
+
+  .card { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 24px; }
+  .card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; }
+  .card-header h3 { font-size: 16px; font-weight: 800; }
+
+  /* =========================================
+     TABLAS (KEYS)
+     ========================================= */
+  .table-responsive { overflow-x: auto; border-radius: var(--radius); border: 1px solid var(--border); }
+  table { width: 100%; border-collapse: collapse; text-align: left; }
+  th { background: var(--panel-2); padding: 16px; font-size: 11px; text-transform: uppercase; color: var(--muted); font-weight: 800; letter-spacing: .05em; }
+  td { padding: 16px; border-bottom: 1px solid var(--border); font-size: 13.5px; }
+  tr:last-child td { border-bottom: none; }
+  tr:hover td { background: rgba(255,255,255,0.02); }
+  
+  .key-code { font-family: 'JetBrains Mono', monospace; font-size: 12.5px; background: var(--bg-2); padding: 6px 10px; border-radius: 6px; border: 1px solid var(--border); }
+  
+  .badge { padding: 4px 10px; border-radius: 99px; font-size: 11px; font-weight: 800; border: 1px solid; }
+  .badge.active { background: rgba(34,197,94,.1); color: var(--ok); border-color: rgba(34,197,94,.2); }
+  .badge.banned { background: rgba(239,68,68,.1); color: var(--danger); border-color: rgba(239,68,68,.2); }
+
+  /* =========================================
+     BOTONES Y UTILIDADES
+     ========================================= */
+  .btn {
+    background: linear-gradient(135deg, var(--silver-1), var(--silver-3)); color: var(--bg);
+    padding: 10px 20px; border-radius: 10px; font-weight: 800; font-size: 13px;
+    transition: all 0.2s; display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+    box-shadow: 0 4px 14px -4px rgba(255,255,255,0.4);
+  }
+  .btn:hover { transform: translateY(-1px); box-shadow: 0 6px 20px -4px rgba(255,255,255,0.5); }
+  .btn.ghost { background: var(--panel-2); color: var(--text); border: 1px solid var(--border); box-shadow: none; }
+  .btn.ghost:hover { background: var(--panel-3); border-color: var(--border-2); }
+  .btn.danger { background: rgba(239,68,68,0.1); color: var(--danger); border: 1px solid rgba(239,68,68,0.2); box-shadow: none; }
+  .btn.danger:hover { background: rgba(239,68,68,0.2); }
+  .btn.small { padding: 8px 12px; font-size: 12px; }
+
+  .grid-scripts { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 20px; }
+  .script-card { background: var(--panel-2); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px; display: flex; flex-direction: column; gap: 16px; }
+  .loader-box { 
+    font-family: 'JetBrains Mono', monospace; font-size: 11.5px; color: var(--silver-3); 
+    background: var(--bg); padding: 12px; border-radius: 8px; border: 1px solid var(--border);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; cursor: pointer; transition: all 0.2s;
+  }
+  .loader-box:hover { color: var(--text); border-color: var(--border-2); }
+
+  /* =========================================
+     MODALES Y FORMULARIOS
+     ========================================= */
+  .modal { position: fixed; inset: 0; background: rgba(0,0,0,0.85); backdrop-filter: blur(8px); display: none; align-items: center; justify-content: center; z-index: 1000; }
+  .modal.active { display: flex; animation: modalIn .2s; }
+  @keyframes modalIn { from { opacity: 0; transform: scale(0.95); } to { opacity: 1; transform: scale(1); } }
+  .modal-content { background: var(--panel); border: 1px solid var(--border-2); border-radius: 20px; width: 100%; max-width: 440px; padding: 32px; box-shadow: 0 20px 60px rgba(0,0,0,0.8); }
+  .modal-title { font-size: 20px; font-weight: 900; margin-bottom: 24px; }
+  .form-group { margin-bottom: 20px; }
+  .form-group label { display: block; font-size: 12px; font-weight: 700; color: var(--muted); text-transform: uppercase; margin-bottom: 8px; }
+  .form-control { width: 100%; background: var(--bg-2); border: 1px solid var(--border); border-radius: 10px; padding: 12px 16px; color: var(--text); font-size: 14px; transition: all 0.2s; }
+  .form-control:focus { border-color: var(--silver-3); box-shadow: 0 0 0 3px rgba(255,255,255,0.05); }
+  .modal-actions { display: flex; gap: 12px; justify-content: flex-end; margin-top: 32px; }
+
+  /* NOTIFICACIONES */
+  .toasts { position: fixed; bottom: 24px; right: 24px; display: flex; flex-direction: column; gap: 10px; z-index: 2000; }
+  .toast { background: var(--panel-2); border-left: 4px solid var(--ok); padding: 16px 20px; border-radius: 8px; font-weight: 600; box-shadow: 0 10px 30px rgba(0,0,0,0.5); animation: toastSlide .3s ease; }
+  .toast.error { border-left-color: var(--danger); }
+  @keyframes toastSlide { from { opacity: 0; transform: translateX(50px); } to { opacity: 1; transform: translateX(0); } }
+
+  @media (max-width: 1024px) {
+    .main-content { margin-left: 0; }
+    .sidebar { transform: translateX(-100%); }
+    .sidebar.mobile-open { transform: translateX(0); }
+  }
+</style>
+</head>
+<body>
+
+<div class="app">
+  <!-- SIDEBAR -->
+  <aside class="sidebar collapsed" id="sidebar">
+    <div class="sidebar-header">
+      <div class="brand">
+        <div class="brand-logo">VP</div>
+        <span>Vantarmor</span>
+      </div>
+      <button class="btn-menu" onclick="toggleSidebar()" style="border:none;">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+
+    <nav class="nav">
+      <a class="nav-item active" data-view="dashboard">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><rect x="3" y="3" width="7" height="9"/><rect x="14" y="3" width="7" height="5"/><rect x="14" y="12" width="7" height="9"/><rect x="3" y="16" width="7" height="5"/></svg>
+        Dashboard
+      </a>
+      <a class="nav-item" data-view="scripts">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+        Scripts
+      </a>
+      <a class="nav-item" data-view="keys">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="7.5" cy="15.5" r="5.5"/><path d="m21 2-9.6 9.6"/></svg>
+        Keys
+      </a>
+      <a class="nav-item" data-view="plan">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M12 2 3 7v6c0 5 4 9 9 9s9-4 9-9V7l-9-5z"/></svg>
+        Mi Plan
+      </a>
+    </nav>
+
+    <div class="user-widget">
+      <div class="user-box">
+        <div class="avatar" id="userAvatar">?</div>
+        <div class="user-info">
+          <div class="user-name" id="userName">Cargando...</div>
+          <div class="user-plan" id="userPlan">Free</div>
+        </div>
+        <a href="/auth/logout" class="btn-logout" title="Cerrar sesión">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+        </a>
+      </div>
+    </div>
+  </aside>
+
+  <!-- MAIN -->
+  <main class="main-content expanded" id="mainContent">
+    <header class="topbar">
+      <div style="display:flex; align-items:center; gap:16px;">
+        <button class="btn-menu" onclick="toggleSidebar()">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+          <span>Menú</span>
+        </button>
+        <div class="page-title" id="pageTitle">Dashboard</div>
+      </div>
+      <div>
+        <button class="btn ghost small" onclick="loadData()">↻ Actualizar</button>
+      </div>
+    </header>
+
+    <div class="content-area">
+      
+      <!-- VISTA DASHBOARD -->
+      <div class="view active" data-view="dashboard">
+        <div class="stats-grid">
+          <div class="stat-card">
+            <div class="stat-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/></svg></div>
+            <div class="stat-label">Total Scripts</div>
+            <div class="stat-value" id="statScripts">0</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="7.5" cy="15.5" r="5.5"/><path d="m21 2-9.6 9.6"/></svg></div>
+            <div class="stat-label">Keys Activas</div>
+            <div class="stat-value" id="statKeys">0</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M12 2 3 7v6c0 5 4 9 9 9s9-4 9-9V7l-9-5z"/></svg></div>
+            <div class="stat-label">Plan Actual</div>
+            <div class="stat-value" id="statPlan" style="font-size: 28px; text-transform: capitalize;">Free</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- VISTA SCRIPTS -->
+      <div class="view" data-view="scripts">
+        <div class="card-header" style="margin-bottom: 24px;">
+          <h3>Tus Scripts</h3>
+          <button class="btn" onclick="openModal('newScript')">+ Subir Script</button>
+        </div>
+        <div id="scriptsList" class="grid-scripts"></div>
+      </div>
+
+      <!-- VISTA KEYS -->
+      <div class="view" data-view="keys">
+        <div class="card-header" style="margin-bottom: 24px;">
+          <h3>Listado de Keys</h3>
+          <button class="btn" onclick="openModal('newKeys')">+ Generar Keys</button>
+        </div>
+        <div class="table-responsive">
+          <table>
+            <thead>
+              <tr>
+                <th>Licencia</th>
+                <th>Script</th>
+                <th>Estado</th>
+                <th>Expiración</th>
+                <th>Acciones</th>
+              </tr>
+            </thead>
+            <tbody id="keysTable"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- VISTA PLAN -->
+      <div class="view" data-view="plan">
+        <div class="card">
+          <h3 style="margin-bottom:24px;">Mejora tu experiencia</h3>
+          <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 20px;">
+            
+            <div style="border: 1px solid var(--border); padding: 24px; border-radius: 16px;">
+              <div class="stat-label" style="color:var(--silver-3);">Plan Básico</div>
+              <h4 style="font-size:20px; font-weight:900; margin:10px 0;">Free</h4>
+              <div style="font-size:36px; font-weight:900; font-family:'JetBrains Mono';">$0</div>
+              <ul style="margin: 20px 0; color:var(--text-dim); font-size:13px; line-height:2;">
+                <li>✓ 5 Scripts</li>
+                <li>✓ 10 Ofuscaciones</li>
+                <li>✓ 150 Keys Totales</li>
+              </ul>
+              <button class="btn ghost" style="width:100%;" disabled>Plan Actual</button>
+            </div>
+
+            <div style="border: 1px solid var(--silver-2); padding: 24px; border-radius: 16px; background: linear-gradient(180deg, var(--panel-3), var(--panel)); transform: scale(1.02);">
+              <div class="stat-label" style="color:var(--silver-1);">Recomendado</div>
+              <h4 style="font-size:20px; font-weight:900; margin:10px 0;">Premium</h4>
+              <div style="font-size:36px; font-weight:900; font-family:'JetBrains Mono';">$3</div>
+              <ul style="margin: 20px 0; color:var(--text); font-size:13px; line-height:2;">
+                <li>✓ 10 Scripts</li>
+                <li>✓ 30 Ofuscaciones</li>
+                <li>✓ Keys Ilimitadas</li>
+                <li>✓ Anti-leak avanzado</li>
+              </ul>
+              <button class="btn" style="width:100%;" onclick="toast('Próximamente: Pagos con Stripe', 'error')">Mejorar por $3</button>
+            </div>
+
+            <div style="border: 1px solid var(--border); padding: 24px; border-radius: 16px;">
+              <div class="stat-label" style="color:var(--silver-3);">Máxima Protección</div>
+              <h4 style="font-size:20px; font-weight:900; margin:10px 0;">Premium Plus</h4>
+              <div style="font-size:36px; font-weight:900; font-family:'JetBrains Mono';">$5</div>
+              <ul style="margin: 20px 0; color:var(--text-dim); font-size:13px; line-height:2;">
+                <li>✓ Todo Ilimitado</li>
+                <li>✓ Seguridad Extra</li>
+                <li>✓ Soporte 24/7</li>
+              </ul>
+              <button class="btn ghost" style="width:100%;" onclick="toast('Próximamente: Pagos con Stripe', 'error')">Mejorar por $5</button>
+            </div>
+
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </main>
+</div>
+
+<!-- MODALES -->
+<div class="modal" id="modal">
+  <div class="modal-content" id="modalContent"></div>
+</div>
+
+<!-- TOASTS -->
+<div class="toasts" id="toasts"></div>
+
+<script>
+  let user = null, scripts = [], keys = [];
+
+  // Toggle Sidebar
+  function toggleSidebar() {
+    const sb = document.getElementById('sidebar');
+    const mc = document.getElementById('mainContent');
+    sb.classList.toggle('collapsed');
+    mc.classList.toggle('expanded');
+  }
+
+  // Navegación
+  document.querySelectorAll('.nav-item').forEach(item => {
+    item.addEventListener('click', () => {
+      const view = item.dataset.view;
+      document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+      document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+      item.classList.add('active');
+      document.querySelector(`.view[data-view="${view}"]`).classList.add('active');
+      document.getElementById('pageTitle').innerText = view.charAt(0).toUpperCase() + view.slice(1);
+      
+      // Auto-cerrar sidebar en móviles
+      if (window.innerWidth < 1024) document.getElementById('sidebar').classList.add('collapsed');
+    });
+  });
+
+  // UI Helpers
+  function toast(msg, type = 'ok') {
+    const t = document.createElement('div');
+    t.className = `toast ${type}`;
+    t.innerText = msg;
+    document.getElementById('toasts').appendChild(t);
+    setTimeout(() => t.remove(), 3000);
+  }
+  function closeModal() { document.getElementById('modal').classList.remove('active'); }
+  document.getElementById('modal').addEventListener('click', e => { if(e.target.id === 'modal') closeModal(); });
+
+  // Formularios Modales
+  function openModal(type) {
+    const m = document.getElementById('modalContent');
+    if (type === 'newScript') {
+      m.innerHTML = `
+        <h3 class="modal-title">Subir Script</h3>
+        <form id="formScript">
+          <div class="form-group">
+            <label>Nombre del Script</label>
+            <input type="text" name="name" class="form-control" placeholder="Ej: Blox Fruits Hub" required>
+          </div>
+          <div class="form-group">
+            <label>Modo de protección</label>
+            <select name="ffa" class="form-control">
+              <option value="0">Protegido (Recomendado)</option>
+              <option value="1">FFA (Free For All)</option>
+            </select>
+          </div>
+          <div class="modal-actions">
+            <button type="button" class="btn ghost" onclick="closeModal()">Cancelar</button>
+            <button type="submit" class="btn">Crear Script</button>
+          </div>
+        </form>
+      `;
+      document.getElementById('formScript').onsubmit = async (e) => {
+        e.preventDefault();
+        const fd = new FormData(e.target);
+        const res = await fetch('/api/scripts', {
+          method: 'POST', credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: fd.get('name'), ffa: fd.get('ffa')==='1' })
+        });
+        if(res.ok) { closeModal(); toast('Script creado'); loadData(); } else toast('Error al crear', 'error');
+      };
+    } 
+    else if (type === 'newKeys') {
+      if(!scripts.length) return toast('Sube un script primero', 'error');
+      m.innerHTML = `
+        <h3 class="modal-title">Generar Keys</h3>
+        <form id="formKeys">
+          <div class="form-group">
+            <label>Seleccionar Script</label>
+            <select name="scriptId" class="form-control">
+              ${scripts.map(s => `<option value="${s.id}">${s.name}</option>`).join('')}
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Cantidad de Keys (Max 50)</label>
+            <input type="number" name="amount" class="form-control" value="1" min="1" max="50" required>
+          </div>
+          <div class="form-group">
+            <label>Expiración</label>
+            <select name="days" class="form-control">
+              <option value="">Nunca (Permanente)</option>
+              <option value="1">1 Día</option>
+              <option value="7">7 Días</option>
+              <option value="30" selected>30 Días</option>
+            </select>
+          </div>
+          <div class="modal-actions">
+            <button type="button" class="btn ghost" onclick="closeModal()">Cancelar</button>
+            <button type="submit" class="btn">Generar</button>
+          </div>
+        </form>
+      `;
+      document.getElementById('formKeys').onsubmit = async (e) => {
+        e.preventDefault();
+        const fd = new FormData(e.target);
+        const res = await fetch('/api/keys', {
+          method: 'POST', credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ 
+            scriptId: parseInt(fd.get('scriptId')), 
+            amount: parseInt(fd.get('amount')),
+            days: fd.get('days') ? parseInt(fd.get('days')) : null
+          })
+        });
+        const data = await res.json();
+        if(res.ok) { closeModal(); toast(`Se generaron ${data.keys.length} keys`); loadData(); } 
+        else toast(data.error || 'Error', 'error');
+      };
+    }
+    document.getElementById('modal').classList.add('active');
+  }
+
+  // Cargar Datos
+  async function loadData() {
+    try {
+      const uRes = await fetch('/api/me', { credentials: 'include' });
+      if(!uRes.ok) return location.href = '/login.html';
+      user = await uRes.json();
+      
+      document.getElementById('userName').innerText = user.username;
+      document.getElementById('userPlan').innerText = (user.plan || 'free').toUpperCase();
+      document.getElementById('statPlan').innerText = (user.plan || 'free').charAt(0).toUpperCase() + (user.plan || 'free').slice(1);
+      if(user.avatar) document.getElementById('userAvatar').innerHTML = `<img src="https://cdn.discordapp.com/avatars/${user.id}/${user.avatar}.png">`;
+      else document.getElementById('userAvatar').innerText = user.username[0].toUpperCase();
+
+      const sRes = await fetch('/api/scripts', { credentials: 'include' });
+      if(sRes.ok) { scripts = await sRes.json(); document.getElementById('statScripts').innerText = scripts.length; renderScripts(); }
+
+      const kRes = await fetch('/api/keys', { credentials: 'include' });
+      if(kRes.ok) { 
+        keys = await kRes.json(); 
+        document.getElementById('statKeys').innerText = keys.filter(k => !k.banned).length; 
+        renderKeys(); 
+      }
+    } catch(e) { toast('Error de red', 'error'); }
+  }
+
+  function renderScripts() {
+    const c = document.getElementById('scriptsList');
+    if(!scripts.length) return c.innerHTML = '<p style="color:var(--muted)">No hay scripts aún.</p>';
+    c.innerHTML = scripts.map(s => {
+      const loader = `loadstring(game:HttpGet("${location.origin}/scripts/hosted/${s.slug}"))()`;
+      return `
+        <div class="script-card">
+          <div style="display:flex; justify-content:space-between; align-items:center;">
+            <h4 style="font-size:16px; font-weight:800;">${s.name}</h4>
+            <span class="badge ${s.ffa ? 'banned' : 'active'}">${s.ffa ? 'FFA' : 'PROTEGIDO'}</span>
+          </div>
+          <div class="loader-box" onclick="navigator.clipboard.writeText('${loader}'); toast('Loader copiado');">
+            ${loader}
+          </div>
+        </div>
+      `;
+    }).join('');
+  }
+
+  function renderKeys() {
+    const tbody = document.getElementById('keysTable');
+    if(!keys.length) return tbody.innerHTML = '<tr><td colspan="5" style="text-align:center; padding:30px; color:var(--muted)">No hay keys.</td></tr>';
+    tbody.innerHTML = keys.map(k => {
+      const exp = k.expires_at ? new Date(k.expires_at * 1000).toLocaleDateString() : 'Nunca';
+      const scriptName = scripts.find(s => s.id === k.script_id)?.name || 'Desconocido';
+      return `
+        <tr>
+          <td><span class="key-code">${k.key.slice(0, 12)}...${k.key.slice(-4)}</span></td>
+          <td>${scriptName}</td>
+          <td><span class="badge ${k.banned ? 'banned' : 'active'}">${k.banned ? 'BANEADA' : 'ACTIVA'}</span></td>
+          <td style="color:var(--text-dim);">${exp}</td>
+          <td>
+            <button class="btn ghost small" onclick="navigator.clipboard.writeText('${k.key}'); toast('Key copiada');">Copiar</button>
+          </td>
+        </tr>
+      `;
+    }).join('');
+  }
+
+  // Inicializar
+  loadData();
+</script>
+</body>
+  </html> 

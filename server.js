@@ -256,6 +256,35 @@ app.get('/auth/discord/callback', async (req, res) => {
   }
 });
 
+// Configuración pública para el dashboard (link de invitación del bot)
+app.get('/api/config', (req, res) => {
+  const botInviteUrl = DISCORD_CLIENT_ID
+    ? `https://discord.com/oauth2/authorize?client_id=${encodeURIComponent(DISCORD_CLIENT_ID)}&scope=bot%20applications.commands&permissions=268454912`
+    : null;
+  res.json({ botInviteUrl });
+});
+
+// Canje de key de plan (Premium / Premium Plus); cada key se usa una sola vez
+app.post('/api/plan/redeem', requireAuth, (req, res) => {
+  const key = String(req.body?.key || '').trim();
+  if (key.length < 32 || key.length > 64) return res.status(400).json({ error: 'Key inválida' });
+
+  const row = db.prepare('SELECT * FROM plan_keys WHERE key = ?').get(key);
+  if (!row) return res.status(404).json({ error: 'Key de plan inválida' });
+  if (row.used_by) return res.status(409).json({ error: 'Esta key ya fue usada' });
+
+  const ok = db.transaction(() => {
+    const claimed = db.prepare('UPDATE plan_keys SET used_by = ?, used_at = ? WHERE key = ? AND used_by IS NULL')
+      .run(req.userId, Math.floor(Date.now() / 1000), key);
+    if (!claimed.changes) return false;
+    db.prepare('UPDATE users SET plan = ? WHERE id = ?').run(row.plan, req.userId);
+    return true;
+  })();
+  if (!ok) return res.status(409).json({ error: 'Esta key ya fue usada' });
+
+  res.json({ ok: true, plan: row.plan });
+});
+
 // Loader: sirve el código si la key es válida y el HWID coincide (o se vincula la primera vez)
 app.get('/scripts/hosted/:slug', (req, res) => {
   const script = stmt.scriptBySlug.get(req.params.slug);

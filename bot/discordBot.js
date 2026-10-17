@@ -53,6 +53,10 @@ export function ensureBotSchema(db) {
     CREATE TABLE IF NOT EXISTS bot_settings (
       owner TEXT, name TEXT, value TEXT, PRIMARY KEY (owner, name)
     );
+    CREATE TABLE IF NOT EXISTS plan_keys (
+      key TEXT PRIMARY KEY, plan TEXT NOT NULL,
+      used_by TEXT, used_at INTEGER, created_at INTEGER
+    );
     CREATE TABLE IF NOT EXISTS bot_warnings (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       discord_id TEXT, reason TEXT, created_at INTEGER
@@ -111,6 +115,9 @@ export const commands = [
   new SlashCommandBuilder().setName('warn').setDescription('Advierte a un usuario')
     .addUserOption(o => userOpt(o, true))
     .addStringOption(o => o.setName('reason').setDescription('Razón').setRequired(true)),
+  new SlashCommandBuilder().setName('plankey').setDescription('Genera una key para activar un plan en el dashboard (dueño)')
+    .addStringOption(o => o.setName('plan').setDescription('Plan').setRequired(true)
+      .addChoices({ name: 'Premium', value: 'premium' }, { name: 'Premium Plus', value: 'plus' })),
   new SlashCommandBuilder().setName('prices').setDescription('Publica la tabla de precios (dueño)')
     .addStringOption(o => o.setName('title').setDescription('Título').setRequired(true))
     .addStringOption(o => o.setName('description').setDescription('Contenido (usa \\n para saltos de línea)').setRequired(true)),
@@ -159,6 +166,7 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
     settingSet: db.prepare('INSERT OR REPLACE INTO bot_settings (owner, name, value) VALUES (?, ?, ?)'),
     panelInsert: db.prepare('INSERT INTO bot_panels (script_id, channel_id, message_id, created_at) VALUES (?, ?, ?, ?)'),
     warnInsert: db.prepare('INSERT INTO bot_warnings (discord_id, reason, created_at) VALUES (?, ?, ?)'),
+    planKeyInsert: db.prepare('INSERT INTO plan_keys (key, plan, created_at) VALUES (?, ?, ?)'),
   };
 
   const owner = () => ownerId || null;
@@ -443,6 +451,15 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
         const reason = interaction.options.getString('reason', true);
         q.warnInsert.run(target.id, reason, now());
         return reply(`⚠️ <@${target.id}> recibió una advertencia.\nRazón: ${reason}`);
+      }
+
+      case 'plankey': {
+        if (interaction.user.id !== owner()) return reply('⛔ Solo el dueño puede generar keys de plan.');
+        const plan = interaction.options.getString('plan', true);
+        const key = makeKey();
+        q.planKeyInsert.run(key, plan, now());
+        const label = plan === 'plus' ? 'Premium Plus' : 'Premium';
+        return reply(`✅ Key de **${label}** (uso único):\n\`\`\`\n${key}\n\`\`\`\nCanjéala en el dashboard, sección Planes.`);
       }
 
       case 'prices':

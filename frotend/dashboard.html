@@ -296,6 +296,7 @@
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
       </button>
       <h1 class="page-title" id="pageTitle">Dashboard<small id="pageSub">Resumen de tu cuenta</small></h1>
+      <a class="btn sm" id="inviteBotBtn" href="#" target="_blank" rel="noopener" style="display:none">Invitar bot</a>
       <button class="btn ghost sm" id="refreshBtn">Actualizar</button>
     </header>
 
@@ -457,6 +458,15 @@
             <button class="btn ghost block" data-plan-btn data-label="Mejorar a Plus">Mejorar a Plus</button>
           </article>
         </div>
+
+        <article class="card" id="redeemBox" style="margin-top:20px;">
+          <h3>Canjear key de plan</h3>
+          <p style="margin:6px 0 14px;font-size:14px;color:var(--text-soft);">Compra tu Premium o Premium Plus, el dueño te entrega una key en Discord con <code>/plankey</code> y la pegas aquí. Cada key se usa una sola vez.</p>
+          <form id="redeemForm" autocomplete="off" style="display:flex;gap:10px;flex-wrap:wrap;">
+            <input id="redeemInput" class="field" style="flex:1;min-width:220px;" type="text" placeholder="Pega tu key de plan" required minlength="32" maxlength="64" spellcheck="false" />
+            <button class="btn" type="submit">Canjear</button>
+          </form>
+        </article>
       </section>
 
     </div>
@@ -1160,6 +1170,46 @@
     setBusy(e.currentTarget, true);
     await loadData();
     setBusy(e.currentTarget, false);
+  });
+
+  // Invitar bot: el link viene del servidor (depende de DISCORD_CLIENT_ID)
+  (async () => {
+    try {
+      const cfg = await api('/api/config');
+      if (cfg && cfg.botInviteUrl) {
+        const a = $('inviteBotBtn');
+        a.href = cfg.botInviteUrl;
+        a.style.display = '';
+      }
+    } catch (_) { /* sin config, el botón queda oculto */ }
+  })();
+
+  // Botones de mejora de plan: llevan al bloque de canje
+  document.querySelectorAll('[data-plan-btn]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      if (btn.disabled) return;
+      $('redeemBox').scrollIntoView({ behavior: 'smooth', block: 'center' });
+      $('redeemInput').focus();
+    });
+  });
+
+  // Canje de key de plan
+  $('redeemForm').addEventListener('submit', async e => {
+    e.preventDefault();
+    const btn = e.currentTarget.querySelector('button[type="submit"]');
+    const key = $('redeemInput').value.trim();
+    if (key.length < 32) { toast('La key es demasiado corta', 'error'); return; }
+    setBusy(btn, true);
+    try {
+      const res = await api('/api/plan/redeem', { method: 'POST', body: JSON.stringify({ key }) });
+      $('redeemInput').value = '';
+      toast(`Plan ${res.plan === 'plus' ? 'Premium Plus' : 'Premium'} activado`);
+      await loadData();
+    } catch (err) {
+      toast(err.message, 'error');
+    } finally {
+      setBusy(btn, false);
+    }
   });
 
   $('retryAuth').addEventListener('click', () => {

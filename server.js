@@ -31,12 +31,21 @@ const {
   DISCORD_REDIRECT_URI,
   JWT_SECRET,
   DATABASE_PATH = 'vantarmor.db',
-  FRONTEND_URL = 'https://protegetuscriptlua-production-71c7.up.railway.app',
+  FRONTEND_URL = 'https://vantarmorweb-production.up.railway.app',
   // En producción (https) debe ser true. Pon COOKIE_SECURE=false solo para probar en http.
   COOKIE_SECURE = 'true',
 } = process.env;
 
+// URL pública del sitio (sin barra final). Es la base del dashboard, CORS y del callback de OAuth.
+const APP_URL = FRONTEND_URL.replace(/\/+$/, '');
+// Callback de Discord OAuth2. Debe coincidir EXACTO con la URL registrada en el Developer Portal
+// (OAuth2 → Redirects). Si DISCORD_REDIRECT_URI no se define, se usa APP_URL + /auth/discord/callback.
+const REDIRECT_URI = DISCORD_REDIRECT_URI || `${APP_URL}/auth/discord/callback`;
+
 const cookieSecure = COOKIE_SECURE !== 'false';
+
+if (!DISCORD_CLIENT_ID || !DISCORD_CLIENT_SECRET) console.warn('⚠️  DISCORD_CLIENT_ID o DISCORD_CLIENT_SECRET no definidos: el login con Discord no funcionará.');
+console.log(`🔗 OAuth callback: ${REDIRECT_URI}`);
 
 if (!JWT_SECRET) console.warn('⚠️  JWT_SECRET no está definido: el login no funcionará.');
 
@@ -263,7 +272,7 @@ app.get('/auth/discord', (req, res) => {
 
   const params = new URLSearchParams({
     client_id: DISCORD_CLIENT_ID,
-    redirect_uri: DISCORD_REDIRECT_URI,
+    redirect_uri: REDIRECT_URI,
     response_type: 'code',
     scope: 'identify email',
     state,
@@ -288,7 +297,7 @@ app.get('/auth/discord/callback', async (req, res) => {
         client_secret: DISCORD_CLIENT_SECRET,
         grant_type: 'authorization_code',
         code,
-        redirect_uri: DISCORD_REDIRECT_URI,
+        redirect_uri: REDIRECT_URI,
       }),
     });
     const tokenData = await tokenRes.json();

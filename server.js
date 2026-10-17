@@ -7,7 +7,7 @@ import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
 import Database from 'better-sqlite3';
-import { startDiscordBot } from './bot/discordBot.js';
+import { startDiscordBot, ensureBotSchema } from './bot/discordBot.js';
 import 'dotenv/config';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -87,6 +87,7 @@ db.exec(`
     if (!keyCols.includes(col)) db.exec(`ALTER TABLE keys ADD COLUMN ${col} ${type}`);
   }
 }
+ensureBotSchema(db);
 
 const stmt = {
   userById: db.prepare('SELECT id, username, avatar, plan FROM users WHERE id = ?'),
@@ -267,6 +268,9 @@ app.get('/scripts/hosted/:slug', (req, res) => {
   if (!k || k.banned || (k.expires_at && k.expires_at * 1000 < Date.now())) {
     return res.status(403).type('text/plain').send('-- acceso denegado: key inválida, expirada o bloqueada');
   }
+  if (k.discord_id && db.prepare('SELECT 1 FROM bot_blacklist WHERE script_id = ? AND discord_id = ?').get(script.id, k.discord_id)) {
+    return res.status(403).type('text/plain').send('-- acceso denegado: bloqueado');
+  }
   if (!hwid) return res.status(403).type('text/plain').send('-- acceso denegado: falta HWID');
   if (!k.hwid) db.prepare('UPDATE keys SET hwid = ? WHERE key = ?').run(hwid, key);
   else if (k.hwid !== hwid) return res.status(403).type('text/plain').send('-- acceso denegado: HWID distinto; reinicia el HWID con /resethwid');
@@ -377,6 +381,7 @@ if (process.env.DISCORD_BOT_TOKEN && DISCORD_CLIENT_ID) {
     clientId: DISCORD_CLIENT_ID,
     guildId: process.env.DISCORD_GUILD_ID || undefined,
     publicUrl: process.env.PUBLIC_URL || FRONTEND_URL,
+    ownerId: process.env.DISCORD_OWNER_ID || undefined, // tu ID de Discord (dueño del workspace)
   }).catch(err => console.error('[Bot] No se pudo iniciar:', err.message));
 } else {
   console.warn('[Bot] DISCORD_BOT_TOKEN o DISCORD_CLIENT_ID no definidos: el bot no se inicia.');

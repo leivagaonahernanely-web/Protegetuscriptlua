@@ -1,0 +1,1203 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dashboard · Vantarmor</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #000;
+    --panel: #0b0b0e;
+    --surface: linear-gradient(145deg, rgba(28,28,33,.55), rgba(10,10,12,.85));
+    --border: rgba(255,255,255,.08);
+    --border-strong: rgba(255,255,255,.2);
+    --text: #fff;
+    --text-dim: #8a8a94;
+    --text-soft: #bcbcc4;
+    --ok: #4ade80;   --ok-bg: rgba(34,197,94,.14);
+    --bad: #f87171;  --bad-bg: rgba(239,68,68,.14);
+    --warn: #fbbf24; --warn-bg: rgba(251,191,36,.12);
+    --ease: cubic-bezier(.4,0,.2,1);
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body {
+    font-family: 'Inter', system-ui, sans-serif; background: var(--bg); color: var(--text);
+    -webkit-font-smoothing: antialiased;
+    background-image:
+      radial-gradient(circle at 15% 50%, rgba(255,255,255,.03) 0%, transparent 50%),
+      radial-gradient(circle at 85% 30%, rgba(255,255,255,.02) 0%, transparent 50%);
+  }
+  button, input, select, textarea { font: inherit; color: inherit; }
+  button { cursor: pointer; background: none; border: none; }
+  input, select, textarea { outline: none; }
+  :focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+  [hidden] { display: none !important; }
+  .mono { font-family: 'JetBrains Mono', monospace; }
+
+  /* ---------- LAYOUT ---------- */
+  .app { display: flex; height: 100vh; overflow: hidden; }
+
+  .sidebar {
+    width: 260px; flex-shrink: 0; background: var(--panel);
+    border-right: 1px solid var(--border); overflow: hidden; z-index: 100;
+    transition: width .3s var(--ease), opacity .3s var(--ease), border-color .3s;
+  }
+  .sidebar.collapsed { width: 0; border-right-color: transparent; opacity: 0; }
+  .sidebar-inner { width: 260px; height: 100%; display: flex; flex-direction: column; }
+
+  .brand { padding: 22px 24px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 10px; font-weight: 900; font-size: 18px; letter-spacing: -.5px; }
+  .brand-icon { width: 28px; height: 28px; border-radius: 6px; background: linear-gradient(135deg, #fff, #888); color: #000; display: grid; place-items: center; font-size: 12px; font-weight: 900; }
+
+  .nav { padding: 18px 14px; display: flex; flex-direction: column; gap: 4px; flex: 1; }
+  .nav-label { font-size: 11px; font-weight: 800; color: var(--text-dim); text-transform: uppercase; letter-spacing: 1px; padding: 14px 12px 8px; }
+  .nav-item { width: 100%; text-align: left; padding: 11px 12px; border-radius: 10px; display: flex; align-items: center; gap: 12px; color: var(--text-dim); font-weight: 600; font-size: 14px; transition: background .2s, color .2s; }
+  .nav-item:hover { background: rgba(255,255,255,.05); color: var(--text); }
+  .nav-item.active { background: #fff; color: #000; font-weight: 800; }
+  .nav-item svg { width: 18px; height: 18px; flex-shrink: 0; }
+  .nav-count { margin-left: auto; font-size: 11px; font-weight: 800; background: rgba(255,255,255,.1); padding: 2px 7px; border-radius: 6px; }
+  .nav-item.active .nav-count { background: rgba(0,0,0,.12); }
+
+  .user-widget { padding: 16px; border-top: 1px solid var(--border); }
+  .user-box { display: flex; align-items: center; gap: 12px; padding: 10px; background: rgba(255,255,255,.03); border: 1px solid var(--border); border-radius: 12px; }
+  .avatar { width: 38px; height: 38px; border-radius: 8px; background: #fff; color: #000; overflow: hidden; flex-shrink: 0; display: grid; place-items: center; font-weight: 900; }
+  .avatar img { width: 100%; height: 100%; object-fit: cover; }
+  .user-details { flex: 1; min-width: 0; }
+  .user-name { font-weight: 700; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .user-plan { font-size: 11px; color: var(--text-soft); text-transform: uppercase; font-weight: 800; letter-spacing: 1px; }
+  .logout { color: var(--text-dim); padding: 6px; border-radius: 8px; display: grid; place-items: center; transition: color .2s, background .2s; }
+  .logout:hover { color: #fff; background: rgba(255,255,255,.06); }
+
+  .scrim { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.6); z-index: 99; }
+  .scrim.show { display: block; }
+
+  .main { flex: 1; min-width: 0; display: flex; flex-direction: column; overflow: hidden; }
+  .topbar { padding: 14px 28px; display: flex; align-items: center; gap: 16px; border-bottom: 1px solid var(--border); background: rgba(0,0,0,.6); backdrop-filter: blur(10px); }
+  .page-title { font-size: 18px; font-weight: 800; letter-spacing: -.5px; flex: 1; min-width: 0; }
+  .page-title small { display: block; font-size: 12px; color: var(--text-dim); font-weight: 600; margin-top: 2px; letter-spacing: 0; }
+  .icon-btn { padding: 9px; border: 1px solid var(--border); border-radius: 8px; display: grid; place-items: center; transition: background .2s, color .2s; }
+  .icon-btn:hover { background: #fff; color: #000; }
+
+  .content { padding: 28px; overflow-y: auto; display: flex; flex-direction: column; gap: 22px; }
+
+  /* ---------- VIEWS ---------- */
+  .view { display: none; flex-direction: column; gap: 22px; }
+  .view.active { display: flex; animation: fadeIn .3s ease; }
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+
+  .section-head { display: flex; justify-content: space-between; align-items: center; gap: 16px; flex-wrap: wrap; }
+  .section-head h2 { font-size: 20px; font-weight: 900; letter-spacing: -.4px; }
+  .section-head p { color: var(--text-dim); font-size: 13px; margin-top: 4px; }
+
+  /* ---------- CARDS & STATS ---------- */
+  .grid-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 16px; }
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 16px; padding: 22px; position: relative; overflow: hidden; backdrop-filter: blur(10px); }
+  .card::before { content: ''; position: absolute; top: 0; left: 0; width: 100%; height: 1px; background: linear-gradient(90deg, transparent, rgba(255,255,255,.3), transparent); }
+  .card-label { font-size: 11px; font-weight: 800; color: var(--text-dim); text-transform: uppercase; letter-spacing: 1px; }
+  .card-value { font-size: 30px; font-weight: 900; margin-top: 8px; letter-spacing: -1px; }
+  .card-value.cap { text-transform: capitalize; }
+  .card-sub { font-size: 12px; color: var(--text-dim); margin-top: 6px; }
+  .meter { height: 4px; background: rgba(255,255,255,.08); border-radius: 4px; margin-top: 14px; overflow: hidden; }
+  .meter span { display: block; height: 100%; width: 0; background: #fff; border-radius: 4px; transition: width .5s var(--ease); }
+
+  .two-col { display: grid; grid-template-columns: 1.4fr 1fr; gap: 16px; }
+  @media (max-width: 1100px) { .two-col { grid-template-columns: 1fr; } }
+  .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 16px; overflow: hidden; }
+  .panel-head { padding: 16px 20px; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+  .panel-head h3 { font-size: 14px; font-weight: 800; }
+  .list-row { padding: 12px 20px; display: flex; align-items: center; gap: 12px; border-bottom: 1px solid var(--border); }
+  .list-row:last-child { border-bottom: none; }
+  .list-row .grow { flex: 1; min-width: 0; }
+  .list-row .name { font-weight: 700; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .list-row .meta { font-size: 12px; color: var(--text-dim); margin-top: 2px; }
+  .mini-meter { height: 4px; background: rgba(255,255,255,.08); border-radius: 4px; margin-top: 8px; overflow: hidden; }
+  .mini-meter span { display: block; height: 100%; background: #fff; border-radius: 4px; }
+
+  /* ---------- SCRIPTS ---------- */
+  .script-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 16px; }
+  .script-card { display: flex; flex-direction: column; gap: 14px; }
+  .row { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .script-name { font-size: 17px; font-weight: 800; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+  .script-stats { display: flex; gap: 18px; font-size: 12px; color: var(--text-dim); }
+  .script-stats b { color: var(--text); font-weight: 800; font-size: 15px; display: block; }
+  .script-meta { font-size: 12px; color: var(--text-dim); }
+  .loader-box { width: 100%; text-align: left; background: #000; border: 1px solid var(--border); padding: 12px 14px; border-radius: 10px; font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--text-dim); display: flex; justify-content: space-between; align-items: center; gap: 12px; transition: border-color .2s, color .2s; }
+  .loader-box:hover { border-color: #fff; color: #fff; }
+  .loader-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+  .loader-box svg { flex-shrink: 0; }
+
+  .empty { grid-column: 1 / -1; text-align: center; padding: 44px 24px; border: 1px dashed var(--border-strong); border-radius: 16px; color: var(--text-dim); }
+  .empty h3 { color: #fff; font-size: 16px; font-weight: 800; margin-bottom: 6px; }
+  .empty p { font-size: 14px; margin-bottom: 18px; }
+
+  /* ---------- KEYS TABLE ---------- */
+  .toolbar { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+  .field { background: rgba(255,255,255,.05); border: 1px solid var(--border); padding: 10px 14px; border-radius: 10px; font-size: 14px; transition: border-color .2s, background .2s; }
+  .field:focus { border-color: #fff; background: rgba(255,255,255,.1); }
+  .field.search { flex: 1; min-width: 200px; }
+  .field.block { width: 100%; display: block; }
+  select.field option { background: #111; color: #fff; }
+
+  .bulk-bar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; background: #fff; color: #000; padding: 10px 14px; border-radius: 12px; font-size: 14px; font-weight: 700; }
+  .bulk-bar .spacer { flex: 1; }
+  .bulk-bar .btn { padding: 8px 14px; font-size: 13px; }
+
+  .table-container { background: var(--panel); border: 1px solid var(--border); border-radius: 16px; overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; text-align: left; min-width: 720px; }
+  th { padding: 14px 18px; font-size: 11px; text-transform: uppercase; font-weight: 800; color: var(--text-dim); border-bottom: 1px solid var(--border); background: rgba(255,255,255,.02); letter-spacing: .5px; }
+  td { padding: 13px 18px; border-bottom: 1px solid var(--border); font-size: 14px; }
+  tr:last-child td { border-bottom: none; }
+  tbody tr:hover td { background: rgba(255,255,255,.02); }
+  tr.selected td { background: rgba(255,255,255,.04); }
+  td.center { text-align: center; color: var(--text-dim); padding: 40px 18px; }
+  .check { width: 16px; height: 16px; accent-color: #fff; cursor: pointer; }
+  .key-cell { font-family: 'JetBrains Mono', monospace; font-size: 12px; }
+
+  /* ---------- BADGES & BUTTONS ---------- */
+  .badge { display: inline-block; padding: 4px 9px; border-radius: 6px; font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: .5px; white-space: nowrap; }
+  .badge.ok { background: var(--ok-bg); color: var(--ok); }
+  .badge.bad { background: var(--bad-bg); color: var(--bad); }
+  .badge.warn { background: var(--warn-bg); color: var(--warn); }
+  .badge.neutral { background: rgba(255,255,255,.08); color: var(--text-soft); }
+
+  .btn { background: #fff; color: #000; padding: 11px 20px; border-radius: 10px; font-weight: 800; font-size: 14px; display: inline-flex; align-items: center; justify-content: center; gap: 8px; white-space: nowrap; transition: transform .2s, box-shadow .2s, opacity .2s, background .2s; }
+  .btn:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 8px 18px rgba(255,255,255,.1); }
+  .btn:disabled { opacity: .45; cursor: not-allowed; }
+  .btn.ghost { background: transparent; color: #fff; border: 1px solid var(--border); }
+  .btn.ghost:hover:not(:disabled) { background: rgba(255,255,255,.06); box-shadow: none; transform: none; }
+  .btn.sm { padding: 7px 12px; font-size: 12px; border-radius: 8px; }
+  .btn.block { width: 100%; }
+  .btn.busy { opacity: .6; pointer-events: none; }
+  .file-btn { position: relative; overflow: hidden; }
+  .file-btn input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+
+  /* ---------- PLANS ---------- */
+  .plan-card ul { margin: 18px 0; color: var(--text-soft); list-style: none; line-height: 2; font-size: 14px; }
+  .plan-card h3 { font-size: 18px; font-weight: 800; }
+  .plan-card.current { border-color: #fff; background: linear-gradient(180deg, rgba(255,255,255,.1) 0%, transparent 100%); }
+  .plan-card.featured { border-color: rgba(255,255,255,.35); }
+
+  /* ---------- MODAL ---------- */
+  .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.78); backdrop-filter: blur(5px); display: grid; place-items: center; z-index: 1000; padding: 16px; }
+  .modal { background: var(--panel); border: 1px solid var(--border); border-radius: 18px; width: 100%; max-width: 440px; padding: 28px; box-shadow: 0 25px 50px -12px rgba(0,0,0,.5); max-height: 90vh; overflow-y: auto; }
+  .modal.wide { max-width: 620px; }
+  .modal h3 { font-size: 22px; font-weight: 900; margin-bottom: 20px; letter-spacing: -.4px; }
+  .input-group { margin-bottom: 18px; }
+  .input-group label, .label { display: block; font-size: 11px; font-weight: 800; color: var(--text-dim); margin-bottom: 8px; text-transform: uppercase; letter-spacing: .5px; }
+  .hint { font-size: 12px; color: var(--text-dim); margin-top: 6px; }
+  .form-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 8px; }
+  .textarea { width: 100%; min-height: 220px; resize: vertical; font-family: 'JetBrains Mono', monospace; font-size: 12px; background: #000; color: #fff; border: 1px solid var(--border); border-radius: 10px; padding: 12px; line-height: 1.5; }
+  .textarea:focus { border-color: #fff; }
+  .code-meta { display: flex; justify-content: space-between; align-items: center; margin-top: 8px; font-size: 12px; color: var(--text-dim); gap: 10px; flex-wrap: wrap; }
+  .code-meta .over { color: var(--bad); }
+  .inline-note { font-size: 12px; color: var(--warn); background: var(--warn-bg); padding: 10px 12px; border-radius: 10px; margin-bottom: 16px; }
+
+  /* Selector de protección (FFA / Protegido) */
+  .choice-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .choice { position: relative; }
+  .choice input { position: absolute; opacity: 0; pointer-events: none; }
+  .choice span {
+    display: block; padding: 14px; border-radius: 12px; border: 1px solid var(--border);
+    background: rgba(255,255,255,.03); cursor: pointer; transition: border-color .2s, background .2s;
+  }
+  .choice span b { display: block; font-size: 14px; margin-bottom: 4px; }
+  .choice span small { font-size: 12px; color: var(--text-dim); }
+  .choice input:checked + span { border-color: #fff; background: rgba(255,255,255,.08); }
+  .choice input:focus-visible + span { outline: 2px solid #fff; outline-offset: 2px; }
+
+  /* ---------- LOGIN ERROR ---------- */
+  .auth-panel { max-width: 520px; margin: 40px auto; text-align: center; }
+  .auth-panel h2 { font-size: 22px; font-weight: 900; margin-bottom: 10px; }
+  .auth-panel p { color: var(--text-dim); font-size: 14px; line-height: 1.6; margin-bottom: 20px; }
+  .auth-steps { text-align: left; background: rgba(255,255,255,.03); border: 1px solid var(--border); border-radius: 12px; padding: 16px 20px; font-size: 13px; color: var(--text-soft); line-height: 1.8; margin-bottom: 20px; }
+  .auth-actions { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
+
+  /* ---------- TOASTS ---------- */
+  .toasts { position: fixed; bottom: 22px; right: 22px; display: flex; flex-direction: column; gap: 10px; z-index: 2000; }
+  .toast { background: #fff; color: #000; padding: 13px 18px; border-radius: 12px; font-weight: 700; font-size: 14px; box-shadow: 0 10px 30px rgba(0,0,0,.5); animation: slideUp .3s ease; max-width: 360px; }
+  .toast.error { background: #ef4444; color: #fff; }
+  @keyframes slideUp { from { transform: translateY(16px); opacity: 0; } to { transform: none; opacity: 1; } }
+
+  /* ---------- RESPONSIVE ---------- */
+  @media (max-width: 1023px) {
+    .sidebar { position: fixed; top: 0; bottom: 0; left: 0; }
+    .sidebar.collapsed { width: 260px; opacity: 1; transform: translateX(-100%); }
+    .topbar { padding: 12px 18px; }
+    .content { padding: 18px; }
+  }
+  @media (max-width: 560px) {
+    .script-grid { grid-template-columns: 1fr; }
+    .field.search { min-width: 0; }
+    .choice-grid { grid-template-columns: 1fr; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation: none !important; transition: none !important; }
+  }
+</style>
+</head>
+<body>
+
+<div class="app">
+  <!-- SIDEBAR -->
+  <aside class="sidebar" id="sidebar" aria-label="Navegación principal">
+    <div class="sidebar-inner">
+      <div class="brand"><div class="brand-icon" aria-hidden="true">VP</div>Vantarmor</div>
+
+      <nav class="nav">
+        <button class="nav-item active" data-nav="dashboard" aria-current="page">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/></svg>
+          Dashboard
+        </button>
+
+        <div class="nav-label">Gestión</div>
+        <button class="nav-item" data-nav="scripts">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+          Scripts
+          <span class="nav-count" id="navScripts">0</span>
+        </button>
+        <button class="nav-item" data-nav="keys">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="7.5" cy="15.5" r="5.5"/><path d="m21 2-9.6 9.6"/></svg>
+          Keys
+          <span class="nav-count" id="navKeys">0</span>
+        </button>
+
+        <div class="nav-label">Cuenta</div>
+        <button class="nav-item" data-nav="plans">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 2 3 7v6c0 5 4 9 9 9s9-4 9-9V7l-9-5z"/></svg>
+          Planes
+        </button>
+      </nav>
+
+      <div class="user-widget">
+        <div class="user-box">
+          <div class="avatar" id="userAvatar" aria-hidden="true"></div>
+          <div class="user-details">
+            <div class="user-name" id="userName">Cargando…</div>
+            <div class="user-plan" id="userPlan">—</div>
+          </div>
+          <a class="logout" href="/auth/logout" title="Cerrar sesión" aria-label="Cerrar sesión">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+          </a>
+        </div>
+      </div>
+    </div>
+  </aside>
+
+  <div class="scrim" id="scrim"></div>
+
+  <!-- MAIN -->
+  <main class="main">
+    <header class="topbar">
+      <button class="icon-btn" id="menuBtn" aria-label="Mostrar u ocultar menú" aria-controls="sidebar" aria-expanded="true">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+      </button>
+      <h1 class="page-title" id="pageTitle">Dashboard<small id="pageSub">Resumen de tu cuenta</small></h1>
+      <button class="btn ghost sm" id="refreshBtn">Actualizar</button>
+    </header>
+
+    <div class="content">
+
+      <!-- ERROR DE SESIÓN (se muestra en lugar de redirigir en bucle) -->
+      <section class="view" data-view="auth" id="authView">
+        <div class="auth-panel">
+          <h2>No pudimos confirmar tu sesión</h2>
+          <p>Tu cuenta no se pudo verificar después de iniciar sesión. Para no entrar en un bucle de redirecciones, lo detuvimos aquí.</p>
+          <div class="auth-steps">
+            1. Cierra todas las pestañas de Vantarmor.<br>
+            2. Revisa que estés usando la misma dirección siempre (con o sin www, http o https).<br>
+            3. Borra las cookies del sitio o usa una ventana privada.<br>
+            4. Vuelve a iniciar sesión.
+          </div>
+          <div class="auth-actions">
+            <button class="btn" id="retryAuth">Reintentar</button>
+            <a class="btn ghost" href="/login.html">Ir a iniciar sesión</a>
+          </div>
+        </div>
+      </section>
+
+      <!-- DASHBOARD -->
+      <section class="view active" data-view="dashboard">
+        <div class="grid-stats">
+          <div class="card">
+            <div class="card-label">Scripts</div>
+            <div class="card-value" id="statScripts">—</div>
+            <div class="meter" aria-hidden="true"><span id="meterScripts"></span></div>
+            <div class="card-sub" id="subScripts"></div>
+          </div>
+          <div class="card">
+            <div class="card-label">Keys activas</div>
+            <div class="card-value" id="statKeys">—</div>
+            <div class="meter" aria-hidden="true"><span id="meterKeys"></span></div>
+            <div class="card-sub" id="subKeys"></div>
+          </div>
+          <div class="card">
+            <div class="card-label">Expiran en 7 días</div>
+            <div class="card-value" id="statExpiring">—</div>
+            <div class="card-sub">Keys activas que vencen pronto</div>
+          </div>
+          <div class="card">
+            <div class="card-label">Plan actual</div>
+            <div class="card-value cap" id="statPlan">—</div>
+            <div class="card-sub">Compara planes en Planes</div>
+          </div>
+        </div>
+
+        <div class="toolbar">
+          <button class="btn" data-open="script">+ Nuevo script</button>
+          <button class="btn ghost" data-open="keys">+ Generar keys</button>
+        </div>
+
+        <div class="two-col">
+          <div class="panel">
+            <div class="panel-head"><h3>Keys por script</h3><button class="btn ghost sm" data-nav="scripts">Ver scripts</button></div>
+            <div id="dashScripts"></div>
+          </div>
+          <div class="panel">
+            <div class="panel-head"><h3>Próximas a expirar</h3><button class="btn ghost sm" data-nav="keys">Ver keys</button></div>
+            <div id="dashExpiring"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- SCRIPTS -->
+      <section class="view" data-view="scripts">
+        <div class="section-head">
+          <div>
+            <h2>Mis scripts</h2>
+            <p>Sube tu código, elige la protección y copia el loader para tu juego.</p>
+          </div>
+          <button class="btn" data-open="script">+ Nuevo script</button>
+        </div>
+        <div class="script-grid" id="scriptsGrid" aria-live="polite"></div>
+      </section>
+
+      <!-- KEYS -->
+      <section class="view" data-view="keys">
+        <div class="section-head">
+          <div>
+            <h2>Keys</h2>
+            <p>Busca, filtra, selecciona y exporta tus licencias.</p>
+          </div>
+          <button class="btn" data-open="keys">+ Generar keys</button>
+        </div>
+
+        <div class="toolbar">
+          <input class="field search" id="keySearch" type="search" placeholder="Buscar por key o script…" aria-label="Buscar keys">
+          <select class="field" id="keyScript" aria-label="Filtrar por script"></select>
+          <select class="field" id="keyFilter" aria-label="Filtrar por estado">
+            <option value="all">Todos los estados</option>
+            <option value="active">Activas</option>
+            <option value="expired">Expiradas</option>
+            <option value="banned">Baneadas</option>
+          </select>
+          <button class="btn ghost sm" id="exportBtn">Exportar CSV</button>
+        </div>
+
+        <div class="bulk-bar" id="bulkBar" hidden>
+          <span id="bulkCount">0 seleccionadas</span>
+          <span class="spacer"></span>
+          <button class="btn sm" id="bulkCopy">Copiar seleccionadas</button>
+          <button class="btn ghost sm" id="bulkClear">Quitar selección</button>
+        </div>
+
+        <div class="table-container">
+          <table>
+            <thead>
+              <tr>
+                <th style="width:40px"><input type="checkbox" class="check" id="checkAll" aria-label="Seleccionar todas"></th>
+                <th>Licencia</th>
+                <th>Script</th>
+                <th>Estado</th>
+                <th>Expiración</th>
+                <th style="text-align:right">Acciones</th>
+              </tr>
+            </thead>
+            <tbody id="keysTable"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- PLANS -->
+      <section class="view" data-view="plans">
+        <div class="grid-stats" style="grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));">
+          <article class="card plan-card" data-plan="free">
+            <h3>Free</h3>
+            <div class="card-value">$0</div>
+            <ul>
+              <li>✓ 5 scripts</li>
+              <li>✓ 10 ofuscaciones</li>
+              <li>✓ 150 keys</li>
+            </ul>
+            <button class="btn ghost block" data-plan-btn disabled>Plan actual</button>
+          </article>
+
+          <article class="card plan-card featured" data-plan="premium">
+            <h3>Premium</h3>
+            <div class="card-value">$3</div>
+            <ul>
+              <li>✓ 10 scripts</li>
+              <li>✓ 30 ofuscaciones</li>
+              <li>✓ Keys ilimitadas</li>
+            </ul>
+            <button class="btn block" data-plan-btn data-label="Mejorar a Premium">Mejorar a Premium</button>
+          </article>
+
+          <article class="card plan-card" data-plan="plus">
+            <h3>Premium Plus</h3>
+            <div class="card-value">$5</div>
+            <ul>
+              <li>✓ Todo ilimitado</li>
+              <li>✓ Seguridad extra</li>
+              <li>✓ Soporte prioritario</li>
+            </ul>
+            <button class="btn ghost block" data-plan-btn data-label="Mejorar a Plus">Mejorar a Plus</button>
+          </article>
+        </div>
+      </section>
+
+    </div>
+  </main>
+</div>
+
+<!-- MODAL -->
+<div class="modal-overlay" id="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle" hidden>
+  <div class="modal" id="modalBox">
+    <h3 id="modalTitle"></h3>
+    <div id="modalBody"></div>
+  </div>
+</div>
+
+<div class="toasts" id="toasts" role="status" aria-live="polite"></div>
+
+<script>
+(() => {
+  'use strict';
+
+  // ---------- CONFIG ----------
+  const PLAN_LIMITS = {
+    free:    { scripts: 5,        keys: 150 },
+    premium: { scripts: 10,       keys: Infinity },
+    plus:    { scripts: Infinity, keys: Infinity },
+  };
+  const PLAN_LABELS = { free: 'Free', premium: 'Premium', plus: 'Premium Plus' };
+  const OBFUSCATORS = {
+    prometheus: 'Ofuscador 1',
+    hercules:   'Ofuscador 2 (recomendado)',
+  };
+  const NAV = {
+    dashboard: { title: 'Dashboard', sub: 'Resumen de tu cuenta' },
+    scripts:   { title: 'Scripts',   sub: 'Código, protección y loader de cada script' },
+    keys:      { title: 'Keys',      sub: 'Licencias generadas' },
+    plans:     { title: 'Planes',    sub: 'Elige el plan que necesitas' },
+    auth:      { title: 'Sesión',    sub: 'Problema al verificar tu cuenta' },
+  };
+  const SOON_MS = 7 * 24 * 3600 * 1000;
+  const MAX_CODE_BYTES = 2 * 1024 * 1024;
+  const AUTH_LOOP_KEY = 'vp_auth_redirects';
+  const ICON_COPY = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>';
+
+  // ---------- STATE ----------
+  let user = null;
+  let scripts = [];
+  let keys = [];
+  let scriptsError = false;
+  let keysError = false;
+  const selected = new Set();
+
+  // ---------- HELPERS ----------
+  const $ = id => document.getElementById(id);
+  const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+  }[c]));
+  const isMobile = () => window.matchMedia('(max-width: 1023px)').matches;
+  const scriptName = id => scripts.find(s => s.id === id)?.name || 'Desconocido';
+  const maskKey = key => key.length > 16 ? `${key.slice(0, 12)}…${key.slice(-4)}` : key;
+  const fmtDate = ts => ts
+    ? new Date(ts * 1000).toLocaleDateString('es-EC', { day: '2-digit', month: 'short', year: 'numeric' })
+    : 'Nunca';
+  const loaderFor = s => `loadstring(game:HttpGet("${location.origin}/scripts/hosted/${s.slug}"))()`;
+  const byteLen = s => new TextEncoder().encode(s).length;
+  const fmtKB = b => (b / 1024).toFixed(1) + ' KB';
+  const csvCell = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
+
+  function planKey(p) {
+    const v = String(p || 'free').toLowerCase();
+    if (v.includes('plus')) return 'plus';
+    if (v.includes('premium')) return 'premium';
+    return 'free';
+  }
+
+  function keyStatus(k) {
+    if (k.banned) return { id: 'banned', label: 'Baneada', cls: 'bad' };
+    if (k.expires_at && k.expires_at * 1000 < Date.now()) return { id: 'expired', label: 'Expirada', cls: 'warn' };
+    return { id: 'active', label: 'Activa', cls: 'ok' };
+  }
+
+  // Protección del script: 'ffa' (sin key) o 'protected' (con key y ofuscador)
+  const protectionOf = s => (s.ffa ? 'ffa' : 'protected');
+  const obfuscatorOf = s => (OBFUSCATORS[s.obfuscator] ? s.obfuscator : 'prometheus');
+
+  async function api(path, opts = {}) {
+    const headers = opts.body ? { 'Content-Type': 'application/json' } : {};
+    const res = await fetch(path, { credentials: 'include', ...opts, headers });
+    let data = null;
+    try { data = await res.json(); } catch (_) {}
+    if (!res.ok) {
+      const err = new Error((data && data.error) || `Error ${res.status}`);
+      err.status = res.status;
+      throw err;
+    }
+    return data;
+  }
+
+  function toast(msg, type = 'ok') {
+    const t = document.createElement('div');
+    t.className = `toast ${type === 'error' ? 'error' : ''}`;
+    t.textContent = msg;
+    $('toasts').appendChild(t);
+    setTimeout(() => t.remove(), 3000);
+  }
+
+  async function copyText(text, msg = 'Copiado al portapapeles') {
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch (_) {
+      const ta = document.createElement('textarea');
+      ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+      document.body.appendChild(ta); ta.select();
+      try { document.execCommand('copy'); } catch (__) {}
+      ta.remove();
+    }
+    toast(msg);
+  }
+
+  function download(name, content) {
+    const url = URL.createObjectURL(new Blob([content], { type: 'text/csv;charset=utf-8' }));
+    const a = Object.assign(document.createElement('a'), { href: url, download: name });
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
+  function setBusy(btn, busy) {
+    btn.classList.toggle('busy', busy);
+    btn.disabled = busy;
+  }
+
+  // ---------- NAV ----------
+  function setSidebar(open) {
+    $('sidebar').classList.toggle('collapsed', !open);
+    $('scrim').classList.toggle('show', open && isMobile());
+    $('menuBtn').setAttribute('aria-expanded', String(open));
+  }
+
+  function showView(name) {
+    document.querySelectorAll('.nav-item[data-nav]').forEach(b => {
+      const on = b.dataset.nav === name;
+      b.classList.toggle('active', on);
+      if (on) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current');
+    });
+    document.querySelectorAll('.view').forEach(v => v.classList.toggle('active', v.dataset.view === name));
+    $('pageTitle').firstChild.textContent = NAV[name].title;
+    $('pageSub').textContent = NAV[name].sub;
+    if (isMobile()) setSidebar(false);
+  }
+
+  // ---------- MODAL ----------
+  function openModal(title, html, boxClass = '') {
+    $('modalTitle').textContent = title;
+    $('modalBox').className = `modal ${boxClass}`;
+    $('modalBody').innerHTML = html;
+    $('modal').hidden = false;
+    setTimeout(() => $('modalBody').querySelector('input, select, textarea')?.focus(), 30);
+  }
+  function closeModal() { $('modal').hidden = true; }
+
+  function codeFieldHtml(initial = '') {
+    return `
+      <div class="input-group">
+        <label for="fCode">Código del script</label>
+        <div class="toolbar" style="margin-bottom:10px">
+          <label class="btn ghost sm file-btn" style="cursor:pointer">
+            Subir archivo .lua
+            <input type="file" id="fFile" accept=".lua,.txt,text/plain">
+          </label>
+          <span class="hint" id="fFileName">o pega el código abajo</span>
+        </div>
+        <textarea id="fCode" class="textarea" spellcheck="false" placeholder="-- Pega aquí tu script Lua">${esc(initial)}</textarea>
+        <div class="code-meta"><span id="fCodeSize">0 KB de 2 MB</span></div>
+      </div>`;
+  }
+
+  function wireCodeField() {
+    const ta = $('fCode');
+    const update = () => {
+      const size = byteLen(ta.value);
+      $('fCodeSize').innerHTML = `<span class="${size > MAX_CODE_BYTES ? 'over' : ''}">${fmtKB(size)} de 2 MB</span>`;
+    };
+    ta.addEventListener('input', update);
+    update();
+
+    $('fFile').addEventListener('change', async e => {
+      const file = e.target.files[0];
+      if (!file) return;
+      if (file.size > MAX_CODE_BYTES) {
+        toast('El archivo supera 2 MB', 'error');
+        e.target.value = '';
+        return;
+      }
+      ta.value = await file.text();
+      $('fFileName').textContent = file.name;
+      update();
+    });
+  }
+
+  // Selector de protección: FFA o Protegido, y si es Protegido, el ofuscador
+  function protectionHtml(s = {}) {
+    const current = s.ffa === undefined ? 'protected' : protectionOf(s);
+    const currentObf = obfuscatorOf(s);
+    return `
+      <div class="input-group">
+        <span class="label">Protección</span>
+        <div class="choice-grid">
+          <label class="choice">
+            <input type="radio" name="protection" value="ffa" ${current === 'ffa' ? 'checked' : ''}>
+            <span><b>FFA</b><small>Sin key. Cualquiera puede ejecutarlo.</small></span>
+          </label>
+          <label class="choice">
+            <input type="radio" name="protection" value="protected" ${current === 'protected' ? 'checked' : ''}>
+            <span><b>Protegido</b><small>Requiere key válida y se ofusca.</small></span>
+          </label>
+        </div>
+      </div>
+      <div class="input-group" id="obfGroup">
+        <label for="fObf">Ofuscador</label>
+        <select id="fObf" name="obfuscator" class="field block">
+          ${Object.entries(OBFUSCATORS).map(([val, label]) =>
+            `<option value="${val}" ${val === currentObf ? 'selected' : ''}>${label}</option>`).join('')}
+        </select>
+        <div class="hint">Se aplica en el servidor al guardar el script. Para Roblox (Luau), el Ofuscador 2 tiene soporte nativo; el Ofuscador 1 aún no lo tiene completo.</div>
+      </div>`;
+  }
+
+  function wireProtection() {
+    const sync = () => {
+      const isProtected = document.querySelector('input[name="protection"]:checked')?.value === 'protected';
+      $('obfGroup').hidden = !isProtected;
+    };
+    document.querySelectorAll('input[name="protection"]').forEach(r => r.addEventListener('change', sync));
+    sync();
+  }
+
+  function openScriptModal() {
+    openModal('Nuevo script', `
+      <form id="formScript" novalidate>
+        <div class="input-group">
+          <label for="fName">Nombre</label>
+          <input id="fName" name="name" class="field block" required maxlength="60" autocomplete="off">
+        </div>
+        ${codeFieldHtml()}
+        ${protectionHtml()}
+        <div class="form-actions">
+          <button type="button" class="btn ghost" data-close>Cancelar</button>
+          <button type="submit" class="btn">Crear script</button>
+        </div>
+      </form>`, 'wide');
+    wireCodeField();
+    wireProtection();
+    $('formScript').addEventListener('submit', submitScript);
+  }
+
+  function openEditScriptModal(id) {
+    const s = scripts.find(x => String(x.id) === String(id));
+    if (!s) { toast('Script no encontrado', 'error'); return; }
+    openModal(`Editar ${s.name}`, `
+      <form id="formEditScript" novalidate>
+        <div class="inline-note">Subir una nueva versión reemplaza el código actual. El loader no cambia.</div>
+        <div class="input-group">
+          <label for="fName">Nombre</label>
+          <input id="fName" name="name" class="field block" required maxlength="60" value="${esc(s.name)}" autocomplete="off">
+        </div>
+        ${codeFieldHtml()}
+        ${protectionHtml(s)}
+        <div class="form-actions">
+          <button type="button" class="btn ghost" data-close>Cancelar</button>
+          <button type="submit" class="btn">Guardar cambios</button>
+        </div>
+      </form>`, 'wide');
+    wireCodeField();
+    wireProtection();
+    $('formEditScript').addEventListener('submit', e => submitScript(e, s.id));
+  }
+
+  function openKeysModal(preselect = '') {
+    if (!scripts.length) { toast('Crea un script primero', 'error'); return; }
+    openModal('Generar keys', `
+      <form id="formKeys" novalidate>
+        <div class="input-group">
+          <label for="fScript">Script</label>
+          <select id="fScript" name="scriptId" class="field block">
+            ${scripts.map(s => `<option value="${esc(s.id)}" ${String(s.id) === String(preselect) ? 'selected' : ''}>${esc(s.name)}</option>`).join('')}
+          </select>
+        </div>
+        <div class="input-group">
+          <label for="fAmount">Cantidad</label>
+          <input id="fAmount" type="number" name="amount" class="field block" value="1" min="1" max="50" inputmode="numeric">
+          <div class="hint">Entre 1 y 50 keys por generación.</div>
+        </div>
+        <div class="input-group">
+          <label for="fDays">Expiración</label>
+          <select id="fDays" name="days" class="field block">
+            <option value="">Nunca</option>
+            <option value="1">1 día</option>
+            <option value="7">7 días</option>
+            <option value="30">30 días</option>
+          </select>
+        </div>
+        <div class="form-actions">
+          <button type="button" class="btn ghost" data-close>Cancelar</button>
+          <button type="submit" class="btn">Generar</button>
+        </div>
+      </form>`);
+    $('formKeys').addEventListener('submit', submitKeys);
+  }
+
+  function showGenerated(newKeys, scriptLabel) {
+    const text = newKeys.map(k => k.key).join('\n');
+    openModal(`${newKeys.length} keys generadas`, `
+      <p class="card-sub" style="margin-bottom:12px">Script: ${esc(scriptLabel)}. Cópialas ahora; siempre puedes volver a verlas en Keys.</p>
+      <textarea class="textarea" readonly id="genText">${esc(text)}</textarea>
+      <div class="toolbar" style="margin-top:14px">
+        <button class="btn" id="genCopyAll">Copiar todas</button>
+        <button class="btn ghost" id="genCsv">Descargar CSV</button>
+        <span style="flex:1"></span>
+        <button class="btn ghost" data-close>Cerrar</button>
+      </div>`, 'wide');
+    $('genCopyAll').onclick = () => copyText(text, 'Keys copiadas');
+    $('genCsv').onclick = () => {
+      const rows = newKeys.map(k => [k.key, scriptLabel].map(csvCell).join(',')).join('\n');
+      download('keys_nuevas.csv', `key,script\n${rows}`);
+    };
+  }
+
+  // ---------- SUBMITS ----------
+  async function submitScript(e, editId = null) {
+    e.preventDefault();
+    const form = e.currentTarget;
+    const fd = new FormData(form);
+    const name = String(fd.get('name') || '').trim();
+    const code = $('fCode').value;
+    const protection = fd.get('protection') || 'protected';
+    const obfuscator = fd.get('obfuscator') || 'prometheus';
+
+    if (!name) { toast('Escribe un nombre', 'error'); return; }
+    if (!editId && !code.trim()) { toast('Agrega el código del script', 'error'); return; }
+    if (code && byteLen(code) > MAX_CODE_BYTES) { toast('El código supera 2 MB', 'error'); return; }
+    if (protection === 'protected' && !OBFUSCATORS[obfuscator]) { toast('Elige un ofuscador', 'error'); return; }
+
+    const body = {
+      name,
+      ffa: protection === 'ffa',
+      // El ofuscador solo aplica a scripts protegidos
+      obfuscator: protection === 'protected' ? obfuscator : null,
+    };
+    if (code.trim()) body.code = code;
+
+    const btn = form.querySelector('[type="submit"]');
+    setBusy(btn, true);
+    try {
+      if (editId) {
+        await api(`/api/scripts/${encodeURIComponent(editId)}`, { method: 'PUT', body: JSON.stringify(body) });
+        toast('Script actualizado');
+      } else {
+        await api('/api/scripts', { method: 'POST', body: JSON.stringify(body) });
+        toast('Script creado');
+      }
+      closeModal();
+      await loadData();
+    } catch (err) {
+      toast(err.message, 'error');
+      setBusy(btn, false);
+    }
+  }
+
+  async function submitKeys(e) {
+    e.preventDefault();
+    const form = e.currentTarget;
+    const fd = new FormData(form);
+    const scriptId = parseInt(fd.get('scriptId'), 10);
+    const amount = Math.min(50, Math.max(1, parseInt(fd.get('amount'), 10) || 1));
+    const days = fd.get('days') ? parseInt(fd.get('days'), 10) : null;
+    const btn = form.querySelector('[type="submit"]');
+    setBusy(btn, true);
+    try {
+      const data = await api('/api/keys', { method: 'POST', body: JSON.stringify({ scriptId, amount, days }) });
+      await loadData();
+      showGenerated(data.keys, scriptName(scriptId));
+    } catch (err) {
+      toast(err.message, 'error');
+      setBusy(btn, false);
+    }
+  }
+
+  // ---------- RENDER ----------
+  function renderUser() {
+    if (!user) return;
+    $('userName').textContent = user.username || 'Usuario';
+    $('userPlan').textContent = PLAN_LABELS[planKey(user.plan)];
+    const av = $('userAvatar');
+    av.innerHTML = '';
+    if (user.avatar && user.id) {
+      const img = document.createElement('img');
+      img.alt = '';
+      img.src = `https://cdn.discordapp.com/avatars/${encodeURIComponent(user.id)}/${encodeURIComponent(user.avatar)}.png`;
+      av.appendChild(img);
+    } else {
+      av.textContent = (user.username || '?').charAt(0).toUpperCase();
+    }
+  }
+
+  function renderCounts() {
+    $('navScripts').textContent = scriptsError ? '—' : scripts.length;
+    $('navKeys').textContent = keysError ? '—' : keys.length;
+  }
+
+  function renderDashboard() {
+    const plan = planKey(user?.plan);
+    const lim = PLAN_LIMITS[plan];
+    const active = keys.filter(k => keyStatus(k).id === 'active');
+    const now = Date.now();
+    const expiring = active
+      .filter(k => k.expires_at && k.expires_at * 1000 - now <= SOON_MS)
+      .sort((a, b) => a.expires_at - b.expires_at);
+
+    $('statPlan').textContent = PLAN_LABELS[plan];
+
+    $('statScripts').textContent = scriptsError ? '—' : scripts.length;
+    $('subScripts').textContent = Number.isFinite(lim.scripts) ? `de ${lim.scripts} permitidos` : 'Ilimitados';
+    $('meterScripts').style.width = Number.isFinite(lim.scripts) ? `${Math.min(100, scripts.length / lim.scripts * 100)}%` : '100%';
+
+    $('statKeys').textContent = keysError ? '—' : active.length;
+    $('subKeys').textContent = Number.isFinite(lim.keys) ? `${keys.length} de ${lim.keys} generadas` : `${keys.length} generadas en total`;
+    $('meterKeys').style.width = Number.isFinite(lim.keys) ? `${Math.min(100, keys.length / lim.keys * 100)}%` : '100%';
+
+    $('statExpiring').textContent = keysError ? '—' : expiring.length;
+
+    const dash = $('dashScripts');
+    if (scriptsError || keysError) {
+      dash.innerHTML = `<div class="list-row"><div class="grow meta">No se pudieron cargar los datos. Pulsa Actualizar.</div></div>`;
+    } else if (!scripts.length) {
+      dash.innerHTML = `<div class="list-row"><div class="grow meta">Aún no tienes scripts.</div></div>`;
+    } else {
+      dash.innerHTML = scripts.map(s => {
+        const mine = keys.filter(k => k.script_id === s.id);
+        const act = mine.filter(k => keyStatus(k).id === 'active').length;
+        const pct = mine.length ? Math.round(act / mine.length * 100) : 0;
+        return `
+          <div class="list-row">
+            <div class="grow">
+              <div class="name">${esc(s.name)}</div>
+              <div class="meta">${act} activas de ${mine.length}</div>
+              <div class="mini-meter"><span style="width:${pct}%"></span></div>
+            </div>
+          </div>`;
+      }).join('');
+    }
+
+    const exp = $('dashExpiring');
+    if (keysError) {
+      exp.innerHTML = `<div class="list-row"><div class="grow meta">No se pudieron cargar las keys.</div></div>`;
+    } else if (!expiring.length) {
+      exp.innerHTML = `<div class="list-row"><div class="grow meta">Ninguna key vence en los próximos 7 días.</div></div>`;
+    } else {
+      exp.innerHTML = expiring.slice(0, 6).map(k => `
+        <div class="list-row">
+          <div class="grow">
+            <div class="name mono" style="font-size:12px">${esc(maskKey(k.key))}</div>
+            <div class="meta">${esc(scriptName(k.script_id))} · vence ${fmtDate(k.expires_at)}</div>
+          </div>
+          <button class="btn ghost sm" data-copy="${esc(k.key)}">Copiar</button>
+        </div>`).join('');
+    }
+  }
+
+  function renderScripts() {
+    const grid = $('scriptsGrid');
+    if (scriptsError) {
+      grid.innerHTML = `<div class="empty"><h3>No se pudieron cargar los scripts</h3><p>Revisa tu conexión y pulsa Actualizar.</p></div>`;
+      return;
+    }
+    if (!scripts.length) {
+      grid.innerHTML = `<div class="empty"><h3>Aún no tienes scripts</h3><p>Sube tu primer script para empezar a generar keys.</p><button class="btn" data-open="script">+ Nuevo script</button></div>`;
+      return;
+    }
+    grid.innerHTML = scripts.map(s => {
+      const mine = keysError ? [] : keys.filter(k => k.script_id === s.id);
+      const act = mine.filter(k => keyStatus(k).id === 'active').length;
+      const loader = loaderFor(s);
+      const isFfa = protectionOf(s) === 'ffa';
+      const meta = isFfa ? 'FFA · sin key' : `Protegido · ${OBFUSCATORS[obfuscatorOf(s)]}`;
+      return `
+        <article class="card script-card">
+          <div class="row">
+            <h4 class="script-name" title="${esc(s.name)}">${esc(s.name)}</h4>
+            <span class="badge ${isFfa ? 'bad' : 'ok'}">${isFfa ? 'FFA' : 'Protegido'}</span>
+          </div>
+          <div class="script-meta">${esc(meta)}</div>
+          <div class="script-stats">
+            <div><b>${mine.length}</b>keys</div>
+            <div><b>${act}</b>activas</div>
+          </div>
+          <button class="loader-box" type="button" data-copy="${esc(loader)}" data-msg="Loader copiado" aria-label="Copiar loader de ${esc(s.name)}">
+            <span class="loader-text">${esc(loader)}</span>${ICON_COPY}
+          </button>
+          <div class="row">
+            <button class="btn ghost sm" data-edit="${esc(s.id)}">Editar</button>
+            <button class="btn ghost sm" data-view-keys="${esc(s.id)}">Ver keys</button>
+            <button class="btn sm" data-gen="${esc(s.id)}">+ Keys</button>
+          </div>
+        </article>`;
+    }).join('');
+  }
+
+  function filteredKeys() {
+    const q = $('keySearch').value.trim().toLowerCase();
+    const scriptId = $('keyScript').value;
+    const filter = $('keyFilter').value;
+    return keys
+      .map(k => ({ k, st: keyStatus(k), script: scriptName(k.script_id) }))
+      .filter(r =>
+        (scriptId === 'all' || String(r.k.script_id) === scriptId) &&
+        (filter === 'all' || r.st.id === filter) &&
+        (!q || r.script.toLowerCase().includes(q) || r.k.key.toLowerCase().includes(q))
+      );
+  }
+
+  function renderKeyScriptFilter() {
+    const sel = $('keyScript');
+    const current = sel.value || 'all';
+    sel.innerHTML = `<option value="all">Todos los scripts</option>` +
+      scripts.map(s => `<option value="${esc(s.id)}">${esc(s.name)}</option>`).join('');
+    sel.value = [...sel.options].some(o => o.value === current) ? current : 'all';
+  }
+
+  function renderKeys() {
+    const tbody = $('keysTable');
+    if (keysError) {
+      tbody.innerHTML = `<tr><td colspan="6" class="center">No se pudieron cargar las keys.</td></tr>`;
+      updateBulk();
+      return;
+    }
+    if (!keys.length) {
+      tbody.innerHTML = `<tr><td colspan="6" class="center">Todavía no has generado keys.</td></tr>`;
+      updateBulk();
+      return;
+    }
+    const rows = filteredKeys();
+    if (!rows.length) {
+      tbody.innerHTML = `<tr><td colspan="6" class="center">Ninguna key coincide con los filtros.</td></tr>`;
+      updateBulk();
+      return;
+    }
+    tbody.innerHTML = rows.map(({ k, st, script }) => `
+      <tr class="${selected.has(k.key) ? 'selected' : ''}">
+        <td><input type="checkbox" class="check" data-select="${esc(k.key)}" ${selected.has(k.key) ? 'checked' : ''} aria-label="Seleccionar key"></td>
+        <td class="key-cell">${esc(maskKey(k.key))}</td>
+        <td>${esc(script)}</td>
+        <td><span class="badge ${st.cls}">${st.label}</span></td>
+        <td>${fmtDate(k.expires_at)}</td>
+        <td style="text-align:right"><button class="btn ghost sm" data-copy="${esc(k.key)}" data-msg="Key copiada">Copiar</button></td>
+      </tr>`).join('');
+    updateBulk();
+  }
+
+  function updateBulk() {
+    const visible = keysError ? [] : filteredKeys().map(r => r.k.key);
+    const n = selected.size;
+    $('bulkBar').hidden = n === 0;
+    $('bulkCount').textContent = `${n} seleccionada${n === 1 ? '' : 's'}`;
+    const all = visible.length > 0 && visible.every(key => selected.has(key));
+    $('checkAll').checked = all;
+    $('checkAll').indeterminate = !all && visible.some(key => selected.has(key));
+  }
+
+  function renderPlans() {
+    const current = planKey(user?.plan);
+    document.querySelectorAll('.plan-card').forEach(card => {
+      const isCurrent = card.dataset.plan === current;
+      card.classList.toggle('current', isCurrent);
+      const btn = card.querySelector('[data-plan-btn]');
+      btn.disabled = isCurrent;
+      btn.textContent = isCurrent ? 'Plan actual' : btn.dataset.label;
+    });
+  }
+
+  function renderAll() {
+    renderUser();
+    renderCounts();
+    renderKeyScriptFilter();
+    renderDashboard();
+    renderScripts();
+    renderKeys();
+    renderPlans();
+  }
+
+  // ---------- SESIÓN ----------
+  // Evita el bucle: si /api/me falla varias veces seguidas, se muestra un aviso
+  // en vez de volver a /login.html una y otra vez.
+  function authLoopCount() {
+    try {
+      const now = Date.now();
+      const list = (JSON.parse(sessionStorage.getItem(AUTH_LOOP_KEY)) || []).filter(t => now - t < 60000);
+      return list.length;
+    } catch (_) { return 0; }
+  }
+  function recordAuthRedirect() {
+    try {
+      const now = Date.now();
+      const list = (JSON.parse(sessionStorage.getItem(AUTH_LOOP_KEY)) || []).filter(t => now - t < 60000);
+      list.push(now);
+      sessionStorage.setItem(AUTH_LOOP_KEY, JSON.stringify(list));
+    } catch (_) {}
+  }
+  function clearAuthLoop() {
+    try { sessionStorage.removeItem(AUTH_LOOP_KEY); } catch (_) {}
+  }
+
+  function showAuthError() {
+    showView('auth');
+    setSidebar(!isMobile());
+  }
+
+  // ---------- DATA ----------
+  async function loadData() {
+    try {
+      user = await api('/api/me');
+    } catch (err) {
+      if (err.status === 401 || err.status === 403) {
+        if (authLoopCount() >= 2) {
+          // Ya redirigimos dos veces en el último minuto: detenemos el bucle
+          showAuthError();
+          return;
+        }
+        recordAuthRedirect();
+        location.href = '/login.html';
+        return;
+      }
+      toast('No se pudo cargar tu cuenta', 'error');
+      return;
+    }
+
+    clearAuthLoop();
+
+    const [s, k] = await Promise.allSettled([api('/api/scripts'), api('/api/keys')]);
+    if (s.status === 'fulfilled') { scripts = s.value; scriptsError = false; } else scriptsError = true;
+    if (k.status === 'fulfilled') { keys = k.value; keysError = false; } else keysError = true;
+
+    const existing = new Set(keys.map(x => x.key));
+    selected.forEach(key => { if (!existing.has(key)) selected.delete(key); });
+
+    renderAll();
+  }
+
+  // ---------- EVENTS ----------
+  document.addEventListener('click', e => {
+    const t = e.target;
+
+    const nav = t.closest('[data-nav]');
+    if (nav) { showView(nav.dataset.nav); return; }
+
+    const open = t.closest('[data-open]');
+    if (open) {
+      if (open.dataset.open === 'script') openScriptModal();
+      else openKeysModal();
+      return;
+    }
+
+    const edit = t.closest('[data-edit]');
+    if (edit) { openEditScriptModal(edit.dataset.edit); return; }
+
+    const gen = t.closest('[data-gen]');
+    if (gen) { openKeysModal(gen.dataset.gen); return; }
+
+    const vk = t.closest('[data-view-keys]');
+    if (vk) {
+      $('keyScript').value = vk.dataset.viewKeys;
+      $('keySearch').value = '';
+      $('keyFilter').value = 'all';
+      renderKeys();
+      showView('keys');
+      return;
+    }
+
+    const copy = t.closest('[data-copy]');
+    if (copy) { copyText(copy.dataset.copy, copy.dataset.msg || 'Copiado al portapapeles'); return; }
+
+    if (t.closest('[data-close]') || t.id === 'modal') { closeModal(); return; }
+  });
+
+  document.addEventListener('change', e => {
+    const cb = e.target.closest('[data-select]');
+    if (!cb) return;
+    cb.checked ? selected.add(cb.dataset.select) : selected.delete(cb.dataset.select);
+    cb.closest('tr').classList.toggle('selected', cb.checked);
+    updateBulk();
+  });
+
+  document.addEventListener('keydown', e => {
+    if (e.key !== 'Escape') return;
+    if (!$('modal').hidden) closeModal();
+    else if (isMobile() && !$('sidebar').classList.contains('collapsed')) setSidebar(false);
+  });
+
+  $('menuBtn').addEventListener('click', () => setSidebar($('sidebar').classList.contains('collapsed')));
+  $('scrim').addEventListener('click', () => setSidebar(false));
+
+  $('refreshBtn').addEventListener('click', async e => {
+    setBusy(e.currentTarget, true);
+    await loadData();
+    setBusy(e.currentTarget, false);
+  });
+
+  $('retryAuth').addEventListener('click', () => {
+    clearAuthLoop();
+    location.reload();
+  });
+
+  $('keySearch').addEventListener('input', renderKeys);
+  $('keyScript').addEventListener('change', renderKeys);
+  $('keyFilter').addEventListener('change', renderKeys);
+
+  $('checkAll').addEventListener('change', e => {
+    filteredKeys().forEach(({ k }) => e.target.checked ? selected.add(k.key) : selected.delete(k.key));
+    renderKeys();
+  });
+  $('bulkClear').addEventListener('click', () => { selected.clear(); renderKeys(); });
+  $('bulkCopy').addEventListener('click', () => {
+    const list = keys.filter(k => selected.has(k.key)).map(k => k.key).join('\n');
+    copyText(list, `${selected.size} keys copiadas`);
+  });
+
+  $('exportBtn').addEventListener('click', () => {
+    const rows = filteredKeys();
+    if (!rows.length) { toast('No hay keys para exportar', 'error'); return; }
+    const body = rows.map(({ k, st, script }) =>
+      [k.key, script, st.label, k.expires_at ? new Date(k.expires_at * 1000).toISOString() : 'Nunca']
+        .map(csvCell).join(',')).join('\n');
+    download('keys_vantarmor.csv', `key,script,estado,expiracion\n${body}`);
+  });
+
+  window.addEventListener('resize', () => {
+    if (!isMobile()) $('scrim').classList.remove('show');
+  });
+
+  // ---------- INIT ----------
+  setSidebar(!isMobile());
+  loadData();
+})();
+</script>
+</body>
+</html>

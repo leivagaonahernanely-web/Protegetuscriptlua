@@ -46,6 +46,10 @@ const cookieSecure = COOKIE_SECURE !== 'false';
 
 if (!DISCORD_CLIENT_ID || !DISCORD_CLIENT_SECRET) console.warn('⚠️  DISCORD_CLIENT_ID o DISCORD_CLIENT_SECRET no definidos: el login con Discord no funcionará.');
 console.log(`🔗 OAuth callback: ${REDIRECT_URI}`);
+// En Railway el disco del contenedor se borra en cada deploy: sin volumen se pierden usuarios, scripts y keys.
+if (process.env.RAILWAY_ENVIRONMENT && !DATABASE_PATH.startsWith('/data')) {
+  console.warn('⚠️  La base de datos NO está en un volumen: se borra en cada deploy. Monta un volumen en /data y usa DATABASE_PATH=/data/vantarmor.db');
+}
 
 if (!JWT_SECRET) console.warn('⚠️  JWT_SECRET no está definido: el login no funcionará.');
 
@@ -441,47 +445,25 @@ function loaderPage(script) {
   const url = `${APP_URL}/scripts/hosted/${script.slug}`;
   const snippet = [
     'script_key = "KEY"',
-    'local hwid = game:GetService("RbxAnalyticsService"):GetClientId()',
-    `loadstring(game:HttpGet("${url}?key=" .. script_key .. "&hwid=" .. hwid))()`,
+    `loadstring(game:HttpGet("${url}?key=" .. script_key .. "&hwid=" .. game:GetService("RbxAnalyticsService"):GetClientId()))()`,
   ].join('\n');
-  const badge = script.ffa ? 'FFA · Libre' : 'Protegido';
   return `<!doctype html>
 <html lang="es">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="robots" content="noindex">
-<title>Vantarmor · Loadstring</title>
+<title>Loadstring</title>
 <style>
-:root{--bg:#050505;--card:#0f0f10;--border:rgba(255,255,255,.1);--text:#fff;--soft:#a1a1aa;--ok:#4ade80}
+:root{--bg:#0b0b0c;--border:rgba(255,255,255,.1);--text:#e4e4e7}
 *{box-sizing:border-box}
-html,body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;user-select:none;-webkit-user-select:none}
-body{min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px 16px}
-.wrap{width:100%;max-width:640px}
-.brand{display:flex;align-items:center;justify-content:center;gap:10px;font-weight:900;letter-spacing:.14em;text-transform:uppercase;font-size:13px;margin:0 0 22px;color:var(--soft)}
-.mark{width:26px;height:26px;border-radius:8px;background:#fff;color:#000;display:grid;place-items:center;font-weight:900}
-h1{font-size:22px;text-align:center;margin:0 0 6px;font-weight:800}
-.sub{text-align:center;margin:0 0 22px;font-size:14px;color:var(--soft)}
-.tag{display:inline-block;margin-left:8px;padding:3px 9px;border-radius:999px;font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;border:1px solid var(--border);color:var(--ok);background:rgba(74,222,128,.08);vertical-align:middle}
-.box{position:relative;background:#0b0b0c;border:1px solid var(--border);border-radius:14px;padding:16px 16px 14px}
-.box pre{margin:0;overflow-x:auto;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:13px;line-height:1.7;color:#e4e4e7;white-space:pre}
-.copy{position:absolute;top:10px;right:10px;background:#fff;color:#000;border:0;border-radius:8px;padding:7px 12px;font-weight:700;font-size:12px;cursor:pointer}
-.copy:active{transform:scale(.97)}
-.hint{margin:16px 0 0;text-align:center;font-size:13px;color:var(--soft);line-height:1.6}
-.foot{margin-top:28px;text-align:center;font-size:12px;color:#52525b}
+html,body{margin:0;background:var(--bg);color:var(--text);user-select:none;-webkit-user-select:none}
+body{min-height:100vh;display:grid;place-items:center;padding:16px}
+pre{margin:0;width:100%;max-width:720px;padding:16px 18px;background:#050505;border:1px solid var(--border);border-radius:12px;overflow-x:auto;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:13px;line-height:1.7;white-space:pre}
 </style>
 </head>
 <body>
-<main class="wrap">
-  <div class="brand"><span class="mark">V</span>Vantarmor</div>
-  <h1>📜 Loadstring</h1>
-  <p class="sub">${escHtml(script.name)}<span class="tag">${escHtml(badge)}</span></p>
-  <div class="box">
-    <pre><code>${escHtml(snippet)}</code></pre>
-  </div>
-  <p class="hint">Pega este bloque en tu ejecutor y reemplaza <b>KEY</b> por tu key.<br>Esta página es solo de lectura.</p>
-  <p class="foot">© Vantarmor · Protección de scripts para Roblox</p>
-</main>
+<pre>${escHtml(snippet)}</pre>
 </body>
 </html>`;
 }

@@ -348,23 +348,101 @@ app.post('/api/plan/redeem', requireAuth, (req, res) => {
 });
 
 // Loader: sirve el código si la key es válida y el HWID coincide (o se vincula la primera vez)
+// ---- Respuestas de denegación del loader ----
+// Navegador (Accept: text/html) -> página estilo Vantarmor.
+// Ejecutor (loadstring del cuerpo) -> Lua que lanza error con el motivo.
+const DENY = {
+  SCRIPT_NOT_FOUND: ['Script no encontrado', 'Revisa que el link del loader sea el correcto.'],
+  KEY_INVALID: ['Key inválida', 'La key no existe o no pertenece a este script.'],
+  KEY_EXPIRED: ['Key expirada', 'Tu key ya venció. Renueva tu acceso para seguir usando el script.'],
+  KEY_BANNED: ['Key bloqueada', 'El dueño del script bloqueó esta key.'],
+  KEY_BLACKLISTED: ['Acceso bloqueado', 'Tu cuenta de Discord está en la lista negra de este script.'],
+  HWID_MISSING: ['Falta el HWID', 'El ejecutor no envió el identificador del dispositivo. Usa un ejecutor compatible.'],
+  HWID_MISMATCH: ['Dispositivo distinto', 'Esta key ya está vinculada a otro dispositivo. Pide un reset con /resethwid en Discord.'],
+};
+
+const escHtml = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+function denyPage(code, title, detail, status) {
+  return `<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Vantarmor · Acceso denegado</title>
+<style>
+:root{--bg:#050505;--card:#0f0f10;--border:rgba(255,255,255,.1);--text:#fff;--soft:#a1a1aa;--err:#ff5c5c}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+body{min-height:100vh;display:grid;place-items:center;padding:16px}
+.wrap{width:100%;max-width:460px}
+.brand{display:flex;align-items:center;gap:10px;font-weight:900;letter-spacing:.14em;text-transform:uppercase;font-size:14px;margin:0 0 18px}
+.mark{width:28px;height:28px;border-radius:8px;background:#fff;color:#000;display:grid;place-items:center;font-weight:900}
+.card{background:var(--card);border:1px solid var(--border);border-radius:16px;padding:28px}
+.status{display:inline-flex;align-items:center;gap:8px;font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--err);background:rgba(255,92,92,.1);border:1px solid rgba(255,92,92,.3);padding:6px 10px;border-radius:999px}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--err)}
+h1{font-size:24px;margin:16px 0 8px;font-weight:800;letter-spacing:-.01em}
+p{margin:0;color:var(--soft);line-height:1.6;font-size:15px}
+ol{margin:18px 0 0;padding:0 0 0 18px;color:var(--soft);line-height:1.9;font-size:14px}
+.code{margin-top:22px;padding:12px 14px;border-radius:10px;background:#000;border:1px solid var(--border);font-family:ui-monospace,Menlo,Consolas,monospace;font-size:13px;color:var(--soft);word-break:break-all}
+.code b{color:#fff;font-weight:600}
+.actions{margin-top:22px;display:flex;gap:10px;flex-wrap:wrap}
+.btn{display:inline-block;padding:11px 16px;border-radius:10px;font-weight:700;font-size:14px;text-decoration:none;background:#fff;color:#000}
+.btn.ghost{background:transparent;color:#fff;border:1px solid var(--border)}
+.foot{margin-top:18px;text-align:center;font-size:12px;color:#52525b}
+</style>
+</head>
+<body>
+<main class="wrap">
+  <div class="brand"><span class="mark">V</span>Vantarmor</div>
+  <section class="card">
+    <span class="status"><span class="dot"></span>Acceso denegado</span>
+    <h1>${escHtml(title)}</h1>
+    <p>${escHtml(detail)}</p>
+    <ol>
+      <li>Copia el loader completo desde el panel del script.</li>
+      <li>Verifica que estés usando la key que te entregaron.</li>
+      <li>Si cambiaste de dispositivo, pide un reset de HWID en Discord.</li>
+    </ol>
+    <div class="code"><b>${escHtml(code)}</b> · HTTP ${status}</div>
+    <div class="actions">
+      <a class="btn" href="${escHtml(FRONTEND_URL)}/dashboard.html">Ir al dashboard</a>
+      <a class="btn ghost" href="${escHtml(FRONTEND_URL)}/">Inicio</a>
+    </div>
+  </section>
+  <p class="foot">© Vantarmor · Protección de scripts para Roblox</p>
+</main>
+</body>
+</html>`;
+}
+
+function deny(req, res, status, code) {
+  const [title, detail] = DENY[code];
+  if (/text\/html/.test(req.get('accept') || '')) {
+    return res.status(status).type('html').send(denyPage(code, title, detail, status));
+  }
+  const msg = `[Vantarmor] ${code}: ${title}. ${detail}`;
+  return res.status(status).type('text/plain').send(`error(${JSON.stringify(msg)}, 0)`);
+}
+
 app.get('/scripts/hosted/:slug', (req, res) => {
   const script = stmt.scriptBySlug.get(req.params.slug);
-  if (!script) return res.status(404).type('text/plain').send('-- script no encontrado');
+  if (!script) return deny(req, res, 404, 'SCRIPT_NOT_FOUND');
   if (script.ffa) return res.type('text/plain').send(script.content);
 
   const key = String(req.query.key || '').slice(0, 64);
   const hwid = String(req.query.hwid || '').slice(0, 128);
   const k = key ? db.prepare('SELECT * FROM keys WHERE key = ? AND script_id = ?').get(key, script.id) : null;
-  if (!k || k.banned || (k.expires_at && k.expires_at * 1000 < Date.now())) {
-    return res.status(403).type('text/plain').send('-- acceso denegado: key inválida, expirada o bloqueada');
-  }
+  if (!k) return deny(req, res, 403, 'KEY_INVALID');
+  if (k.banned) return deny(req, res, 403, 'KEY_BANNED');
+  if (k.expires_at && k.expires_at * 1000 < Date.now()) return deny(req, res, 403, 'KEY_EXPIRED');
   if (k.discord_id && db.prepare('SELECT 1 FROM bot_blacklist WHERE script_id = ? AND discord_id = ?').get(script.id, k.discord_id)) {
-    return res.status(403).type('text/plain').send('-- acceso denegado: bloqueado');
+    return deny(req, res, 403, 'KEY_BLACKLISTED');
   }
-  if (!hwid) return res.status(403).type('text/plain').send('-- acceso denegado: falta HWID');
+  if (!hwid) return deny(req, res, 403, 'HWID_MISSING');
   if (!k.hwid) db.prepare('UPDATE keys SET hwid = ? WHERE key = ?').run(hwid, key);
-  else if (k.hwid !== hwid) return res.status(403).type('text/plain').send('-- acceso denegado: HWID distinto; reinicia el HWID con /resethwid');
+  else if (k.hwid !== hwid) return deny(req, res, 403, 'HWID_MISMATCH');
 
   res.type('text/plain').send(script.content);
 });

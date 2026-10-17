@@ -111,10 +111,16 @@ export const commands = [
   new SlashCommandBuilder().setName('warn').setDescription('Advierte a un usuario')
     .addUserOption(o => userOpt(o, true))
     .addStringOption(o => o.setName('reason').setDescription('Razón').setRequired(true)),
+  new SlashCommandBuilder().setName('prices').setDescription('Publica la tabla de precios (dueño)')
+    .addStringOption(o => o.setName('title').setDescription('Título').setRequired(true))
+    .addStringOption(o => o.setName('description').setDescription('Contenido (usa \\n para saltos de línea)').setRequired(true)),
+  new SlashCommandBuilder().setName('updates').setDescription('Publica una actualización (dueño)')
+    .addStringOption(o => o.setName('title').setDescription('Título').setRequired(true))
+    .addStringOption(o => o.setName('description').setDescription('Contenido (usa \\n para saltos de línea)').setRequired(true)),
 ].map(c => c.toJSON());
 
 // Comandos que responden en público
-const PUBLIC_COMMANDS = new Set(['panel', 'whitelist', 'unwhitelist', 'blacklist', 'unblacklist', 'warn']);
+const PUBLIC_COMMANDS = new Set(['panel', 'whitelist', 'unwhitelist', 'blacklist', 'unblacklist', 'warn', 'prices', 'updates']);
 
 // ==========================================
 // Bot
@@ -437,6 +443,21 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
         const reason = interaction.options.getString('reason', true);
         q.warnInsert.run(target.id, reason, now());
         return reply(`⚠️ <@${target.id}> recibió una advertencia.\nRazón: ${reason}`);
+      }
+
+      case 'prices':
+      case 'updates': {
+        if (interaction.user.id !== owner()) return reply('⛔ Solo el dueño puede publicar esto.');
+        const title = interaction.options.getString('title', true);
+        const description = interaction.options.getString('description', true).replace(/\\n/g, '\n');
+        const embed = new EmbedBuilder()
+          .setColor(cmd === 'prices' ? 0x5865f2 : 0xe93540)
+          .setTitle(title)
+          .setDescription(description)
+          .setFooter({ text: `Vantarmor · ${new Date().getFullYear()}` })
+          .setTimestamp();
+        await interaction.channel.send({ embeds: [embed] });
+        return reply('✅ Publicado.');
       }
 
       default:

@@ -426,6 +426,76 @@ ol{margin:18px 0 0;padding:0 0 0 18px;color:var(--soft);line-height:1.9;font-siz
 </html>`;
 }
 
+// Página que ve el navegador al abrir la URL del loader (estilo "Loadstring").
+// Nunca muestra el código del script: solo el snippet para usar en el ejecutor.
+function loaderPage(script) {
+  const url = `${APP_URL}/scripts/hosted/${script.slug}`;
+  const snippet = [
+    'script_key = "KEY"',
+    'local hwid = game:GetService("RbxAnalyticsService"):GetClientId()',
+    `loadstring(game:HttpGet("${url}?key=" .. script_key .. "&hwid=" .. hwid))()`,
+  ].join('\n');
+  const badge = script.ffa ? 'FFA · Libre' : 'Protegido';
+  return `<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Vantarmor · Loadstring</title>
+<style>
+:root{--bg:#050505;--card:#0f0f10;--border:rgba(255,255,255,.1);--text:#fff;--soft:#a1a1aa;--ok:#4ade80}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+body{min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px 16px}
+.wrap{width:100%;max-width:640px}
+.brand{display:flex;align-items:center;justify-content:center;gap:10px;font-weight:900;letter-spacing:.14em;text-transform:uppercase;font-size:13px;margin:0 0 22px;color:var(--soft)}
+.mark{width:26px;height:26px;border-radius:8px;background:#fff;color:#000;display:grid;place-items:center;font-weight:900}
+h1{font-size:22px;text-align:center;margin:0 0 6px;font-weight:800}
+.sub{text-align:center;margin:0 0 22px;font-size:14px;color:var(--soft)}
+.tag{display:inline-block;margin-left:8px;padding:3px 9px;border-radius:999px;font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;border:1px solid var(--border);color:var(--ok);background:rgba(74,222,128,.08);vertical-align:middle}
+.box{position:relative;background:#0b0b0c;border:1px solid var(--border);border-radius:14px;padding:16px 16px 14px}
+.box pre{margin:0;overflow-x:auto;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:13px;line-height:1.7;color:#e4e4e7;white-space:pre}
+.copy{position:absolute;top:10px;right:10px;background:#fff;color:#000;border:0;border-radius:8px;padding:7px 12px;font-weight:700;font-size:12px;cursor:pointer}
+.copy:active{transform:scale(.97)}
+.hint{margin:16px 0 0;text-align:center;font-size:13px;color:var(--soft);line-height:1.6}
+.foot{margin-top:28px;text-align:center;font-size:12px;color:#52525b}
+</style>
+</head>
+<body>
+<main class="wrap">
+  <div class="brand"><span class="mark">V</span>Vantarmor</div>
+  <h1>📜 Loadstring</h1>
+  <p class="sub">${escHtml(script.name)}<span class="tag">${escHtml(badge)}</span></p>
+  <div class="box">
+    <button class="copy" id="copyBtn" type="button">Copiar</button>
+    <pre><code id="snippet">${escHtml(snippet)}</code></pre>
+  </div>
+  <p class="hint">Reemplaza <b>KEY</b> por tu key de acceso y ejecútalo en tu ejecutor.<br>El código del script no se muestra en el navegador.</p>
+  <p class="foot">© Vantarmor · Protección de scripts para Roblox</p>
+</main>
+<script>
+(function () {
+  var btn = document.getElementById('copyBtn');
+  var code = document.getElementById('snippet');
+  btn.addEventListener('click', function () {
+    var text = code.textContent;
+    var done = function () { btn.textContent = 'Copiado'; setTimeout(function () { btn.textContent = 'Copiar'; }, 1600); };
+    if (navigator.clipboard && window.isSecureContext) {
+      navigator.clipboard.writeText(text).then(done, function () { fallback(); });
+    } else { fallback(); }
+    function fallback() {
+      var r = document.createRange(); r.selectNodeContents(code);
+      var s = window.getSelection(); s.removeAllRanges(); s.addRange(r);
+      try { document.execCommand('copy'); done(); } catch (_) {}
+    }
+  });
+})();
+</script>
+</body>
+</html>`;
+}
+
 function deny(req, res, status, code) {
   const [title, detail] = DENY[code];
   if (/text\/html/.test(req.get('accept') || '')) {
@@ -438,6 +508,8 @@ function deny(req, res, status, code) {
 app.get('/scripts/hosted/:slug', (req, res) => {
   const script = stmt.scriptBySlug.get(req.params.slug);
   if (!script) return deny(req, res, 404, 'SCRIPT_NOT_FOUND');
+  // Navegador: nunca recibe el código; ve la tarjeta de loadstring
+  if (/text\/html/.test(req.get('accept') || '')) return res.type('html').send(loaderPage(script));
   if (script.ffa) return res.type('text/plain').send(script.content);
 
   const key = String(req.query.key || '').slice(0, 64);

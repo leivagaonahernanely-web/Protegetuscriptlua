@@ -426,6 +426,15 @@ ol{margin:18px 0 0;padding:0 0 0 18px;color:var(--soft);line-height:1.9;font-siz
 </html>`;
 }
 
+// Cabeceras de páginas de solo lectura: sin scripts, sin caché, sin referrer.
+const PAGE_HEADERS = {
+  'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'",
+  'Cache-Control': 'no-store',
+  'X-Content-Type-Options': 'nosniff',
+  'Referrer-Policy': 'no-referrer',
+  'X-Frame-Options': 'DENY',
+};
+
 // Página que ve el navegador al abrir la URL del loader (estilo "Loadstring").
 // Nunca muestra el código del script: solo el snippet para usar en el ejecutor.
 function loaderPage(script) {
@@ -446,7 +455,7 @@ function loaderPage(script) {
 <style>
 :root{--bg:#050505;--card:#0f0f10;--border:rgba(255,255,255,.1);--text:#fff;--soft:#a1a1aa;--ok:#4ade80}
 *{box-sizing:border-box}
-html,body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+html,body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;user-select:none;-webkit-user-select:none}
 body{min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px 16px}
 .wrap{width:100%;max-width:640px}
 .brand{display:flex;align-items:center;justify-content:center;gap:10px;font-weight:900;letter-spacing:.14em;text-transform:uppercase;font-size:13px;margin:0 0 22px;color:var(--soft)}
@@ -468,30 +477,11 @@ h1{font-size:22px;text-align:center;margin:0 0 6px;font-weight:800}
   <h1>📜 Loadstring</h1>
   <p class="sub">${escHtml(script.name)}<span class="tag">${escHtml(badge)}</span></p>
   <div class="box">
-    <button class="copy" id="copyBtn" type="button">Copiar</button>
-    <pre><code id="snippet">${escHtml(snippet)}</code></pre>
+    <pre><code>${escHtml(snippet)}</code></pre>
   </div>
-  <p class="hint">Reemplaza <b>KEY</b> por tu key de acceso y ejecútalo en tu ejecutor.<br>El código del script no se muestra en el navegador.</p>
+  <p class="hint">Pega este bloque en tu ejecutor y reemplaza <b>KEY</b> por tu key.<br>Esta página es solo de lectura.</p>
   <p class="foot">© Vantarmor · Protección de scripts para Roblox</p>
 </main>
-<script>
-(function () {
-  var btn = document.getElementById('copyBtn');
-  var code = document.getElementById('snippet');
-  btn.addEventListener('click', function () {
-    var text = code.textContent;
-    var done = function () { btn.textContent = 'Copiado'; setTimeout(function () { btn.textContent = 'Copiar'; }, 1600); };
-    if (navigator.clipboard && window.isSecureContext) {
-      navigator.clipboard.writeText(text).then(done, function () { fallback(); });
-    } else { fallback(); }
-    function fallback() {
-      var r = document.createRange(); r.selectNodeContents(code);
-      var s = window.getSelection(); s.removeAllRanges(); s.addRange(r);
-      try { document.execCommand('copy'); done(); } catch (_) {}
-    }
-  });
-})();
-</script>
 </body>
 </html>`;
 }
@@ -509,7 +499,9 @@ app.get('/scripts/hosted/:slug', (req, res) => {
   const script = stmt.scriptBySlug.get(req.params.slug);
   if (!script) return deny(req, res, 404, 'SCRIPT_NOT_FOUND');
   // Navegador: nunca recibe el código; ve la tarjeta de loadstring
-  if (/text\/html/.test(req.get('accept') || '')) return res.type('html').send(loaderPage(script));
+  if (/text\/html/.test(req.get('accept') || '')) {
+    return res.set(PAGE_HEADERS).type('html').send(loaderPage(script));
+  }
   if (script.ffa) return res.type('text/plain').send(script.content);
 
   const key = String(req.query.key || '').slice(0, 64);

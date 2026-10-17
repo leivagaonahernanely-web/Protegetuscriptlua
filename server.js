@@ -7,6 +7,7 @@ import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
 import Database from 'better-sqlite3';
+import { startDiscordBot } from './bot/discordBot.js';
 import 'dotenv/config';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -79,6 +80,12 @@ db.exec(`
   if (!cols.includes('obfuscator')) db.exec('ALTER TABLE scripts ADD COLUMN obfuscator TEXT');
   // source = código original (nunca se envía al cliente); content = lo que se sirve al loader
   if (!cols.includes('source')) db.exec('ALTER TABLE scripts ADD COLUMN source TEXT');
+
+  // Columnas de keys para el bot y el control de HWID
+  const keyCols = db.prepare('PRAGMA table_info(keys)').all().map(c => c.name);
+  for (const [col, type] of [['discord_id', 'TEXT'], ['hwid', 'TEXT'], ['hwid_reset_at', 'INTEGER'], ['ban_reason', 'TEXT']]) {
+    if (!keyCols.includes(col)) db.exec(`ALTER TABLE keys ADD COLUMN ${col} ${type}`);
+  }
 }
 
 const stmt = {
@@ -108,6 +115,7 @@ const stmt = {
   `),
   keyInsert: db.prepare('INSERT INTO keys (key, script_id, expires_at) VALUES (?, ?, ?)'),
   slugExists: db.prepare('SELECT 1 FROM scripts WHERE slug = ?'),
+  scriptBySlug: db.prepare('SELECT * FROM scripts WHERE slug = ?'),
 };
 
 // ==========================================
@@ -247,6 +255,25 @@ app.get('/auth/discord/callback', async (req, res) => {
   }
 });
 
+// Loader: sirve el código si la key es válida y el HWID coincide (o se vincula la primera vez)
+app.get('/scripts/hosted/:slug', (req, res) => {
+  const script = stmt.scriptBySlug.get(req.params.slug);
+  if (!script) return res.status(404).type('text/plain').send('-- script no encontrado');
+  if (script.ffa) return res.type('text/plain').send(script.content);
+
+  const key = String(req.query.key || '').slice(0, 64);
+  const hwid = String(req.query.hwid || '').slice(0, 128);
+  const k = key ? db.prepare('SELECT * FROM keys WHERE key = ? AND script_id = ?').get(key, script.id) : null;
+  if (!k || k.banned || (k.expires_at && k.expires_at * 1000 < Date.now())) {
+    return res.status(403).type('text/plain').send('-- acceso denegado: key inválida, expirada o bloqueada');
+  }
+  if (!hwid) return res.status(403).type('text/plain').send('-- acceso denegado: falta HWID');
+  if (!k.hwid) db.prepare('UPDATE keys SET hwid = ? WHERE key = ?').run(hwid, key);
+  else if (k.hwid !== hwid) return res.status(403).type('text/plain').send('-- acceso denegado: HWID distinto; reinicia el HWID con /resethwid');
+
+  res.type('text/plain').send(script.content);
+});
+
 app.get('/auth/logout', (req, res) => {
   res.clearCookie(SESSION_COOKIE);
   res.redirect('/login.html');
@@ -342,6 +369,18 @@ app.post('/api/keys', requireAuth, (req, res) => {
 
 // ==========================================
 // 7. ARRANCAR SERVIDOR
+// El bot usa la misma base SQLite; se inicia solo si existe DISCORD_BOT_TOKEN.
+if (process.env.DISCORD_BOT_TOKEN && DISCORD_CLIENT_ID) {
+  startDiscordBot({
+    db,
+    token: process.env.DISCORD_BOT_TOKEN,
+    clientId: DISCORD_CLIENT_ID,
+    guildId: process.env.DISCORD_GUILD_ID || undefined,
+    publicUrl: process.env.PUBLIC_URL || FRONTEND_URL,
+  }).catch(err => console.error('[Bot] No se pudo iniciar:', err.message));
+} else {
+  console.warn('[Bot] DISCORD_BOT_TOKEN o DISCORD_CLIENT_ID no definidos: el bot no se inicia.');
+}
 // ==========================================
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`✅ Servidor Vantarmor corriendo en el puerto ${PORT}`);

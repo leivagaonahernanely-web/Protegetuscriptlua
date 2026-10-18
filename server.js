@@ -93,6 +93,13 @@ db.exec(`
     ffa INTEGER,
     content TEXT
   );
+  CREATE TABLE IF NOT EXISTS script_logs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    script_id INTEGER,
+    script_name TEXT,
+    text TEXT,
+    created_at INTEGER
+  );
   CREATE TABLE IF NOT EXISTS keys (
     key TEXT PRIMARY KEY,
     script_id INTEGER,
@@ -652,14 +659,23 @@ app.get('/api/me', requireAuth, (req, res) => {
 function isOwnerId(id) {
   return Boolean(process.env.DISCORD_OWNER_ID) && String(id) === String(process.env.DISCORD_OWNER_ID);
 }
+// Dueño por cookie (dashboard) o por token de servicio (panel admin, que llama desde otro servicio).
+function requireOwnerApi(req, res, next) {
+  const token = (req.get('authorization') || '').replace(/^Bearer /, '');
+  const expected = process.env.ADMIN_API_TOKEN || '';
+  if (expected && token && token.length === expected.length
+      && crypto.timingSafeEqual(Buffer.from(token), Buffer.from(expected))) return next();
+  return requireAuth(req, res, () => requireOwner(req, res, next));
+}
+
 function requireOwner(req, res, next) {
   if (!isOwnerId(req.userId)) return res.status(403).json({ error: 'Solo el dueño puede ver esto' });
   next();
 }
-app.get('/api/owner/plan-keys', requireAuth, requireOwner, (req, res) => {
+app.get('/api/owner/plan-keys', requireOwnerApi, (req, res) => {
   res.json(db.prepare('SELECT key, plan, used_by, used_at, created_at FROM plan_keys ORDER BY created_at DESC LIMIT 200').all());
 });
-app.post('/api/owner/plan-keys', requireAuth, requireOwner, (req, res) => {
+app.post('/api/owner/plan-keys', requireOwnerApi, (req, res) => {
   const plan = req.body?.plan === 'plus' ? 'plus' : (req.body?.plan === 'premium' ? 'premium' : null);
   if (!plan) return res.status(400).json({ error: 'Plan inválido' });
   const key = crypto.randomBytes(24).toString('base64url'); // 32 caracteres, uso único
@@ -667,12 +683,12 @@ app.post('/api/owner/plan-keys', requireAuth, requireOwner, (req, res) => {
   res.json({ key, plan });
 });
 // ---- Usuarios (solo dueño): ver planes y cambiarlos ----
-app.get('/api/owner/users', requireAuth, requireOwner, (req, res) => {
+app.get('/api/owner/users', requireOwnerApi, (req, res) => {
   res.json(db.prepare(`SELECT u.id, u.username, u.avatar, u.plan, u.obf_used,
       (SELECT COUNT(*) FROM scripts s WHERE s.user_id = u.id) AS scripts
     FROM users u ORDER BY u.rowid DESC LIMIT 500`).all());
 });
-app.post('/api/owner/users/:id/plan', requireAuth, requireOwner, (req, res) => {
+app.post('/api/owner/users/:id/plan', requireOwnerApi, (req, res) => {
   const plan = ['free', 'premium', 'plus'].includes(req.body?.plan) ? req.body.plan : null;
   if (!plan) return res.status(400).json({ error: 'Plan inválido' });
   const info = db.prepare('UPDATE users SET plan = ? WHERE id = ?').run(plan, req.params.id);
@@ -680,9 +696,14 @@ app.post('/api/owner/users/:id/plan', requireAuth, requireOwner, (req, res) => {
   res.json({ ok: true, plan });
 });
 
-app.get('/api/owner/publisher', requireAuth, requireOwner, (req, res) => {
+app.get('/api/owner/publisher', requireOwnerApi, (req, res) => {
   res.json(db.prepare(`SELECT s.id, s.name, s.slug, s.ffa, s.obfuscator, s.source, s.user_id, u.username
     FROM scripts s LEFT JOIN users u ON u.id = s.user_id ORDER BY s.id DESC`).all());
+});
+
+// Registro de usos y acciones de scripts (lo lee el panel admin)
+app.get('/api/owner/logs', requireOwnerApi, (req, res) => {
+  res.json(db.prepare('SELECT id, script_id, script_name, text, created_at FROM script_logs ORDER BY id DESC LIMIT 300').all());
 });
 
 app.get('/api/scripts', requireAuth, (req, res) => {

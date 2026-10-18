@@ -180,6 +180,7 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
     settingSet: db.prepare('INSERT OR REPLACE INTO bot_settings (owner, name, value) VALUES (?, ?, ?)'),
     panelInsert: db.prepare('INSERT INTO bot_panels (script_id, channel_id, message_id, created_at) VALUES (?, ?, ?, ?)'),
     managerRoleRows: db.prepare("SELECT owner, value FROM bot_settings WHERE name = 'manager_role' AND value IS NOT NULL"),
+    logInsert: db.prepare('INSERT INTO script_logs (script_id, script_name, text, created_at) VALUES (?, ?, ?, ?)'),
     panelForScript: db.prepare('SELECT channel_id FROM bot_panels WHERE script_id = ? ORDER BY created_at DESC LIMIT 1'),
     warnInsert: db.prepare('INSERT INTO bot_warnings (discord_id, reason, created_at) VALUES (?, ?, ?)'),
     planKeyInsert: db.prepare('INSERT INTO plan_keys (key, plan, created_at) VALUES (?, ?, ?)'),
@@ -256,6 +257,13 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
 
   // Registro de eventos en el canal de logs que configuró el creador del script (/logs)
   async function logScriptEvent(script, text) {
+    // Siempre se guarda en la base (lo ve el panel admin), tenga o no canal de logs
+    const plain = text
+      .replace(/<@&(\d+)>/g, '@role:$1')
+      .replace(/<@!?(\d+)>/g, '@$1')
+      .replace(/<#(\d+)>/g, '#$1');
+    try { q.logInsert.run(script.id, script.name, plain, now()); } catch (err) { console.error('[Bot] No se pudo guardar el log:', err.message); }
+
     const channelId = settingFor(script.user_id, 'log_channel');
     if (!channelId) return;
     try {

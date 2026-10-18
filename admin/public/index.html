@@ -1,0 +1,281 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Vantarmor Admin</title>
+<style>
+:root{--bg:#07070b;--card:#0f0f16;--line:rgba(255,255,255,.08);--text:#eeeef4;--muted:#8b8ba0;--a:#8b5cf6;--b:#22d3ee;--ok:#34d399;--bad:#f87171}
+*{box-sizing:border-box}
+html,body{margin:0;min-height:100%;background:var(--bg);color:var(--text);font:14px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+header{display:flex;align-items:center;justify-content:space-between;padding:16px 24px;border-bottom:1px solid var(--line)}
+.brand{font-weight:800;letter-spacing:.16em;font-size:13px;display:flex;gap:10px;align-items:center}
+.dot{width:10px;height:10px;border-radius:50%;background:linear-gradient(135deg,var(--a),var(--b))}
+main{max-width:1100px;margin:0 auto;padding:24px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:20px}
+.tabs{display:flex;gap:6px;margin-bottom:18px;flex-wrap:wrap}
+.tab{background:none;border:1px solid var(--line);color:var(--muted);padding:8px 14px;border-radius:9px;cursor:pointer;font:inherit}
+.tab.on{color:var(--text);border-color:var(--a);background:rgba(139,92,246,.12)}
+button,input,select{font:inherit}
+.btn{background:rgba(255,255,255,.06);border:1px solid var(--line);color:var(--text);padding:7px 12px;border-radius:9px;cursor:pointer}
+.btn:hover{background:rgba(255,255,255,.12)}
+.btn.primary{background:linear-gradient(135deg,var(--a),var(--b));border:0;color:#08080c;font-weight:700}
+.field{background:#07070b;border:1px solid var(--line);color:var(--text);padding:8px 10px;border-radius:9px}
+table{width:100%;border-collapse:collapse}
+th,td{text-align:left;padding:10px 8px;border-top:1px solid var(--line);vertical-align:middle}
+th{color:var(--muted);font-weight:600;font-size:12px;text-transform:uppercase;letter-spacing:.06em;border-top:0}
+code{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12.5px;word-break:break-all}
+.muted{color:var(--muted)}
+.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:14px}
+.badge{font-size:11px;font-weight:700;padding:3px 8px;border-radius:999px;border:1px solid var(--line)}
+.badge.ok{color:var(--ok);border-color:rgba(52,211,153,.35)}
+.badge.bad{color:var(--bad);border-color:rgba(248,113,113,.35)}
+pre{white-space:pre-wrap;word-break:break-all;background:#040407;border:1px solid var(--line);border-radius:10px;padding:12px;max-height:300px;overflow:auto;font-size:12px}
+#login{max-width:360px;margin:12vh auto}
+#login h2{margin:0 0 14px}
+#login .btn{width:100%;margin-top:10px}
+.err{color:var(--bad);min-height:20px;margin-top:8px;font-size:13px}
+.hidden{display:none!important}
+.toast{position:fixed;right:18px;bottom:18px;background:var(--card);border:1px solid var(--line);padding:10px 14px;border-radius:10px;opacity:0;transition:opacity .2s}
+.toast.show{opacity:1}
+@media (max-width:640px){main{padding:14px}th:nth-child(3),td:nth-child(3){display:none}}
+</style>
+</head>
+<body>
+<header>
+  <div class="brand"><span class="dot"></span>VANTARMOR ADMIN</div>
+  <button class="btn hidden" id="logout">Log out</button>
+</header>
+
+<main>
+  <section id="login" class="card hidden">
+    <h2>Sign in</h2>
+    <form id="loginForm">
+      <input class="field" id="pw" type="password" placeholder="Admin password" autocomplete="current-password" style="width:100%" required>
+      <button class="btn primary" type="submit">Sign in</button>
+      <div class="err" id="loginErr"></div>
+    </form>
+  </section>
+
+  <section id="app" class="hidden">
+    <nav class="tabs">
+      <button class="tab on" data-tab="keys">Plan keys</button>
+      <button class="tab" data-tab="users">Users</button>
+      <button class="tab" data-tab="publisher">Publisher</button>
+      <button class="tab" data-tab="logs">Logs</button>
+    </nav>
+
+    <section class="card" data-panel="keys">
+      <div class="row">
+        <button class="btn primary" data-gen="premium">Generate Premium key</button>
+        <button class="btn primary" data-gen="plus">Generate Premium Plus key</button>
+      </div>
+      <table><thead><tr><th>Key</th><th>Plan</th><th>Status</th><th>Created</th><th></th></tr></thead><tbody id="keysBody"></tbody></table>
+    </section>
+
+    <section class="card hidden" data-panel="users">
+      <div class="row"><input class="field" id="userSearch" placeholder="Search username"></div>
+      <table><thead><tr><th>User</th><th>Scripts</th><th>Obfuscations</th><th>Plan</th><th></th></tr></thead><tbody id="usersBody"></tbody></table>
+    </section>
+
+    <section class="card hidden" data-panel="publisher">
+      <div class="row"><input class="field" id="pubSearch" placeholder="Search script or owner"></div>
+      <table><thead><tr><th>Script</th><th>Owner</th><th>Obfuscator</th><th></th></tr></thead><tbody id="pubBody"></tbody></table>
+    </section>
+
+    <section class="card hidden" data-panel="logs">
+      <div class="row">
+        <input class="field" id="logSearch" placeholder="Filter by script or text">
+        <button class="btn" id="logRefresh">Refresh</button>
+      </div>
+      <table><thead><tr><th>Time</th><th>Script</th><th>Event</th></tr></thead><tbody id="logsBody"></tbody></table>
+    </section>
+  </section>
+</main>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const when = s => s ? new Date(s * 1000).toLocaleString('en-GB', { timeZone: 'America/Guayaquil' }) : '—';
+const PLAN_NAMES = { free: 'Free', premium: 'Premium', plus: 'Premium Plus' };
+let cache = { keys: [], users: [], publisher: [], logs: [] };
+
+function toast(msg) {
+  const t = $('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 2200);
+}
+
+async function api(method, path, body) {
+  const res = await fetch(path, {
+    method,
+    credentials: 'same-origin',
+    headers: body !== undefined ? { 'Content-Type': 'application/json' } : {},
+    body: body !== undefined ? JSON.stringify(body) : undefined,
+  });
+  const data = await res.json().catch(() => ({}));
+  if (res.status === 401 && path !== '/admin/login') { showLogin(); throw new Error('Session expired. Sign in again.'); }
+  if (!res.ok) throw new Error(data.error || `Error ${res.status}`);
+  return data;
+}
+
+function showLogin() {
+  $('app').classList.add('hidden');
+  $('logout').classList.add('hidden');
+  $('login').classList.remove('hidden');
+}
+function showApp() {
+  $('login').classList.add('hidden');
+  $('app').classList.remove('hidden');
+  $('logout').classList.remove('hidden');
+}
+
+$('loginForm').addEventListener('submit', async e => {
+  e.preventDefault();
+  $('loginErr').textContent = '';
+  try {
+    await api('POST', '/admin/login', { password: $('pw').value });
+    $('pw').value = '';
+    showApp();
+    loadAll();
+  } catch (err) {
+    $('loginErr').textContent = err.message;
+  }
+});
+
+$('logout').addEventListener('click', async () => {
+  await api('POST', '/admin/logout').catch(() => {});
+  showLogin();
+});
+
+document.querySelectorAll('.tab').forEach(t => t.addEventListener('click', () => {
+  document.querySelectorAll('.tab').forEach(x => x.classList.toggle('on', x === t));
+  document.querySelectorAll('[data-panel]').forEach(p => p.classList.toggle('hidden', p.dataset.panel !== t.dataset.tab));
+}));
+
+// ---- Plan keys ----
+function renderKeys() {
+  $('keysBody').innerHTML = cache.keys.length ? cache.keys.map(k => `
+    <tr>
+      <td><code>${esc(k.key)}</code></td>
+      <td>${esc(PLAN_NAMES[k.plan] || k.plan)}</td>
+      <td><span class="badge ${k.used_by ? 'bad' : 'ok'}">${k.used_by ? 'Used' : 'Available'}</span></td>
+      <td class="muted">${when(k.created_at)}</td>
+      <td><button class="btn" data-copy="${esc(k.key)}">Copy</button></td>
+    </tr>`).join('') : '<tr><td colspan="5" class="muted">No plan keys yet.</td></tr>';
+}
+document.querySelectorAll('[data-gen]').forEach(b => b.addEventListener('click', async () => {
+  try {
+    await api('POST', '/admin/api/plan-keys', { plan: b.dataset.gen });
+    toast('Key generated');
+    await loadKeys();
+  } catch (err) { toast(err.message); }
+}));
+
+// ---- Users ----
+function renderUsers() {
+  const q = $('userSearch').value.trim().toLowerCase();
+  const rows = cache.users.filter(u => (u.username || u.id).toLowerCase().includes(q));
+  $('usersBody').innerHTML = rows.length ? rows.map(u => `
+    <tr>
+      <td>${esc(u.username || u.id)}<div class="muted"><code>${esc(u.id)}</code></div></td>
+      <td>${u.scripts}</td>
+      <td>${u.obf_used || 0}</td>
+      <td>
+        <select class="field" data-plan-for="${esc(u.id)}">
+          ${Object.entries(PLAN_NAMES).map(([v, l]) => `<option value="${v}" ${v === (u.plan || 'free') ? 'selected' : ''}>${l}</option>`).join('')}
+        </select>
+      </td>
+      <td><button class="btn" data-save-plan="${esc(u.id)}">Save</button></td>
+    </tr>`).join('') : '<tr><td colspan="5" class="muted">No users found.</td></tr>';
+}
+$('userSearch').addEventListener('input', renderUsers);
+$('usersBody').addEventListener('click', async e => {
+  const b = e.target.closest('[data-save-plan]');
+  if (!b) return;
+  const id = b.dataset.savePlan;
+  const sel = document.querySelector(`[data-plan-for="${CSS.escape(id)}"]`);
+  try {
+    await api('POST', `/admin/api/users/${encodeURIComponent(id)}/plan`, { plan: sel.value });
+    toast('Plan updated');
+    await loadUsers();
+  } catch (err) { toast(err.message); }
+});
+
+// ---- Publisher ----
+function renderPublisher() {
+  const q = $('pubSearch').value.trim().toLowerCase();
+  const rows = cache.publisher.filter(s => `${s.name} ${s.username || ''}`.toLowerCase().includes(q));
+  $('pubBody').innerHTML = rows.length ? rows.map(s => `
+    <tr>
+      <td>${esc(s.name)}<div class="muted">${s.ffa ? 'FFA' : 'Protected'}</div></td>
+      <td>${esc(s.username || s.user_id)}</td>
+      <td class="muted">${esc(s.obfuscator || '—')}</td>
+      <td>
+        <button class="btn" data-copy-source="${s.id}">Copy source</button>
+        <button class="btn" data-dl-source="${s.id}">Download .lua</button>
+      </td>
+    </tr>`).join('') : '<tr><td colspan="4" class="muted">No scripts yet.</td></tr>';
+}
+$('pubSearch').addEventListener('input', renderPublisher);
+$('pubBody').addEventListener('click', e => {
+  const c = e.target.closest('[data-copy-source]');
+  const d = e.target.closest('[data-dl-source]');
+  const id = (c || d)?.dataset.copySource ?? d?.dataset.dlSource;
+  if (!id) return;
+  const s = cache.publisher.find(x => String(x.id) === String(id));
+  if (!s) return;
+  if (c) {
+    navigator.clipboard.writeText(s.source || '').then(() => toast('Source copied'), () => toast('Could not copy'));
+  } else {
+    const blob = new Blob([s.source || ''], { type: 'text/plain;charset=utf-8' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `${s.slug || 'script'}.lua`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  }
+});
+
+// ---- Logs ----
+function renderLogs() {
+  const q = $('logSearch').value.trim().toLowerCase();
+  const rows = cache.logs.filter(l => `${l.script_name} ${l.text}`.toLowerCase().includes(q));
+  $('logsBody').innerHTML = rows.length ? rows.map(l => `
+    <tr>
+      <td class="muted" style="white-space:nowrap">${when(l.created_at)}</td>
+      <td>${esc(l.script_name || l.script_id)}</td>
+      <td>${esc(l.text)}</td>
+    </tr>`).join('') : '<tr><td colspan="3" class="muted">No events yet.</td></tr>';
+}
+$('logSearch').addEventListener('input', renderLogs);
+$('logRefresh').addEventListener('click', loadLogs);
+
+// ---- Loading ----
+async function loadKeys() { cache.keys = await api('GET', '/admin/api/plan-keys'); renderKeys(); }
+async function loadUsers() { cache.users = await api('GET', '/admin/api/users'); renderUsers(); }
+async function loadPublisher() { cache.publisher = await api('GET', '/admin/api/publisher'); renderPublisher(); }
+async function loadLogs() { cache.logs = await api('GET', '/admin/api/logs'); renderLogs(); }
+async function loadAll() {
+  try {
+    await Promise.all([loadKeys(), loadUsers(), loadPublisher(), loadLogs()]);
+  } catch (err) { toast(err.message); }
+}
+
+// Al abrir la página: si la sesión sigue viva, entra directo
+(async () => {
+  try {
+    await api('GET', '/admin/session');
+    showApp();
+    loadAll();
+  } catch {
+    showLogin();
+  }
+})();
+</script>
+</body>
+</html>

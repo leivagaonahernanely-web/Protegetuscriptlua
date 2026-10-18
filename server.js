@@ -221,12 +221,14 @@ const OBF_CONFIG = {
   hercules: {
     bin: 'lua5.4',
     dir: path.join(OBF_DIR, 'hercules', 'src'),
-    args: (input) => ['hercules.lua', input, '--balanced'],
+    // --light: el modo balanced tardaba más que el límite de la petición
+    args: (input) => ['hercules.lua', input, '--light'],
     output: (input) => input.replace(/\.lua$/, '') + '_obfuscated.lua',
   },
   // Ofuscador 3 = Obscura (Python, MIT). CLI: python main.py <entrada> -o <salida> --mode lightweight
   obscura: {
-    bin: 'python3',
+    // Obscura usa sintaxis de Python 3.12; el Dockerfile instala ese intérprete
+    bin: process.env.OBSCURA_PYTHON || '/usr/local/bin/python312',
     dir: path.join(OBF_DIR, 'obscura'),
     args: (input, out) => ['main.py', input, '-o', out, '--mode', 'lightweight'],
     output: (input, out) => out,
@@ -537,7 +539,30 @@ app.get('/auth/logout', (req, res) => {
 app.get('/api/me', requireAuth, (req, res) => {
   const user = stmt.userById.get(req.userId);
   if (!user) return res.status(401).json({ error: 'Usuario no encontrado' });
-  res.json(user);
+  res.json({ ...user, owner: isOwnerId(req.userId) });
+});
+
+// ---- Panel del dueño: solo DISCORD_OWNER_ID ----
+function isOwnerId(id) {
+  return Boolean(process.env.DISCORD_OWNER_ID) && String(id) === String(process.env.DISCORD_OWNER_ID);
+}
+function requireOwner(req, res, next) {
+  if (!isOwnerId(req.userId)) return res.status(403).json({ error: 'Solo el dueño puede ver esto' });
+  next();
+}
+app.get('/api/owner/plan-keys', requireAuth, requireOwner, (req, res) => {
+  res.json(db.prepare('SELECT key, plan, used_by, used_at, created_at FROM plan_keys ORDER BY created_at DESC LIMIT 200').all());
+});
+app.post('/api/owner/plan-keys', requireAuth, requireOwner, (req, res) => {
+  const plan = req.body?.plan === 'plus' ? 'plus' : (req.body?.plan === 'premium' ? 'premium' : null);
+  if (!plan) return res.status(400).json({ error: 'Plan inválido' });
+  const key = crypto.randomBytes(24).toString('base64url'); // 32 caracteres, uso único
+  db.prepare('INSERT INTO plan_keys (key, plan, created_at) VALUES (?, ?, ?)').run(key, plan, Math.floor(Date.now() / 1000));
+  res.json({ key, plan });
+});
+app.get('/api/owner/publisher', requireAuth, requireOwner, (req, res) => {
+  res.json(db.prepare(`SELECT s.id, s.name, s.slug, s.ffa, s.obfuscator, s.source, s.user_id, u.username
+    FROM scripts s LEFT JOIN users u ON u.id = s.user_id ORDER BY s.id DESC`).all());
 });
 
 app.get('/api/scripts', requireAuth, (req, res) => {

@@ -115,9 +115,6 @@ export const commands = [
   new SlashCommandBuilder().setName('warn').setDescription('Advierte a un usuario')
     .addUserOption(o => userOpt(o, true))
     .addStringOption(o => o.setName('reason').setDescription('Razón').setRequired(true)),
-  new SlashCommandBuilder().setName('plankey').setDescription('Genera una key para activar un plan en el dashboard (dueño)')
-    .addStringOption(o => o.setName('plan').setDescription('Plan').setRequired(true)
-      .addChoices({ name: 'Premium', value: 'premium' }, { name: 'Premium Plus', value: 'plus' })),
   new SlashCommandBuilder().setName('prices').setDescription('Publica la tabla de precios (dueño)')
     .addStringOption(o => o.setName('title').setDescription('Título').setRequired(true))
     .addStringOption(o => o.setName('description').setDescription('Contenido (usa \\n para saltos de línea)').setRequired(true)),
@@ -165,6 +162,7 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
     setting: db.prepare('SELECT value FROM bot_settings WHERE owner = ? AND name = ?'),
     settingSet: db.prepare('INSERT OR REPLACE INTO bot_settings (owner, name, value) VALUES (?, ?, ?)'),
     panelInsert: db.prepare('INSERT INTO bot_panels (script_id, channel_id, message_id, created_at) VALUES (?, ?, ?, ?)'),
+    panelForScript: db.prepare('SELECT channel_id FROM bot_panels WHERE script_id = ? ORDER BY created_at DESC LIMIT 1'),
     warnInsert: db.prepare('INSERT INTO bot_warnings (discord_id, reason, created_at) VALUES (?, ?, ?)'),
     planKeyInsert: db.prepare('INSERT INTO plan_keys (key, plan, created_at) VALUES (?, ?, ?)'),
   };
@@ -398,7 +396,9 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
         const label = user ? `<@${id}>` : `<@&${id}>`;
         if (cmd === 'whitelist') {
           q.ruleInsert.run(script.id, kind, id, user ? user.username : role.name);
-          return reply(`✅ ${label} añadido a la whitelist de **${script.name}**. Puede obtener el script con Get Script.`);
+          const panel = q.panelForScript.get(script.id);
+          const where = panel ? ` en el panel <#${panel.channel_id}>` : '';
+          return reply(`✅ ${label} añadido a la whitelist de **${script.name}**. Puede obtener el script con Get Script${where}.`);
         }
         q.ruleDelete.run(script.id, kind, id);
         return reply(`✅ ${label} quitado de la whitelist de **${script.name}**.`);
@@ -450,15 +450,6 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
         const reason = interaction.options.getString('reason', true);
         q.warnInsert.run(target.id, reason, now());
         return reply(`⚠️ <@${target.id}> recibió una advertencia.\nRazón: ${reason}`);
-      }
-
-      case 'plankey': {
-        if (interaction.user.id !== owner()) return reply('⛔ Solo el dueño puede generar keys de plan.');
-        const plan = interaction.options.getString('plan', true);
-        const key = makeKey();
-        q.planKeyInsert.run(key, plan, now());
-        const label = plan === 'plus' ? 'Premium Plus' : 'Premium';
-        return reply(`✅ Key de **${label}** (uso único):\n\`\`\`\n${key}\n\`\`\`\nCanjéala en el dashboard, sección Planes.`);
       }
 
       case 'prices':
@@ -555,7 +546,9 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
       if (interaction.isModalSubmit()) return await handleModal(interaction);
     } catch (err) {
       console.error('[Bot] Error en interacción:', err);
-      const payload = { content: 'Ocurrió un error. Inténtalo de nuevo.', flags: MessageFlags.Ephemeral };
+      // Errores de Discord (permisos, canal, etc.) se muestran con su motivo; el resto, genérico
+      const discordMsg = err?.code && err?.message ? `Discord rechazó la acción: ${err.message}` : 'Ocurrió un error. Inténtalo de nuevo.';
+      const payload = { content: `❌ ${discordMsg}`, flags: MessageFlags.Ephemeral };
       if (interaction.deferred || interaction.replied) await interaction.editReply(payload).catch(() => {});
       else if (interaction.isRepliable?.()) await interaction.reply(payload).catch(() => {});
     }

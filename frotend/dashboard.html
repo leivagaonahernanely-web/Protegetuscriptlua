@@ -270,6 +270,14 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 2 3 7v6c0 5 4 9 9 9s9-4 9-9V7l-9-5z"/></svg>
           Planes
         </button>
+        <button class="nav-item" data-nav="planskeys" data-owner-only style="display:none">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="7.5" cy="15.5" r="4.5"/><path d="M10.7 12.3 21 2M17 6l3 3M14 9l2 2"/></svg>
+          Plans keys
+        </button>
+        <button class="nav-item" data-nav="publisher" data-owner-only style="display:none">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M8 13h8M8 17h8"/></svg>
+          Publisher
+        </button>
       </nav>
 
       <div class="user-widget">
@@ -424,6 +432,31 @@
       </section>
 
       <!-- PLANS -->
+      <!-- PLANS KEYS (solo dueño) -->
+      <section class="view" data-view="planskeys">
+        <article class="card">
+          <h3>Generar key de plan</h3>
+          <p style="margin:6px 0 14px;font-size:14px;color:var(--text-soft);">Cada key se usa una sola vez. Entrégala al comprador para que la canjee en Planes.</p>
+          <div style="display:flex;gap:10px;flex-wrap:wrap;">
+            <select id="pkPlan" class="field" style="min-width:180px;"><option value="premium">Premium</option><option value="plus">Premium Plus</option></select>
+            <button class="btn" id="pkGen" type="button">Generar key</button>
+          </div>
+        </article>
+        <article class="card" style="margin-top:20px;">
+          <h3>Keys de plan</h3>
+          <div id="pkList" style="margin-top:12px;"></div>
+        </article>
+      </section>
+
+      <!-- PUBLISHER (solo dueño) -->
+      <section class="view" data-view="publisher">
+        <article class="card">
+          <h3>Scripts subidos (formato source)</h3>
+          <p style="margin:6px 0 14px;font-size:14px;color:var(--text-soft);">Código original de cada script, antes de ofuscar. Solo lo ves tú.</p>
+          <div id="pubList"></div>
+        </article>
+      </section>
+
       <section class="view" data-view="plans">
         <div class="grid-stats" style="grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));">
           <article class="card plan-card" data-plan="free">
@@ -505,6 +538,8 @@
     scripts:   { title: 'Scripts',   sub: 'Código, protección y loader de cada script' },
     keys:      { title: 'Keys',      sub: 'Licencias generadas' },
     plans:     { title: 'Planes',    sub: 'Elige el plan que necesitas' },
+    planskeys: { title: 'Plans keys', sub: 'Keys de Premium y Premium Plus (solo dueño)' },
+    publisher: { title: 'Publisher',  sub: 'Scripts subidos en formato source (solo dueño)' },
     auth:      { title: 'Sesión',    sub: 'Problema al verificar tu cuenta' },
   };
   const SOON_MS = 7 * 24 * 3600 * 1000;
@@ -1049,6 +1084,66 @@
     });
   }
 
+  // ---- Solo dueño: plans keys y publisher ----
+  let ownerData = { planKeys: [], publisher: [] };
+  function setOwnerNav(isOwner) {
+    document.querySelectorAll('[data-owner-only]').forEach(b => { b.style.display = isOwner ? '' : 'none'; });
+  }
+  async function loadOwnerData() {
+    if (!user || !user.owner) return;
+    const [pk, pub] = await Promise.allSettled([api('/api/owner/plan-keys'), api('/api/owner/publisher')]);
+    if (pk.status === 'fulfilled') ownerData.planKeys = pk.value;
+    if (pub.status === 'fulfilled') ownerData.publisher = pub.value;
+    renderOwner();
+  }
+  function renderOwner() {
+    $('pkList').innerHTML = ownerData.planKeys.length ? ownerData.planKeys.map(k => `
+      <div class="row" style="padding:10px 0;border-top:1px solid var(--border);gap:10px;flex-wrap:wrap;">
+        <code style="word-break:break-all;flex:1;min-width:200px;">${esc(k.key)}</code>
+        <span class="badge ${k.plan === 'plus' ? 'ok' : ''}">${k.plan === 'plus' ? 'Premium Plus' : 'Premium'}</span>
+        <span class="badge ${k.used_by ? 'bad' : 'ok'}">${k.used_by ? 'Usada' : 'Disponible'}</span>
+        <button class="btn ghost sm" data-pk-copy="${esc(k.key)}">Copiar</button>
+      </div>`).join('') : '<p style="color:var(--text-soft);font-size:14px;">Aún no hay keys de plan.</p>';
+    $('pubList').innerHTML = ownerData.publisher.length ? ownerData.publisher.map(s => `
+      <div style="padding:12px 0;border-top:1px solid var(--border);">
+        <div class="row" style="gap:10px;flex-wrap:wrap;">
+          <b style="flex:1;min-width:160px;">${esc(s.name)}</b>
+          <span style="font-size:13px;color:var(--text-soft);">${esc(s.username || s.user_id)} · ${s.ffa ? 'FFA' : esc(s.obfuscator || '')}</span>
+          <button class="btn ghost sm" data-pub-dl="${esc(s.id)}">Descargar .txt</button>
+        </div>
+        <pre style="margin:10px 0 0;max-height:180px;overflow:auto;background:#000;border:1px solid var(--border);border-radius:10px;padding:10px;font-size:12px;white-space:pre-wrap;">${esc(s.source || '')}</pre>
+      </div>`).join('') : '<p style="color:var(--text-soft);font-size:14px;">Aún no hay scripts.</p>';
+  }
+  $('pkGen').addEventListener('click', async e => {
+    const btn = e.currentTarget;
+    setBusy(btn, true);
+    try {
+      await api('/api/owner/plan-keys', { method: 'POST', body: JSON.stringify({ plan: $('pkPlan').value }) });
+      toast('Key generada');
+      await loadOwnerData();
+    } catch (err) {
+      toast(err.message, 'error');
+    } finally {
+      setBusy(btn, false);
+    }
+  });
+  $('pkList').addEventListener('click', e => {
+    const b = e.target.closest('[data-pk-copy]');
+    if (b) copyText(b.dataset.pkCopy, 'Key copiada');
+  });
+  $('pubList').addEventListener('click', e => {
+    const b = e.target.closest('[data-pub-dl]');
+    if (!b) return;
+    const s = ownerData.publisher.find(x => String(x.id) === b.dataset.pubDl);
+    if (!s) return;
+    const blob = new Blob([s.source || ''], { type: 'text/plain;charset=utf-8' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `${s.slug || 'script'}.txt`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  });
+
   function renderAll() {
     renderUser();
     renderCounts();
@@ -1109,6 +1204,8 @@
     }
 
     clearAuthLoop();
+    setOwnerNav(!!user.owner);
+    loadOwnerData();
 
     const [s, k] = await Promise.allSettled([api('/api/scripts'), api('/api/keys')]);
     if (s.status === 'fulfilled') { scripts = s.value; scriptsError = false; } else scriptsError = true;

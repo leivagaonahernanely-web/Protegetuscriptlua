@@ -706,6 +706,28 @@ app.get('/api/owner/logs', requireOwnerApi, (req, res) => {
   res.json(db.prepare('SELECT id, script_id, script_name, text, created_at FROM script_logs ORDER BY id DESC LIMIT 300').all());
 });
 
+// Canales del servidor de Discord para el selector del panel admin
+app.get('/api/owner/channels', requireOwnerApi, (req, res) => {
+  if (!discordBot?.listTextChannels) return res.status(503).json({ error: 'El bot todavía no está conectado' });
+  res.json(discordBot.listTextChannels());
+});
+
+// Publica un changelog o la tabla de precios en un canal elegido en el panel admin
+app.post('/api/owner/announce', requireOwnerApi, async (req, res) => {
+  const { kind, channelId, title, description } = req.body || {};
+  if (!['prices', 'changelog'].includes(kind)) return res.status(400).json({ error: 'Tipo inválido' });
+  if (!/^\d{17,20}$/.test(String(channelId ?? ''))) return res.status(400).json({ error: 'El ID del canal no es válido' });
+  if (!String(title ?? '').trim() || String(title).length > 256) return res.status(400).json({ error: 'Título requerido (máx. 256)' });
+  if (!String(description ?? '').trim() || String(description).length > 4000) return res.status(400).json({ error: 'Contenido requerido (máx. 4000)' });
+  if (!discordBot?.announce) return res.status(503).json({ error: 'El bot todavía no está conectado' });
+  try {
+    await discordBot.announce(kind, String(channelId), String(title).trim(), String(description).trim());
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(502).json({ error: `No se pudo publicar: ${err.message}` });
+  }
+});
+
 app.get('/api/scripts', requireAuth, (req, res) => {
   res.json(stmt.scriptsByUser.all(req.userId));
 });

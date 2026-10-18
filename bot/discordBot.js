@@ -753,6 +753,30 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
   // ---------- Cliente ----------
   const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers] });
 
+  // Canales de texto del servidor, para el selector del panel admin
+  client.listTextChannels = () => {
+    const guild = guildId ? client.guilds.cache.get(guildId) : client.guilds.cache.first();
+    if (!guild) return [];
+    return guild.channels.cache
+      .filter(c => c.type === 0) // GuildText
+      .map(c => ({ id: c.id, name: c.name, parent: c.parent?.name || '' }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  };
+
+  // Changelogs y tabla de precios: los publica el panel admin, no comandos de Discord
+  client.announce = async (kind, channelId, title, description) => {
+    const channel = await client.channels.fetch(channelId);
+    if (!channel?.isTextBased()) throw new Error('Ese canal no es de texto');
+    const isPrices = kind === 'prices';
+    const embed = new EmbedBuilder()
+      .setColor(isPrices ? 0x5865f2 : 0xe93540)
+      .setTitle(title)
+      .setDescription(description)
+      .setFooter({ text: `Vantarmor · ${new Date().getFullYear()}` })
+      .setTimestamp();
+    await channel.send({ embeds: [embed] });
+  };
+
   // Expuesto al servidor para registrar cuando se ejecuta un loader
   client.logScriptEvent = (scriptId, text) => {
     const script = q.scriptById.get(scriptId);

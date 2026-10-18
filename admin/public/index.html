@@ -64,6 +64,8 @@ pre{white-space:pre-wrap;word-break:break-all;background:#040407;border:1px soli
       <button class="tab" data-tab="users">Users</button>
       <button class="tab" data-tab="publisher">Publisher</button>
       <button class="tab" data-tab="logs">Logs</button>
+      <button class="tab" data-tab="prices">Prices &amp; Plans</button>
+      <button class="tab" data-tab="changelog">Changelog</button>
     </nav>
 
     <section class="card" data-panel="keys">
@@ -90,6 +92,24 @@ pre{white-space:pre-wrap;word-break:break-all;background:#040407;border:1px soli
         <button class="btn" id="logRefresh">Refresh</button>
       </div>
       <table><thead><tr><th>Time</th><th>Script</th><th>Event</th></tr></thead><tbody id="logsBody"></tbody></table>
+    </section>
+
+    <datalist id="chanList"></datalist>
+
+    <section class="card hidden" data-panel="prices">
+      <p class="muted" style="margin-top:0">Posts an embed with the prices to the channel you choose. Start typing a channel name, or paste its ID.</p>
+      <div class="row"><input class="field" id="pcChannel" list="chanList" placeholder="Channel (name or ID)" style="flex:1;min-width:220px"></div>
+      <div class="row"><input class="field" id="pcTitle" value="Prices &amp; Plans" placeholder="Title" style="flex:1"></div>
+      <textarea class="field" id="pcBody" rows="10" placeholder="One line per plan, for example:&#10;Premium: $5 / month&#10;Premium Plus: $10 / month" style="width:100%"></textarea>
+      <div class="row" style="margin:14px 0 0"><button class="btn primary" id="pcSend">Publish to channel</button></div>
+    </section>
+
+    <section class="card hidden" data-panel="changelog">
+      <p class="muted" style="margin-top:0">Posts a changelog embed to the channel you choose. Start typing a channel name, or paste its ID.</p>
+      <div class="row"><input class="field" id="cgChannel" list="chanList" placeholder="Channel (name or ID)" style="flex:1;min-width:220px"></div>
+      <div class="row"><input class="field" id="cgTitle" placeholder="Version or title, for example: v1.2 — Loader update" style="flex:1"></div>
+      <textarea class="field" id="cgBody" rows="10" placeholder="What changed, one item per line" style="width:100%"></textarea>
+      <div class="row" style="margin:14px 0 0"><button class="btn primary" id="cgSend">Publish to channel</button></div>
     </section>
   </section>
 </main>
@@ -155,7 +175,34 @@ $('logout').addEventListener('click', async () => {
 document.querySelectorAll('.tab').forEach(t => t.addEventListener('click', () => {
   document.querySelectorAll('.tab').forEach(x => x.classList.toggle('on', x === t));
   document.querySelectorAll('[data-panel]').forEach(p => p.classList.toggle('hidden', p.dataset.panel !== t.dataset.tab));
+  if (t.dataset.tab === 'prices' || t.dataset.tab === 'changelog') loadChannels();
 }));
+
+// ---- Prices & Plans / Changelog (se publican en Discord con el bot) ----
+let channels = [];
+async function loadChannels() {
+  try {
+    channels = await api('GET', '/admin/api/channels');
+    $('chanList').innerHTML = channels.map(c => `<option value="${esc(c.id)}">#${esc(c.name)}${c.parent ? ' · ' + esc(c.parent) : ''}</option>`).join('');
+  } catch (err) { toast(err.message); }
+}
+async function publishAnnouncement(kind, channelField, titleField, bodyField) {
+  const channelId = $(channelField).value.trim();
+  const title = $(titleField).value.trim();
+  const description = $(bodyField).value.trim();
+  if (!channelId) return toast('Pick a channel or paste its ID');
+  if (!title) return toast('Write a title');
+  if (!description) return toast('Write the content first');
+  const ch = channels.find(c => c.id === channelId);
+  if (!confirm(`Publish "${title}" to ${ch ? '#' + ch.name : 'channel ' + channelId}?`)) return;
+  try {
+    await api('POST', '/admin/api/announce', { kind, channelId, title, description });
+    toast('Published');
+    $(bodyField).value = '';
+  } catch (err) { toast(err.message); }
+}
+$('pcSend').addEventListener('click', () => publishAnnouncement('prices', 'pcChannel', 'pcTitle', 'pcBody'));
+$('cgSend').addEventListener('click', () => publishAnnouncement('changelog', 'cgChannel', 'cgTitle', 'cgBody'));
 
 // ---- Plan keys ----
 function renderKeys() {

@@ -84,6 +84,8 @@ const ALLOWED = {
   users: { GET: '/users' },
   publisher: { GET: '/publisher' },
   logs: { GET: '/logs' },
+  channels: { GET: '/channels' },
+  announce: { POST: '/announce' },
 };
 
 async function forward(res, method, route, body) {

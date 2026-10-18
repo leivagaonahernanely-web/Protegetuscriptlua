@@ -19,7 +19,7 @@ const app = express();
 // 0. CONSTANTES Y CONFIGURACIÓN
 // ==========================================
 const MAX_CODE_BYTES = 2 * 1024 * 1024;           // 2 MB por script
-const OBFUSCATORS = ['prometheus', 'hercules'];   // Ofuscador 1 y Ofuscador 2
+const OBFUSCATORS = ['prometheus', 'hercules', 'obscura'];   // Ofuscador 1, 2 y 3
 const KEY_ALPHABET = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
 const SESSION_COOKIE = 'vantarmor_session';
 const STATE_COOKIE = 'oauth_state';
@@ -223,6 +223,13 @@ const OBF_CONFIG = {
     dir: path.join(OBF_DIR, 'hercules', 'src'),
     args: (input) => ['hercules.lua', input, '--balanced'],
     output: (input) => input.replace(/\.lua$/, '') + '_obfuscated.lua',
+  },
+  // Ofuscador 3 = Obscura (Python, MIT). CLI: python main.py <entrada> -o <salida> --mode lightweight
+  obscura: {
+    bin: 'python3',
+    dir: path.join(OBF_DIR, 'obscura'),
+    args: (input, out) => ['main.py', input, '-o', out, '--mode', 'lightweight'],
+    output: (input, out) => out,
   },
 };
 
@@ -552,6 +559,20 @@ app.post('/api/scripts', requireAuth, async (req, res) => {
     console.error('Create script error:', err);
     res.status(err.status || 500).json({ error: err.status ? err.message : 'Error del servidor' });
   }
+});
+
+// Eliminar un script junto con sus keys y todo lo que el bot tiene ligado a él
+app.delete('/api/scripts/:id', requireAuth, (req, res) => {
+  const script = stmt.scriptOwned.get(req.params.id, req.userId);
+  if (!script) return res.status(404).json({ error: 'Script no encontrado' });
+  db.transaction(() => {
+    db.prepare('DELETE FROM keys WHERE script_id = ?').run(script.id);
+    for (const table of ['bot_panels', 'bot_access_rules', 'bot_blacklist']) {
+      db.prepare(`DELETE FROM ${table} WHERE script_id = ?`).run(script.id);
+    }
+    db.prepare('DELETE FROM scripts WHERE id = ? AND user_id = ?').run(script.id, req.userId);
+  })();
+  res.json({ ok: true });
 });
 
 app.put('/api/scripts/:id', requireAuth, async (req, res) => {

@@ -498,6 +498,7 @@
   const OBFUSCATORS = {
     prometheus: 'Ofuscador 1',
     hercules:   'Ofuscador 2 (recomendado)',
+    obscura:    'Ofuscador 3 (Obscura)',
   };
   const NAV = {
     dashboard: { title: 'Dashboard', sub: 'Resumen de tu cuenta' },
@@ -530,7 +531,8 @@
   const fmtDate = ts => ts
     ? new Date(ts * 1000).toLocaleDateString('es-EC', { day: '2-digit', month: 'short', year: 'numeric' })
     : 'Nunca';
-  const loaderFor = s => `loadstring(game:HttpGet("${location.origin}/scripts/hosted/${s.slug}"))()`;
+  const loaderFor = s => (protectionOf(s) === 'ffa' ? '' : 'script_key = "KEY"; ')
+    + `loadstring(game:HttpGet("${location.origin}/scripts/hosted/${s.slug}"))()`;
   const byteLen = s => new TextEncoder().encode(s).length;
   const fmtKB = b => (b / 1024).toFixed(1) + ' KB';
   const csvCell = v => `"${String(v ?? '').replace(/"/g, '""')}"`;
@@ -690,7 +692,7 @@
           ${Object.entries(OBFUSCATORS).map(([val, label]) =>
             `<option value="${val}" ${val === currentObf ? 'selected' : ''}>${label}</option>`).join('')}
         </select>
-        <div class="hint">Se aplica en el servidor al guardar el script. Para Roblox (Luau), el Ofuscador 2 tiene soporte nativo; el Ofuscador 1 aún no lo tiene completo.</div>
+        <div class="hint">Se aplica en el servidor al guardar el script. Para Roblox (Luau) recomendamos el Ofuscador 2 o el 3. El Ofuscador 1 (Lua 5.1) aún no tiene soporte completo para Luau.</div>
       </div>`;
   }
 
@@ -967,6 +969,7 @@
           </button>
           <div class="row">
             <button class="btn ghost sm" data-edit="${esc(s.id)}">Editar</button>
+            <button class="btn ghost sm" data-delete="${esc(s.id)}" data-name="${esc(s.name)}">Eliminar</button>
             <button class="btn ghost sm" data-view-keys="${esc(s.id)}">Ver keys</button>
             <button class="btn sm" data-gen="${esc(s.id)}">+ Keys</button>
           </div>
@@ -1133,6 +1136,16 @@
 
     const edit = t.closest('[data-edit]');
     if (edit) { openEditScriptModal(edit.dataset.edit); return; }
+
+    const del = t.closest('[data-delete]');
+    if (del) {
+      if (confirm(`¿Eliminar "${del.dataset.name}"? Se borran también sus keys. No se puede deshacer.`)) {
+        api(`/api/scripts/${encodeURIComponent(del.dataset.delete)}`, { method: 'DELETE' })
+          .then(() => { toast('Script eliminado'); return loadData(); })
+          .catch(err => toast(err.message, 'error'));
+      }
+      return;
+    }
 
     const gen = t.closest('[data-gen]');
     if (gen) { openKeysModal(gen.dataset.gen); return; }

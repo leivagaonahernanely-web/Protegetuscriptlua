@@ -194,7 +194,13 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
   // Acepta el ID (lo que manda el autocompletado) o el nombre, ignorando espacios y un "#" inicial.
   const findScript = value => {
     const v = String(value ?? '').trim().replace(/^#/, '');
-    const found = /^\d+$/.test(v) ? q.scriptById.get(Number(v)) : q.scriptByName.get(v);
+    if (!v) return null;
+    let found = /^\d+$/.test(v) ? q.scriptById.get(Number(v)) : q.scriptByName.get(v);
+    if (!found) {
+      // Nombre escrito a medias o con otra mayúscula: solo si coincide con un único script
+      const hits = q.scriptsList.all().filter(s => s.name.toLowerCase().includes(v.toLowerCase()));
+      if (hits.length === 1) found = q.scriptById.get(hits[0].id);
+    }
     if (!found) console.warn(`[Bot] Script no encontrado para "${v}". Si pasa seguido, revisa que la base de datos sea la misma y no se haya reiniciado.`);
     return found ?? null;
   };

@@ -406,7 +406,9 @@ pre{margin:0;width:100%;max-width:720px;padding:16px 18px;background:#050505;bor
 // al jugador con el mensaje de la tabla MSG. No contiene el código del script.
 function loaderBootstrap(slug, ffa) {
   const authUrl = `${APP_URL}/scripts/hosted/${slug}/auth`;
+  const payloadUrl = `${APP_URL}/scripts/hosted/${slug}/payload`;
   return `local AUTH_URL = ${JSON.stringify(authUrl)}
+local PAYLOAD_URL = ${JSON.stringify(payloadUrl)}
 local FFA = ${ffa ? 'true' : 'false'}
 local MSG = {
   KEY_REQUIRED = "🔑 Key is required",
@@ -437,10 +439,17 @@ local hwid = ""
 local okh, h = pcall(function() return game:GetService("RbxAnalyticsService"):GetClientId() end)
 if okh and h then hwid = h end
 local ok, body = pcall(function() return game:HttpGet(AUTH_URL .. "?key=" .. enc(key) .. "&hwid=" .. enc(hwid)) end)
+script_key = nil
 if not ok or type(body) ~= "string" then kick("SERVER_UNREACHABLE") end
 local code = body:match("^!VANTARMOR:(%u[%u_]*)$")
 if code then kick(code) end
-local fn = loadstring(body)
+local tok = body:match("^!VANTARMOR:OK:(%x+)$")
+if not tok then kick("VERIFY_FAILED") end
+local ok2, payload = pcall(function() return game:HttpGet(PAYLOAD_URL .. "?token=" .. tok) end)
+if not ok2 or type(payload) ~= "string" then kick("CONNECTION_FAILED") end
+local pcode = payload:match("^!VANTARMOR:(%u[%u_]*)$")
+if pcode then kick(pcode) end
+local fn = loadstring(payload)
 if not fn then kick("VERIFY_FAILED") end
 fn()
 `;
@@ -457,6 +466,32 @@ app.get('/scripts/hosted/:slug', (req, res) => {
   res.type('text/plain').send(loaderBootstrap(req.params.slug, !!(script && script.ffa)));
 });
 
+// Tokens de un solo uso para entregar el código: /auth los emite, /payload los consume.
+const payloadTokens = new Map(); // token -> { scriptId, expires }
+const PAYLOAD_TTL_MS = 30_000;
+setInterval(() => {
+  const now = Date.now();
+  for (const [t, v] of payloadTokens) if (v.expires < now) payloadTokens.delete(t);
+}, 60_000).unref();
+function issuePayloadToken(scriptId) {
+  const token = crypto.randomBytes(24).toString('hex');
+  payloadTokens.set(token, { scriptId, expires: Date.now() + PAYLOAD_TTL_MS });
+  return token;
+}
+
+// Entrega el código con un token válido. El token se gasta aunque falle.
+app.get('/scripts/hosted/:slug/payload', (req, res) => {
+  if (/text\/html/.test(req.get('accept') || '')) return res.status(403).type('text/plain').send('!VANTARMOR:FORBIDDEN');
+  const token = String(req.query.token || '');
+  const entry = payloadTokens.get(token);
+  payloadTokens.delete(token);
+  const script = stmt.scriptBySlug.get(req.params.slug);
+  if (!entry || entry.expires < Date.now() || !script || script.id !== entry.scriptId) {
+    return res.status(403).type('text/plain').send('!VANTARMOR:TOKEN_INVALID');
+  }
+  res.type('text/plain').send(script.content);
+});
+
 // Endpoint de verificación: lo llama el bootstrap. Responde el código del script o "!VANTARMOR:CODIGO".
 app.get('/scripts/hosted/:slug/auth', (req, res) => {
   // Los navegadores no reciben nunca el código
@@ -465,7 +500,7 @@ app.get('/scripts/hosted/:slug/auth', (req, res) => {
 
   const script = stmt.scriptBySlug.get(req.params.slug);
   if (!script) return reply('SCRIPT_NOT_FOUND');
-  if (script.ffa) return res.type('text/plain').send(script.content);
+  if (script.ffa) return reply(`OK:${issuePayloadToken(script.id)}`);
 
   const key = String(req.query.key || '').trim().slice(0, 64);
   const hwid = String(req.query.hwid || '').slice(0, 128);
@@ -481,7 +516,7 @@ app.get('/scripts/hosted/:slug/auth', (req, res) => {
   if (!k.hwid) db.prepare('UPDATE keys SET hwid = ? WHERE key = ?').run(hwid, key);
   else if (k.hwid !== hwid) return reply('HWID_MISMATCH');
 
-  res.type('text/plain').send(script.content);
+  reply(`OK:${issuePayloadToken(script.id)}`);
 });
 
 app.get('/auth/logout', (req, res) => {

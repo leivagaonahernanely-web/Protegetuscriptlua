@@ -87,8 +87,9 @@ export const commands = [
     .addStringOption(o => scriptOpt(o))
     .addIntegerOption(o => o.setName('amount').setDescription('Cantidad (1-50)').setMinValue(1).setMaxValue(50))
     .addStringOption(o => durationOpt(o)),
-  new SlashCommandBuilder().setName('deletekey').setDescription('Elimina una key (dueño o gestor)')
-    .addStringOption(o => o.setName('key').setDescription('Key').setRequired(true)),
+  new SlashCommandBuilder().setName('deletekey').setDescription('Elimina una key o todas las keys vinculadas a un usuario (creador o gestor)')
+    .addStringOption(o => o.setName('key').setDescription('Key a eliminar').setRequired(false))
+    .addUserOption(o => userOpt(o, false)),
   new SlashCommandBuilder().setName('dropkey').setDescription('Sortea keys en el canal con cuenta regresiva (creador o gestor)')
     .addStringOption(o => scriptOpt(o))
     .addIntegerOption(o => o.setName('amount').setDescription('Cantidad de keys (1-50)').setMinValue(1).setMaxValue(50).setRequired(true)),
@@ -149,6 +150,7 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
     scriptsOfUser: db.prepare('SELECT 1 FROM scripts WHERE user_id = ? LIMIT 1'),
     userById: db.prepare('SELECT id, username, avatar FROM users WHERE id = ?'),
     keyByCode: db.prepare('SELECT * FROM keys WHERE key = ?'),
+    keysByDiscord: db.prepare('SELECT * FROM keys WHERE discord_id = ?'),
     activeKeyFor: db.prepare(`
       SELECT * FROM keys WHERE script_id = ? AND discord_id = ? AND banned = 0
         AND (expires_at IS NULL OR expires_at > ?) LIMIT 1
@@ -571,15 +573,39 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
       }
 
       case 'deletekey': {
-        const code = interaction.options.getString('key', true).trim();
-        const k = q.keyByCode.get(code);
-        if (!k) return reply('❌ Esa key no existe.');
-        const script = q.scriptById.get(k.script_id);
-        if (!canUse(interaction, script?.user_id)) return reply(denied);
+        const code = interaction.options.getString('key')?.trim();
+        const target = interaction.options.getUser('user');
+        if (!code && !target) return reply('❌ Indica una key o un usuario.');
+
+        // Por key: borra esa key si el script es tuyo (o de un creador que te dio rol gestor)
+        if (code) {
+          const k = q.keyByCode.get(code);
+          if (!k) return reply('❌ Esa key no existe.');
+          const script = q.scriptById.get(k.script_id);
+          if (!canUse(interaction, script?.user_id)) return reply(denied);
+          if (onCooldown(actor)) return reply('⏳ Espera unos segundos antes de otra acción.');
+          q.deleteKey.run(code);
+          if (script) logScriptEvent(script, `🗑️ <@${actor}> eliminó una key`);
+          return reply('🗑️ Key eliminada.');
+        }
+
+        // Por usuario: borra sus keys vinculadas solo de los scripts que puedes gestionar
+        const linked = q.keysByDiscord.all(target.id);
+        const allowed = linked.filter(k => {
+          const s = q.scriptById.get(k.script_id);
+          return s && canUse(interaction, s.user_id);
+        });
+        if (!linked.length) return reply(`❌ <@${target.id}> no tiene keys vinculadas.`);
+        if (!allowed.length) return reply(denied);
         if (onCooldown(actor)) return reply('⏳ Espera unos segundos antes de otra acción.');
-        q.deleteKey.run(code);
-        if (script) logScriptEvent(script, `🗑️ <@${actor}> eliminó una key`);
-        return reply('🗑️ Key eliminada.');
+        db.transaction(() => { for (const k of allowed) q.deleteKey.run(k.key); })();
+        const byScript = new Map();
+        for (const k of allowed) byScript.set(k.script_id, (byScript.get(k.script_id) ?? 0) + 1);
+        for (const [scriptId, n] of byScript) {
+          const s = q.scriptById.get(scriptId);
+          if (s) logScriptEvent(s, `🗑️ <@${actor}> eliminó ${n} key(s) de <@${target.id}>`);
+        }
+        return reply(`🗑️ ${allowed.length} key(s) de <@${target.id}> eliminadas.${allowed.length < linked.length ? ` (${linked.length - allowed.length} de otros creadores no se tocaron.)` : ''}`);
       }
 
       case 'addtime': {

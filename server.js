@@ -404,9 +404,10 @@ pre{margin:0;width:100%;max-width:720px;padding:16px 18px;background:#050505;bor
 // Bootstrap que recibe el ejecutor al pedir la URL del loader.
 // Lee script_key, pide el script a /auth con key + HWID y, si algo falla, expulsa
 // al jugador con el mensaje de la tabla MSG. No contiene el código del script.
-function loaderBootstrap(slug) {
+function loaderBootstrap(slug, ffa) {
   const authUrl = `${APP_URL}/scripts/hosted/${slug}/auth`;
   return `local AUTH_URL = ${JSON.stringify(authUrl)}
+local FFA = ${ffa ? 'true' : 'false'}
 local MSG = {
   KEY_REQUIRED = "🔑 Key is required",
   KEY_INVALID = "❌ Invalid key",
@@ -430,7 +431,7 @@ local function kick(code)
 end
 local key = ""
 if type(script_key) == "string" then key = (script_key:gsub("^%s+", ""):gsub("%s+$", "")) end
-if key == "" then kick("KEY_REQUIRED") end
+if key == "" and not FFA then kick("KEY_REQUIRED") end
 local function enc(s) return (s:gsub("[^%w%-_%.~]", function(c) return string.format("%%%02X", string.byte(c)) end)) end
 local hwid = ""
 local okh, h = pcall(function() return game:GetService("RbxAnalyticsService"):GetClientId() end)
@@ -452,7 +453,8 @@ app.get('/scripts/hosted/:slug', (req, res) => {
     if (!script) return res.status(404).type('text/plain').send('-- script no encontrado');
     return res.set(PAGE_HEADERS).type('html').send(loaderPage(script));
   }
-  res.type('text/plain').send(loaderBootstrap(req.params.slug));
+  const script = stmt.scriptBySlug.get(req.params.slug);
+  res.type('text/plain').send(loaderBootstrap(req.params.slug, !!(script && script.ffa)));
 });
 
 // Endpoint de verificación: lo llama el bootstrap. Responde el código del script o "!VANTARMOR:CODIGO".

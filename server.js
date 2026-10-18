@@ -21,6 +21,10 @@ const app = express();
 const MAX_CODE_BYTES = 2 * 1024 * 1024;           // 2 MB por script
 const OBFUSCATORS = ['prometheus', 'hercules', 'obscura'];   // Ofuscador 1, 2 y 3
 const KEY_ALPHABET = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+// Un error suelto no debe tirar el servidor ni dejar al bot a medias: se registra y el proceso sigue
+process.on('unhandledRejection', err => console.error('[Proceso] Promesa sin manejar:', err));
+process.on('uncaughtException', err => console.error('[Proceso] Error sin capturar:', err));
+
 const SESSION_COOKIE = 'vantarmor_session';
 const STATE_COOKIE = 'oauth_state';
 

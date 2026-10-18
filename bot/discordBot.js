@@ -138,6 +138,9 @@ const PUBLIC_COMMANDS = new Set(['panel', 'whitelist', 'unwhitelist', 'blacklist
 // ==========================================
 export async function startDiscordBot({ db, token, clientId, guildId, publicUrl, ownerId }) {
   ensureBotSchema(db);
+  // Si al arrancar hay 0 scripts o 0 keys cuando esperabas datos, la base se reinició (revisa el volumen)
+  const counts = db.prepare('SELECT (SELECT COUNT(*) FROM scripts) AS scripts, (SELECT COUNT(*) FROM keys) AS keys').get();
+  console.log(`[Bot] Datos al arrancar: ${counts.scripts} scripts, ${counts.keys} keys.`);
 
   const q = {
     scriptById: db.prepare('SELECT * FROM scripts WHERE id = ?'),
@@ -203,7 +206,11 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
     let ids = memberRoleIds(interaction);
     if (!ids.length && interaction.guild) {
       try {
-        const member = await interaction.guild.members.fetch(interaction.user.id);
+        // Límite de 2,5 s: si Discord tarda, seguimos con lo que hay en vez de dejar sin responder
+        const member = await Promise.race([
+          interaction.guild.members.fetch(interaction.user.id),
+          sleep(2500).then(() => { throw new Error('tiempo agotado'); }),
+        ]);
         ids = [...member.roles.cache.keys()];
       } catch (err) {
         console.error('[Bot] No se pudieron cargar los roles del miembro:', err.message);
@@ -740,13 +747,13 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
   client.on('interactionCreate', async interaction => {
     try {
       if (interaction.isAutocomplete()) {
-        await loadRoles(interaction);
+        // Sin esperas aquí: Discord solo da 3 s para responder el autocompletado
         const focused = interaction.options.getFocused().toLowerCase();
         const choices = scriptsForAutocomplete(interaction)
           .filter(s => s.name.toLowerCase().includes(focused))
           .slice(0, 25)
           .map(s => ({ name: s.name.slice(0, 100), value: String(s.id) }));
-        return interaction.respond(choices);
+        return interaction.respond(choices).catch(() => {});
       }
       if (interaction.isChatInputCommand()) return await handleChat(interaction);
       if (interaction.isButton()) return await handleButton(interaction);
@@ -761,6 +768,21 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
     }
   });
 
-  await client.login(token);
+  // Diagnóstico de conexión: los reconectos se ven en los logs
+  client.on('error', err => console.error('[Bot] Error del cliente:', err.message));
+  client.on('shardDisconnect', (_, id) => console.warn(`[Bot] Desconectado (shard ${id}). Reconectando...`));
+  client.on('shardReconnecting', id => console.warn(`[Bot] Reconectando (shard ${id})...`));
+  client.on('shardResume', id => console.log(`[Bot] Reconectado (shard ${id}).`));
+
+  // Si el login falla (red caída, Discord lento), reintenta en vez de quedarse apagado hasta el próximo deploy
+  for (let attempt = 1; ; attempt++) {
+    try {
+      await client.login(token);
+      break;
+    } catch (err) {
+      console.error(`[Bot] Login falló (intento ${attempt}):`, err.message);
+      await sleep(Math.min(60_000, 5_000 * attempt));
+    }
+  }
   return client;
 }

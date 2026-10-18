@@ -173,7 +173,13 @@ const stmt = {
 // ==========================================
 // 2. FRONTEND (carpeta 'frotend')
 // ==========================================
-app.use(express.static(path.join(__dirname, 'frotend')));
+// Si ya hay sesión, la portada y el login llevan directo al dashboard.
+// Va ANTES de express.static (que serviría index.html sin mirar la sesión).
+app.get(['/', '/index.html', '/login.html'], (req, res, next) => {
+  if (getSession(req)) return res.redirect('/dashboard.html');
+  next();
+});
+app.use(express.static(path.join(__dirname, 'frotend'), { index: false }));
 app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'frotend', 'index.html')));
 app.get('/login.html', (req, res) => res.sendFile(path.join(__dirname, 'frotend', 'login.html')));
 app.get('/dashboard.html', (req, res) => res.sendFile(path.join(__dirname, 'frotend', 'dashboard.html')));

@@ -87,6 +87,10 @@ export const commands = [
     .addStringOption(o => durationOpt(o)),
   new SlashCommandBuilder().setName('deletekey').setDescription('Elimina una key (dueño o gestor)')
     .addStringOption(o => o.setName('key').setDescription('Key').setRequired(true)),
+  new SlashCommandBuilder().setName('dropkey').setDescription('Elimina una key (creador o gestor)')
+    .addStringOption(o => o.setName('key').setDescription('Key').setRequired(true)),
+  new SlashCommandBuilder().setName('logs').setDescription('Elige el canal donde se registran los usos de tus scripts')
+    .addChannelOption(o => o.setName('canal').setDescription('Canal de logs').setRequired(true)),
   new SlashCommandBuilder().setName('addtime').setDescription('Añade tiempo a una key (dueño o gestor)')
     .addStringOption(o => o.setName('key').setDescription('Key').setRequired(true))
     .addStringOption(o => durationOpt(o, true)),
@@ -189,14 +193,35 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
     return Array.isArray(roles) ? roles.map(String) : [...(roles.cache?.keys() ?? [])];
   };
 
-  // Permiso de gestión sobre el workspace de workspaceId (el creador del script):
-  // dueño de la plataforma, el propio creador, administrador del servidor o rol gestor de ese creador
-  function canManage(interaction, workspaceId) {
+  // Comandos que el rol gestor (/generatekeyrole) puede usar. El resto solo lo usa el creador.
+  const MANAGER_COMMANDS = new Set(['whitelist', 'unwhitelist', 'blacklist', 'unblacklist', 'generatekey', 'deletekey', 'dropkey']);
+
+  // Permiso sobre el workspace de workspaceId (el creador del script) para el comando actual:
+  // dueño de la plataforma, el propio creador o admin del servidor usan todo;
+  // el rol gestor del creador solo usa MANAGER_COMMANDS.
+  function canUse(interaction, workspaceId) {
     const actor = interaction.user.id;
     if (isPlatformOwner(actor) || (workspaceId && actor === workspaceId)) return true;
     if (interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)) return true;
+    if (!MANAGER_COMMANDS.has(interaction.commandName)) return false;
     const managerRole = settingFor(workspaceId, 'manager_role');
     return Boolean(managerRole && memberRoleIds(interaction).includes(managerRole));
+  }
+
+  // Registro de eventos en el canal de logs que configuró el creador del script (/logs)
+  async function logScriptEvent(script, text) {
+    const channelId = settingFor(script.user_id, 'log_channel');
+    if (!channelId) return;
+    try {
+      const channel = await client.channels.fetch(channelId);
+      if (!channel?.isTextBased()) return;
+      await channel.send({
+        embeds: [new EmbedBuilder().setColor(0x5865f2).setDescription(text)
+          .setFooter({ text: `${script.name} · ${formatPanelDate(new Date())}` })],
+      });
+    } catch (err) {
+      console.error('[Bot] No se pudo escribir en el canal de logs:', err.message);
+    }
   }
 
   // Mensaje para quien no tiene whitelist ni key (estilo Luarmor)
@@ -243,6 +268,7 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
     const access = resolveAccess(script, userId, roleIds);
     if (access.status === 'blacklisted') return `⛔ Estás bloqueado para **${script.name}**.`;
     if (access.status === 'none') return NO_ACCESS_MSG;
+    logScriptEvent(script, `📜 <@${userId}> obtuvo el loader`);
     return `\`\`\`lua\n${loaderText(script, access.key)}\n\`\`\``;
   }
 
@@ -254,17 +280,28 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
     if (k.discord_id && k.discord_id !== userId) return '❌ Esta key ya está vinculada a otra cuenta.';
     if (isBlocked({ id: k.script_id }, userId)) return '⛔ Estás bloqueado para este script.';
     q.claim.run(userId, code);
+    const claimedScript = q.scriptById.get(k.script_id);
+    if (claimedScript) logScriptEvent(claimedScript, `🎟️ <@${userId}> canjeó una key`);
     const s = q.scriptById.get(k.script_id);
     return `✅ Key canjeada para **${s?.name ?? 'tu script'}**. Usa **Get Script** para obtener el loader.`;
   }
 
-  function resetHwid(script, targetId, actorId, bypassCooldown) {
+  // Intervalo de reinicio de HWID del script (horas; 0 = desactivado)
+  const hwidHours = script => script.hwid_reset_hours ?? 24;
+
+  // bypass = creador del script: ignora el intervalo y el botón desactivado
+  function resetHwid(script, targetId, actorId, bypass) {
     const k = q.activeKeyFor.get(script.id, targetId, now());
     if (!k) return '❌ No hay una key activa para ese usuario en este script.';
-    if (!bypassCooldown && k.hwid_reset_at && now() - k.hwid_reset_at < HWID_RESET_COOLDOWN_S) {
-      return `⏳ Podrás reiniciar el HWID <t:${k.hwid_reset_at + HWID_RESET_COOLDOWN_S}:R>.`;
+    if (!bypass) {
+      if (hwidHours(script) === 0) return '🔒 El reinicio de HWID está desactivado para este script.';
+      const cooldown = hwidHours(script) * 3600;
+      if (k.hwid_reset_at && now() - k.hwid_reset_at < cooldown) {
+        return `⏳ Podrás reiniciar el HWID <t:${k.hwid_reset_at + cooldown}:R>.`;
+      }
     }
     q.resetHwid.run(now(), k.key);
+    logScriptEvent(script, `⚙️ HWID reiniciado para <@${targetId}>${targetId !== actorId ? ` por <@${actorId}>` : ''}`);
     return '✅ HWID reiniciado. Vuelve a ejecutar el loader.';
   }
 
@@ -281,11 +318,12 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
     const k = q.keyForScriptUser.get(script.id, userId);
     const lines = [`📊 **Tu estado en ${script.name}**`, 'Acceso: ✅ Key activa'];
     if (k) {
-      const cooldownEnds = k.hwid_reset_at ? k.hwid_reset_at + HWID_RESET_COOLDOWN_S : 0;
+      const cooldown = hwidHours(script) * 3600;
+      const cooldownEnds = k.hwid_reset_at ? k.hwid_reset_at + cooldown : 0;
       lines.push(`Key: \`${maskKey(k.key)}\` · ${keyState(k)}`);
       lines.push(`Vence: ${k.expires_at ? `<t:${k.expires_at}:R>` : 'nunca'}`);
       lines.push(`HWID: ${k.hwid ? 'vinculado' : 'sin vincular'}`);
-      lines.push(`Reinicio HWID: ${cooldownEnds > now() ? `<t:${cooldownEnds}:R>` : 'disponible'}`);
+      lines.push(`Reinicio HWID: ${hwidHours(script) === 0 ? 'desactivado' : cooldownEnds > now() ? `<t:${cooldownEnds}:R>` : 'disponible'}`);
     }
     return lines.join('\n');
   }
@@ -306,6 +344,7 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
     try {
       const member = await interaction.guild.members.fetch(interaction.user.id);
       await member.roles.add(roleId);
+      logScriptEvent(script, `👤 <@${interaction.user.id}> recibió el rol comprador`);
       return `✅ Rol asignado: <@&${roleId}>`;
     } catch (err) {
       console.error('[Bot] Error asignando rol:', err);
@@ -344,13 +383,15 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
       new ButtonBuilder().setCustomId(`vanta:role:${script.id}`).setLabel('👤 Get Role').setStyle(ButtonStyle.Primary),
     );
     const row2 = new ActionRowBuilder().addComponents(
-      new ButtonBuilder().setCustomId(`vanta:hwid:${script.id}`).setLabel('⚙️ Reset HWID').setStyle(ButtonStyle.Secondary),
+      new ButtonBuilder().setCustomId(`vanta:hwid:${script.id}`).setLabel('⚙️ Reset HWID').setStyle(ButtonStyle.Secondary)
+        .setDisabled(hwidHours(script) === 0),
       new ButtonBuilder().setCustomId(`vanta:stats:${script.id}`).setLabel('📊 Get Stats').setStyle(ButtonStyle.Secondary),
     );
     return { embeds: [embed], components: [row1, row2] };
   }
 
   // ---------- Manejadores ----------
+
   async function handleChat(interaction) {
     const actor = interaction.user.id;
     const cmd = interaction.commandName;
@@ -366,9 +407,10 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
       case 'panel': {
         const script = findScript(interaction.options.getString('script', true));
         if (!script) return reply('❌ Script no encontrado.');
-        if (!canManage(interaction, script.user_id)) return reply(denied);
+        if (!canUse(interaction, script.user_id)) return reply(denied);
         const sent = await interaction.channel.send(panelPayload(script));
         q.panelInsert.run(script.id, interaction.channelId, sent.id, now());
+        logScriptEvent(script, `📌 Panel publicado por <@${actor}> en <#${interaction.channelId}>`);
         return reply(`✅ Panel de **${script.name}** publicado.`);
       }
 
@@ -387,7 +429,7 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
       case 'generatekey': {
         const script = findScript(interaction.options.getString('script', true));
         if (!script) return reply('❌ Script no encontrado.');
-        if (!canManage(interaction, script.user_id)) return reply(denied);
+        if (!canUse(interaction, script.user_id)) return reply(denied);
         if (onCooldown(actor)) return reply('⏳ Espera unos segundos antes de otra acción.');
         const amount = interaction.options.getInteger('amount') ?? 1;
         const raw = interaction.options.getString('duration');
@@ -397,6 +439,7 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
           if (!seconds) return reply('❌ Duración inválida. Usa 30d, 12h, 1w, 1mo o 1y.');
         }
         const expires = seconds ? now() + seconds : null;
+        logScriptEvent(script, `🔑 <@${actor}> generó ${amount} key(s)`);
         const list = db.transaction(() => {
           const out = [];
           for (let i = 0; i < amount; i++) {
@@ -410,14 +453,23 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
         return reply(`✅ ${list.length} key(s) para **${script.name}**:\n\`\`\`\n${list.join('\n')}\n\`\`\``);
       }
 
-      case 'deletekey': {
+      case 'logs': {
+        if (!isPlatformOwner(actor) && !createdAnyScript(actor)) return reply('⛔ Solo creadores de scripts pueden configurar los logs.');
+        const channel = interaction.options.getChannel('canal', true);
+        q.settingSet.run(actor, 'log_channel', channel.id);
+        return reply(`✅ Los logs de tus scripts se enviarán a <#${channel.id}>.`);
+      }
+
+      case 'deletekey':
+      case 'dropkey': {
         const code = interaction.options.getString('key', true).trim();
         const k = q.keyByCode.get(code);
         if (!k) return reply('❌ Esa key no existe.');
         const script = q.scriptById.get(k.script_id);
-        if (!canManage(interaction, script?.user_id)) return reply(denied);
+        if (!canUse(interaction, script?.user_id)) return reply(denied);
         if (onCooldown(actor)) return reply('⏳ Espera unos segundos antes de otra acción.');
         q.deleteKey.run(code);
+        if (script) logScriptEvent(script, `🗑️ <@${actor}> eliminó una key`);
         return reply('🗑️ Key eliminada.');
       }
 
@@ -426,7 +478,7 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
         const k = q.keyByCode.get(code);
         if (!k) return reply('❌ Esa key no existe.');
         const script = q.scriptById.get(k.script_id);
-        if (!canManage(interaction, script?.user_id)) return reply(denied);
+        if (!canUse(interaction, script?.user_id)) return reply(denied);
         const secs = parseDuration(interaction.options.getString('duration', true));
         if (!secs) return reply('❌ Duración inválida. Usa 30d, 12h, 1w, 1mo o 1y.');
         if (k.expires_at === null) return reply('ℹ️ Esa key ya es forever.');
@@ -438,18 +490,18 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
         const script = findScript(interaction.options.getString('script', true));
         if (!script) return reply('❌ Script no encontrado.');
         const target = interaction.options.getUser('user');
-        const isManager = canManage(interaction, script.user_id);
-        if (target && target.id !== actor && !isManager) return reply('⛔ Solo el dueño o un gestor puede reiniciar el HWID de otros.');
+        const isManager = canUse(interaction, script.user_id);
+        if (target && target.id !== actor && !isManager) return reply('⛔ Solo el creador del script puede reiniciar el HWID de otros.');
         const who = target?.id ?? actor;
-        const bypass = Boolean(target && target.id !== actor && isManager);
-        return reply(resetHwid(script, who, actor, bypass));
+        // El creador reinicia sin esperar el intervalo ni el botón desactivado
+        return reply(resetHwid(script, who, actor, isManager));
       }
 
       case 'whitelist':
       case 'unwhitelist': {
         const script = findScript(interaction.options.getString('script', true));
         if (!script) return reply('❌ Script no encontrado.');
-        if (!canManage(interaction, script.user_id)) return reply(denied);
+        if (!canUse(interaction, script.user_id)) return reply(denied);
         const user = interaction.options.getUser('user');
         const role = interaction.options.getRole('role');
         if (!user && !role) return reply('❌ Selecciona un usuario o un rol.');
@@ -459,6 +511,7 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
         const label = user ? `<@${id}>` : `<@&${id}>`;
         if (cmd === 'whitelist') {
           q.ruleInsert.run(script.id, kind, id, user ? user.username : role.name);
+          logScriptEvent(script, `✅ ${label} añadido a la whitelist por <@${actor}>`);
           // Whitelist de usuario: se le asigna su key al instante (si no tiene una activa y no está bloqueado)
           if (user && !isBlocked(script, id) && !q.activeKeyFor.get(script.id, id, now())) {
             q.insertClaimed.run(makeKey(), script.id, id);
@@ -468,34 +521,37 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
           return reply(`✅ ${label} añadido a la whitelist de **${script.name}**. Puede obtener el script con Get Script${where}.`);
         }
         q.ruleDelete.run(script.id, kind, id);
+        logScriptEvent(script, `➖ ${label} quitado de la whitelist por <@${actor}>`);
         return reply(`✅ ${label} quitado de la whitelist de **${script.name}**.`);
       }
 
       case 'blacklist': {
         const script = findScript(interaction.options.getString('script'));
-        if (script && !canManage(interaction, script.user_id)) return reply(denied);
+        if (script && !canUse(interaction, script.user_id)) return reply(denied);
         const target = interaction.options.getUser('user', true);
         const reason = interaction.options.getString('reason') || 'Sin razón indicada';
         // Sin script: solo afecta a los scripts que el actor puede gestionar
-        const targets = script ? [script] : q.scriptsList.all().filter(s => canManage(interaction, s.user_id));
+        const targets = script ? [script] : q.scriptsList.all().filter(s => canUse(interaction, s.user_id));
         if (!targets.length) return reply(denied);
         for (const s of targets) {
           q.blacklistInsert.run(s.id, target.id, reason, now());
           q.banKeys.run(reason, s.id, target.id);
+          logScriptEvent(s, `⛔ <@${target.id}> bloqueado por <@${actor}> · ${reason}`);
         }
         return reply(`⛔ <@${target.id}> bloqueado en **${script ? script.name : 'todos tus scripts'}**.\nRazón: ${reason}`);
       }
 
       case 'unblacklist': {
         const script = findScript(interaction.options.getString('script'));
-        if (script && !canManage(interaction, script.user_id)) return reply(denied);
+        if (script && !canUse(interaction, script.user_id)) return reply(denied);
         const target = interaction.options.getUser('user', true);
-        const targets = script ? [script] : q.scriptsList.all().filter(s => canManage(interaction, s.user_id));
+        const targets = script ? [script] : q.scriptsList.all().filter(s => canUse(interaction, s.user_id));
         if (!targets.length) return reply(denied);
         let removed = 0;
         for (const s of targets) {
           removed += q.blacklistDelete.run(s.id, target.id).changes;
           q.unbanKeys.run(s.id, target.id);
+          logScriptEvent(s, `✅ Bloqueo quitado a <@${target.id}> por <@${actor}>`);
         }
         return reply(removed ? `✅ Bloqueo quitado para <@${target.id}>.` : `ℹ️ <@${target.id}> no tenía bloqueo activo.`);
       }
@@ -516,7 +572,7 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
       }
 
       case 'warn': {
-        if (!canManage(interaction, owner())) return reply(denied);
+        if (!canUse(interaction, owner())) return reply(denied);
         const target = interaction.options.getUser('user', true);
         const reason = interaction.options.getString('reason', true);
         q.warnInsert.run(target.id, reason, now());
@@ -547,7 +603,7 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
     const [ns, action, rawId] = interaction.customId.split(':');
     if (ns !== 'vanta') return;
     const script = findScript(rawId);
-    if (!script) return interaction.reply({ content: '⚠️ Este panel ya no tiene un script válido.', flags: MessageFlags.Ephemeral });
+    if (!script) return interaction.reply({ content: NO_ACCESS_MSG, flags: MessageFlags.Ephemeral });
 
     // Bloqueados no pueden usar ningún botón del panel
     if (isBlocked(script, interaction.user.id)) {
@@ -593,6 +649,12 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
 
   // ---------- Cliente ----------
   const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers] });
+
+  // Expuesto al servidor para registrar cuando se ejecuta un loader
+  client.logScriptEvent = (scriptId, text) => {
+    const script = q.scriptById.get(scriptId);
+    if (script) logScriptEvent(script, text);
+  };
 
   client.once('ready', async c => {
     try {

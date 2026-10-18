@@ -278,6 +278,10 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M8 13h8M8 17h8"/></svg>
           Publisher
         </button>
+        <button class="nav-item" data-nav="users" data-owner-only style="display:none">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="9" cy="8" r="4"/><path d="M2 21c0-3.9 3.1-7 7-7s7 3.1 7 7M16 3.1a4 4 0 0 1 0 7.8M22 21c0-3.1-1.8-5.8-4.5-7"/></svg>
+          Usuarios
+        </button>
       </nav>
 
       <div class="user-widget">
@@ -457,6 +461,15 @@
         </article>
       </section>
 
+      <!-- USUARIOS (solo dueño) -->
+      <section class="view" data-view="users">
+        <article class="card">
+          <h3>Usuarios</h3>
+          <p style="margin:6px 0 14px;font-size:14px;color:var(--text-soft);">Cambia el plan de cada usuario. Los cambios se aplican al instante.</p>
+          <div id="userList"></div>
+        </article>
+      </section>
+
       <section class="view" data-view="plans">
         <div class="grid-stats" style="grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));">
           <article class="card plan-card" data-plan="free">
@@ -540,9 +553,12 @@
     plans:     { title: 'Planes',    sub: 'Elige el plan que necesitas' },
     planskeys: { title: 'Plans keys', sub: 'Keys de Premium y Premium Plus (solo dueño)' },
     publisher: { title: 'Publisher',  sub: 'Scripts subidos en formato source (solo dueño)' },
+    users:     { title: 'Usuarios',   sub: 'Plan y uso de cada usuario (solo dueño)' },
     auth:      { title: 'Sesión',    sub: 'Problema al verificar tu cuenta' },
   };
   const SOON_MS = 7 * 24 * 3600 * 1000;
+  // Cada cuánto puede reiniciar el HWID un comprador (horas; 0 = desactivado)
+  const HWID_OPTIONS = [[24, 'Cada 24 h (recomendado)'], [0, 'Desactivado'], [6, 'Cada 6 h'], [12, 'Cada 12 h'], [48, 'Cada 48 h'], [72, 'Cada 72 h'], [168, 'Cada semana']];
   const MAX_CODE_BYTES = 2 * 1024 * 1024;
   const AUTH_LOOP_KEY = 'vp_auth_redirects';
   const ICON_COPY = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>';
@@ -728,6 +744,13 @@
             `<option value="${val}" ${val === currentObf ? 'selected' : ''}>${label}</option>`).join('')}
         </select>
         <div class="hint">Se aplica en el servidor al guardar el script. Para Roblox (Luau) recomendamos el Ofuscador 2 o el 3. El Ofuscador 1 (Lua 5.1) aún no tiene soporte completo para Luau.</div>
+      </div>
+      <div class="input-group" id="hwidGroup">
+        <label for="fHwid">Reinicio de HWID</label>
+        <select id="fHwid" name="hwidReset" class="field block">
+          ${HWID_OPTIONS.map(([h, label]) => `<option value="${h}" ${h === (s.hwid_reset_hours ?? 24) ? 'selected' : ''}>${label}</option>`).join('')}
+        </select>
+        <div class="hint">Cada cuánto puede reiniciar su HWID un comprador. Si lo desactivas, el botón Reset HWID del panel queda gris. El creador siempre puede usar /resethwid.</div>
       </div>`;
   }
 
@@ -735,6 +758,7 @@
     const sync = () => {
       const isProtected = document.querySelector('input[name="protection"]:checked')?.value === 'protected';
       $('obfGroup').hidden = !isProtected;
+      $('hwidGroup').hidden = !isProtected;
     };
     document.querySelectorAll('input[name="protection"]').forEach(r => r.addEventListener('change', sync));
     sync();
@@ -851,6 +875,7 @@
       ffa: protection === 'ffa',
       // El ofuscador solo aplica a scripts protegidos
       obfuscator: protection === 'protected' ? obfuscator : null,
+      hwidResetHours: Number(fd.get('hwidReset') ?? 24),
     };
     if (code.trim()) body.code = code;
 
@@ -1087,18 +1112,48 @@
   }
 
   // ---- Solo dueño: plans keys y publisher ----
-  let ownerData = { planKeys: [], publisher: [] };
+  let ownerData = { planKeys: [], publisher: [], users: [] };
+  const PLAN_OPTIONS = [['free', 'Free'], ['premium', 'Premium'], ['plus', 'Premium Plus']];
   function setOwnerNav(isOwner) {
     document.querySelectorAll('[data-owner-only]').forEach(b => { b.style.display = isOwner ? '' : 'none'; });
   }
   async function loadOwnerData() {
     if (!user || !user.owner) return;
-    const [pk, pub] = await Promise.allSettled([api('/api/owner/plan-keys'), api('/api/owner/publisher')]);
+    const [pk, pub, us] = await Promise.allSettled([
+      api('/api/owner/plan-keys'), api('/api/owner/publisher'), api('/api/owner/users'),
+    ]);
     if (pk.status === 'fulfilled') ownerData.planKeys = pk.value;
     if (pub.status === 'fulfilled') ownerData.publisher = pub.value;
+    if (us.status === 'fulfilled') ownerData.users = us.value;
     renderOwner();
   }
+  function renderUsers() {
+    $('userList').innerHTML = ownerData.users.length ? ownerData.users.map(u => `
+      <div class="row" style="padding:10px 0;border-top:1px solid var(--border);gap:10px;flex-wrap:wrap;">
+        <b style="flex:1;min-width:160px;">${esc(u.username || u.id)}</b>
+        <span style="font-size:13px;color:var(--text-soft);">${u.scripts} scripts · ${u.obf_used || 0} ofuscaciones</span>
+        <select class="field" data-user-plan="${esc(u.id)}" style="min-width:150px;">
+          ${PLAN_OPTIONS.map(([v, l]) => `<option value="${v}" ${v === (u.plan || 'free') ? 'selected' : ''}>${l}</option>`).join('')}
+        </select>
+        <button class="btn ghost sm" data-user-save="${esc(u.id)}" type="button">Guardar</button>
+      </div>`).join('') : '<p style="color:var(--text-soft);font-size:14px;">Aún no hay usuarios.</p>';
+  }
+  $('userList').addEventListener('click', async e => {
+    const b = e.target.closest('[data-user-save]');
+    if (!b) return;
+    const sel = document.querySelector(`[data-user-plan="${CSS.escape(b.dataset.userSave)}"]`);
+    setBusy(b, true);
+    try {
+      await api(`/api/owner/users/${encodeURIComponent(b.dataset.userSave)}/plan`, { method: 'POST', body: JSON.stringify({ plan: sel.value }) });
+      toast('Plan actualizado');
+      await loadOwnerData();
+    } catch (err) {
+      toast(err.message, 'error');
+      setBusy(b, false);
+    }
+  });
   function renderOwner() {
+    renderUsers();
     $('pkList').innerHTML = ownerData.planKeys.length ? ownerData.planKeys.map(k => `
       <div class="row" style="padding:10px 0;border-top:1px solid var(--border);gap:10px;flex-wrap:wrap;">
         <code style="word-break:break-all;flex:1;min-width:200px;">${esc(k.key)}</code>
@@ -1111,6 +1166,7 @@
         <div class="row" style="gap:10px;flex-wrap:wrap;">
           <b style="flex:1;min-width:160px;">${esc(s.name)}</b>
           <span style="font-size:13px;color:var(--text-soft);">${esc(s.username || s.user_id)} · ${s.ffa ? 'FFA' : esc(s.obfuscator || '')}</span>
+          <button class="btn ghost sm" data-pub-copy="${esc(s.id)}">Copiar source</button>
           <button class="btn ghost sm" data-pub-dl="${esc(s.id)}">Descargar .txt</button>
         </div>
         <pre style="margin:10px 0 0;max-height:180px;overflow:auto;background:#000;border:1px solid var(--border);border-radius:10px;padding:10px;font-size:12px;white-space:pre-wrap;">${esc(s.source || '')}</pre>
@@ -1134,6 +1190,12 @@
     if (b) copyText(b.dataset.pkCopy, 'Key copiada');
   });
   $('pubList').addEventListener('click', e => {
+    const c = e.target.closest('[data-pub-copy]');
+    if (c) {
+      const s = ownerData.publisher.find(x => String(x.id) === c.dataset.pubCopy);
+      if (s) copyText(s.source || '', 'Source copiado');
+      return;
+    }
     const b = e.target.closest('[data-pub-dl]');
     if (!b) return;
     const s = ownerData.publisher.find(x => String(x.id) === b.dataset.pubDl);

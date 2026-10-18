@@ -96,6 +96,7 @@ db.exec(`
   if (!cols.includes('obfuscator')) db.exec('ALTER TABLE scripts ADD COLUMN obfuscator TEXT');
   // source = código original (nunca se envía al cliente); content = lo que se sirve al loader
   if (!cols.includes('source')) db.exec('ALTER TABLE scripts ADD COLUMN source TEXT');
+  if (!cols.includes('hwid_reset_hours')) db.exec('ALTER TABLE scripts ADD COLUMN hwid_reset_hours INTEGER DEFAULT 24');
 
   // Columnas de keys para el bot y el control de HWID
   const keyCols = db.prepare('PRAGMA table_info(keys)').all().map(c => c.name);
@@ -140,16 +141,16 @@ const stmt = {
   `),
   // Nunca se seleccionan source ni content aquí
   scriptsByUser: db.prepare(`
-    SELECT id, user_id, name, slug, ffa, obfuscator FROM scripts
+    SELECT id, user_id, name, slug, ffa, obfuscator, hwid_reset_hours FROM scripts
     WHERE user_id = ? ORDER BY id DESC
   `),
   scriptOwned: db.prepare('SELECT * FROM scripts WHERE id = ? AND user_id = ?'),
   scriptInsert: db.prepare(`
-    INSERT INTO scripts (user_id, name, slug, ffa, obfuscator, source, content)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO scripts (user_id, name, slug, ffa, obfuscator, source, content, hwid_reset_hours)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
   `),
   scriptUpdate: db.prepare(`
-    UPDATE scripts SET name = ?, ffa = ?, obfuscator = ?, source = ?, content = ?
+    UPDATE scripts SET name = ?, ffa = ?, obfuscator = ?, source = ?, content = ?, hwid_reset_hours = ?
     WHERE id = ? AND user_id = ?
   `),
   keysByUser: db.prepare(`
@@ -214,7 +215,10 @@ function uniqueSlug(name) {
 }
 
 // Valida nombre, modo y código. Devuelve { error } o los valores limpios.
-function validateScriptInput({ name, ffa, obfuscator, code }, current = null) {
+// Cada cuántas horas puede reiniciarse el HWID (0 = desactivado; /resethwid del creador siempre funciona)
+const HWID_RESET_OPTIONS = [0, 6, 12, 24, 48, 72, 168];
+
+function validateScriptInput({ name, ffa, obfuscator, code, hwidResetHours }, current = null) {
   const cleanName = name === undefined ? current?.name : String(name).trim();
   if (!cleanName || cleanName.length > 60) return { error: 'Nombre inválido (1 a 60 caracteres)' };
 
@@ -226,7 +230,10 @@ function validateScriptInput({ name, ffa, obfuscator, code }, current = null) {
   if (typeof source !== 'string' || !source.trim()) return { error: 'Falta el código del script' };
   if (Buffer.byteLength(source) > MAX_CODE_BYTES) return { error: 'El código supera 2 MB' };
 
-  return { name: cleanName, isFfa, obfuscator: obf, source };
+  const hwid = hwidResetHours === undefined ? (current?.hwid_reset_hours ?? 24) : Number(hwidResetHours);
+  if (!HWID_RESET_OPTIONS.includes(hwid)) return { error: 'Intervalo de reinicio de HWID inválido' };
+
+  return { name: cleanName, isFfa, obfuscator: obf, source, hwidResetHours: hwid };
 }
 
 // ==========================================
@@ -413,27 +420,50 @@ const PAGE_HEADERS = {
 // Nunca muestra el código del script: solo el snippet para usar en el ejecutor.
 function loaderPage(script) {
   const url = `${APP_URL}/scripts/hosted/${script.slug}`;
-  const snippet = [
-    'script_key = "KEY"',
-    `loadstring(game:HttpGet("${url}"))()`,
-  ].join('\n');
+  const ffa = !!script.ffa;
+  // Solo el loader: nada del código del script. FFA no necesita key.
+  const lines = [
+    ...(ffa ? [] : ['<span class="k">script_key</span> = <span class="s">"KEY"</span>']),
+    `<span class="f">loadstring</span>(game:HttpGet(<span class="s">"${escHtml(url)}"</span>))()`,
+  ];
+  const name = escHtml(script.name);
   return `<!doctype html>
 <html lang="es">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="robots" content="noindex">
-<title>Loadstring</title>
+<title>Vantarmor · Loader</title>
 <style>
-:root{--bg:#0b0b0c;--border:rgba(255,255,255,.1);--text:#e4e4e7}
+:root{--bg:#07070a;--card:#0f0f14;--border:rgba(255,255,255,.08);--text:#ececf1;--muted:#8b8b99;--accent:#7c5cff;--accent2:#22d3ee}
 *{box-sizing:border-box}
-html,body{margin:0;background:var(--bg);color:var(--text);user-select:none;-webkit-user-select:none}
-body{min-height:100vh;display:grid;place-items:center;padding:16px}
-pre{margin:0;width:100%;max-width:720px;padding:16px 18px;background:#050505;border:1px solid var(--border);border-radius:12px;overflow-x:auto;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:13px;line-height:1.7;white-space:pre}
+html,body{margin:0;min-height:100%;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;-webkit-user-select:none;user-select:none}
+body{min-height:100vh;display:grid;place-items:center;padding:24px 16px;background:radial-gradient(1000px 520px at 50% -12%,rgba(124,92,255,.28),transparent 62%),var(--bg)}
+.wrap{width:100%;max-width:660px}
+.brand{display:flex;align-items:center;gap:10px;margin:0 0 16px 4px;font-weight:700;letter-spacing:.14em;font-size:13px}
+.dot{width:10px;height:10px;border-radius:50%;background:linear-gradient(135deg,var(--accent),var(--accent2));box-shadow:0 0 14px var(--accent)}
+.card{background:var(--card);border:1px solid var(--border);border-radius:18px;overflow:hidden;box-shadow:0 24px 70px rgba(0,0,0,.5)}
+.head{padding:20px 22px;border-bottom:1px solid var(--border)}
+.head h1{margin:0;font-size:18px;font-weight:650;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.head p{margin:8px 0 0;color:var(--muted);font-size:13px;line-height:1.55}
+.tag{font-size:10.5px;font-weight:700;padding:3px 9px;border-radius:999px;background:rgba(34,211,238,.12);color:var(--accent2);letter-spacing:.06em}
+pre{margin:0;padding:20px 22px;background:#050508;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:13.5px;line-height:1.8;white-space:pre-wrap;word-break:break-all;color:#d4d4dc;-webkit-user-select:text;user-select:text}
+.k{color:#c4b5fd}.s{color:#86efac}.f{color:#7dd3fc}
+.foot{padding:12px 22px;border-top:1px solid var(--border);color:var(--muted);font-size:12px;line-height:1.5}
 </style>
 </head>
 <body>
-<pre>${escHtml(snippet)}</pre>
+<main class="wrap">
+  <div class="brand"><span class="dot"></span>VANTARMOR</div>
+  <section class="card">
+    <header class="head">
+      <h1>${name}<span class="tag">${ffa ? 'FFA' : 'PROTEGIDO'}</span></h1>
+      <p>${ffa ? 'Ejecuta este loader en tu executor.' : 'Pega este loader en tu executor y reemplaza <b>KEY</b> por tu key.'}</p>
+    </header>
+    <pre>${lines.join('\n')}</pre>
+    <footer class="foot">El código del script solo se entrega al ejecutarlo con una key válida.</footer>
+  </section>
+</main>
 </body>
 </html>`;
 }
@@ -504,6 +534,10 @@ app.get('/scripts/hosted/:slug', (req, res) => {
 });
 
 // Tokens de un solo uso para entregar el código: /auth los emite, /payload los consume.
+// Registro de usos del loader en el canal de logs del creador (el bot se asigna al arrancar)
+let discordBot = null;
+const logUse = (scriptId, text) => { try { discordBot?.logScriptEvent?.(scriptId, text); } catch { /* el log nunca rompe el loader */ } };
+
 const payloadTokens = new Map(); // token -> { scriptId, expires }
 const PAYLOAD_TTL_MS = 30_000;
 setInterval(() => {
@@ -537,7 +571,10 @@ app.get('/scripts/hosted/:slug/auth', (req, res) => {
 
   const script = stmt.scriptBySlug.get(req.params.slug);
   if (!script) return reply('SCRIPT_NOT_FOUND');
-  if (script.ffa) return reply(`OK:${issuePayloadToken(script.id)}`);
+  if (script.ffa) {
+    logUse(script.id, '🟢 Script ejecutado (FFA)');
+    return reply(`OK:${issuePayloadToken(script.id)}`);
+  }
 
   const key = String(req.query.key || '').trim().slice(0, 64);
   const hwid = String(req.query.hwid || '').slice(0, 128);
@@ -553,6 +590,7 @@ app.get('/scripts/hosted/:slug/auth', (req, res) => {
   if (!k.hwid) db.prepare('UPDATE keys SET hwid = ? WHERE key = ?').run(hwid, key);
   else if (k.hwid !== hwid) return reply('HWID_MISMATCH');
 
+  logUse(script.id, `🟢 Script ejecutado · key \`${k.key.slice(0, 6)}…\``);
   reply(`OK:${issuePayloadToken(script.id)}`);
 });
 
@@ -588,6 +626,20 @@ app.post('/api/owner/plan-keys', requireAuth, requireOwner, (req, res) => {
   db.prepare('INSERT INTO plan_keys (key, plan, created_at) VALUES (?, ?, ?)').run(key, plan, Math.floor(Date.now() / 1000));
   res.json({ key, plan });
 });
+// ---- Usuarios (solo dueño): ver planes y cambiarlos ----
+app.get('/api/owner/users', requireAuth, requireOwner, (req, res) => {
+  res.json(db.prepare(`SELECT u.id, u.username, u.avatar, u.plan, u.obf_used,
+      (SELECT COUNT(*) FROM scripts s WHERE s.user_id = u.id) AS scripts
+    FROM users u ORDER BY u.rowid DESC LIMIT 500`).all());
+});
+app.post('/api/owner/users/:id/plan', requireAuth, requireOwner, (req, res) => {
+  const plan = ['free', 'premium', 'plus'].includes(req.body?.plan) ? req.body.plan : null;
+  if (!plan) return res.status(400).json({ error: 'Plan inválido' });
+  const info = db.prepare('UPDATE users SET plan = ? WHERE id = ?').run(plan, req.params.id);
+  if (!info.changes) return res.status(404).json({ error: 'Usuario no encontrado' });
+  res.json({ ok: true, plan });
+});
+
 app.get('/api/owner/publisher', requireAuth, requireOwner, (req, res) => {
   res.json(db.prepare(`SELECT s.id, s.name, s.slug, s.ffa, s.obfuscator, s.source, s.user_id, u.username
     FROM scripts s LEFT JOIN users u ON u.id = s.user_id ORDER BY s.id DESC`).all());
@@ -619,7 +671,7 @@ app.post('/api/scripts', requireAuth, async (req, res) => {
     const content = input.isFfa ? input.source : await obfuscate(input.source, input.obfuscator);
     const info = stmt.scriptInsert.run(
       req.userId, input.name, uniqueSlug(input.name), input.isFfa ? 1 : 0,
-      input.obfuscator, input.source, content,
+      input.obfuscator, input.source, content, input.hwidResetHours,
     );
     if (!input.isFfa) stmt.obfIncrement.run(req.userId);
     res.status(201).json({ ok: true, id: info.lastInsertRowid });
@@ -655,7 +707,7 @@ app.put('/api/scripts/:id', requireAuth, async (req, res) => {
   try {
     const content = input.isFfa ? input.source : await obfuscate(input.source, input.obfuscator);
     stmt.scriptUpdate.run(
-      input.name, input.isFfa ? 1 : 0, input.obfuscator, input.source, content,
+      input.name, input.isFfa ? 1 : 0, input.obfuscator, input.source, content, input.hwidResetHours,
       script.id, req.userId,
     );
     if (!input.isFfa) stmt.obfIncrement.run(req.userId);
@@ -715,7 +767,7 @@ if (process.env.DISCORD_BOT_TOKEN && DISCORD_CLIENT_ID) {
     guildId: process.env.DISCORD_GUILD_ID || undefined,
     publicUrl: process.env.PUBLIC_URL || FRONTEND_URL,
     ownerId: process.env.DISCORD_OWNER_ID || undefined, // tu ID de Discord (dueño del workspace)
-  }).catch(err => console.error('[Bot] No se pudo iniciar:', err.message));
+  }).then(bot => { discordBot = bot; }).catch(err => console.error('[Bot] No se pudo iniciar:', err.message));
 } else {
   console.warn('[Bot] DISCORD_BOT_TOKEN o DISCORD_CLIENT_ID no definidos: el bot no se inicia.');
 }

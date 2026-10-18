@@ -199,20 +199,12 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
     return Boolean(managerRole && memberRoleIds(interaction).includes(managerRole));
   }
 
+  // Mensaje para quien no tiene whitelist ni key (estilo Luarmor)
+  const NO_ACCESS_MSG = 'You need to be whitelisted to get this script.\nIf you have a script key, click on the Redeem button below to redeem it';
+
   // Bloqueo: blacklist o key baneada en ese script
   const isBlocked = (script, userId) =>
     Boolean(q.blacklisted.get(script.id, userId) || q.bannedKeyFor.get(script.id, userId));
-
-  // Estado del usuario en un script sin efectos secundarios (no crea keys)
-  function peekAccess(script, userId, roleIds) {
-    if (isBlocked(script, userId)) return { status: 'blocked' };
-    if (q.activeKeyFor.get(script.id, userId, now())) return { status: 'key', via: 'key activa' };
-    if (userId === owner() || userId === script.user_id) return { status: 'allowed', via: 'como creador' };
-    const rule = q.rulesForScript.all(script.id).find(r =>
-      (r.kind === 'user' && r.discord_id === userId) || (r.kind === 'role' && roleIds.includes(r.discord_id)));
-    if (rule) return { status: 'allowed', via: rule.kind === 'user' ? 'por whitelist' : 'por rol en whitelist' };
-    return { status: 'none' };
-  }
 
   // Acceso a un script: blacklist, whitelist (usuario o rol), creador/dueño, o key existente
   function resolveAccess(script, userId, roleIds) {
@@ -250,7 +242,7 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
     if (script.ffa) return `\`\`\`lua\n${loaderText(script)}\n\`\`\``;
     const access = resolveAccess(script, userId, roleIds);
     if (access.status === 'blacklisted') return `⛔ Estás bloqueado para **${script.name}**.`;
-    if (access.status === 'none') return `❌ No tienes acceso a **${script.name}**. Canjea una key o pide que te añadan a la whitelist.`;
+    if (access.status === 'none') return NO_ACCESS_MSG;
     return `\`\`\`lua\n${loaderText(script, access.key)}\n\`\`\``;
   }
 
@@ -280,23 +272,20 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
     return `${code.slice(0, 6)}…${code.slice(-4)}`;
   }
 
-  // Get Stats del panel: estado del usuario en ese script
+  // Get Stats del panel: estado del usuario en ese script.
+  // Whitelist y key se tratan igual: resolveAccess crea la key de whitelist si aún no existe.
   function scriptStatsReply(userId, script, roleIds) {
-    const access = peekAccess(script, userId, roleIds);
-    if (access.status === 'blocked') return `⛔ Estás bloqueado para **${script.name}**.`;
+    const granted = resolveAccess(script, userId, roleIds);
+    if (granted.status === 'blacklisted') return `⛔ Estás bloqueado para **${script.name}**.`;
+    if (granted.status === 'none') return NO_ACCESS_MSG;
     const k = q.keyForScriptUser.get(script.id, userId);
-    const accessLine = access.status === 'key' ? `✅ ${access.via}`
-      : access.status === 'allowed' ? `✅ Permitido (${access.via})`
-        : '❌ Sin acceso · canjea una key o pide la whitelist';
-    const lines = [`📊 **Tu estado en ${script.name}**`, `Acceso: ${accessLine}`];
+    const lines = [`📊 **Tu estado en ${script.name}**`, 'Acceso: ✅ Key activa'];
     if (k) {
       const cooldownEnds = k.hwid_reset_at ? k.hwid_reset_at + HWID_RESET_COOLDOWN_S : 0;
       lines.push(`Key: \`${maskKey(k.key)}\` · ${keyState(k)}`);
       lines.push(`Vence: ${k.expires_at ? `<t:${k.expires_at}:R>` : 'nunca'}`);
       lines.push(`HWID: ${k.hwid ? 'vinculado' : 'sin vincular'}`);
       lines.push(`Reinicio HWID: ${cooldownEnds > now() ? `<t:${cooldownEnds}:R>` : 'disponible'}`);
-    } else if (access.status === 'allowed') {
-      lines.push('Key: aún no generada · pulsa **Get Script** para obtenerla');
     }
     return lines.join('\n');
   }
@@ -471,14 +460,12 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
         if (cmd === 'whitelist') {
           q.ruleInsert.run(script.id, kind, id, user ? user.username : role.name);
           // Whitelist de usuario: se le asigna su key al instante (si no tiene una activa y no está bloqueado)
-          let keyLine = '';
           if (user && !isBlocked(script, id) && !q.activeKeyFor.get(script.id, id, now())) {
             q.insertClaimed.run(makeKey(), script.id, id);
-            keyLine = '\n🔑 Key asignada automáticamente.';
           }
           const panel = q.panelForScript.get(script.id);
           const where = panel ? ` en el panel <#${panel.channel_id}>` : '';
-          return reply(`✅ ${label} añadido a la whitelist de **${script.name}**. Puede obtener el script con Get Script${where}.${keyLine}`);
+          return reply(`✅ ${label} añadido a la whitelist de **${script.name}**. Puede obtener el script con Get Script${where}.`);
         }
         q.ruleDelete.run(script.id, kind, id);
         return reply(`✅ ${label} quitado de la whitelist de **${script.name}**.`);
@@ -585,12 +572,12 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
     if (action === 'stats') return reply(statsReply(actor, script, memberRoleIds(interaction)));
     if (action === 'role') {
       const access = resolveAccess(script, actor, memberRoleIds(interaction));
-      if (access.status !== 'ok') return reply('❌ No tienes acceso a este script. Canjea una key o pide la whitelist.');
+      if (access.status !== 'ok') return reply(NO_ACCESS_MSG);
       return reply(await giveBuyerRole(interaction, script));
     }
     if (action === 'hwid') {
       const access = resolveAccess(script, actor, memberRoleIds(interaction));
-      if (access.status !== 'ok') return reply('❌ No tienes acceso a este script.');
+      if (access.status !== 'ok') return reply(NO_ACCESS_MSG);
       return reply(resetHwid(script, actor, actor, false));
     }
     return reply('❌ Acción no disponible.');

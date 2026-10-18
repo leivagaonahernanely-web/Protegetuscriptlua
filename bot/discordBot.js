@@ -140,7 +140,7 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
   ensureBotSchema(db);
   // Si al arrancar hay 0 scripts o 0 keys cuando esperabas datos, la base se reinició (revisa el volumen)
   const counts = db.prepare('SELECT (SELECT COUNT(*) FROM scripts) AS scripts, (SELECT COUNT(*) FROM keys) AS keys').get();
-  console.log(`[Bot] Datos al arrancar: ${counts.scripts} scripts, ${counts.keys} keys.`);
+  console.log(`[Bot] Datos al arrancar: ${counts.scripts} scripts, ${counts.keys} keys. Réplica: ${process.env.RAILWAY_REPLICA_ID || 'local'}.`);
 
   const q = {
     scriptById: db.prepare('SELECT * FROM scripts WHERE id = ?'),
@@ -815,7 +815,8 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
           .filter(s => s.name.toLowerCase().includes(focused))
           .slice(0, 25)
           .map(s => ({ name: s.name.slice(0, 100), value: String(s.id) }));
-        return interaction.respond(choices).catch(() => {});
+        if (!choices.length) console.warn(`[Bot] Autocompletado vacío (réplica ${process.env.RAILWAY_REPLICA_ID || 'local'}, ${q.scriptsList.all().length} scripts en esta base)`);
+        return interaction.respond(choices).catch(err => console.warn('[Bot] No se pudo responder el autocompletado:', err.message));
       }
       if (interaction.isChatInputCommand()) return await handleChat(interaction);
       if (interaction.isButton()) return await handleButton(interaction);

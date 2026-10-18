@@ -208,8 +208,7 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
     if (script.ffa) return `loadstring(game:HttpGet("${url}"))()`;
     return [
       `script_key = "${key}"`,
-      'local hwid = game:GetService("RbxAnalyticsService"):GetClientId()',
-      `loadstring(game:HttpGet("${url}?key=" .. script_key .. "&hwid=" .. hwid))()`,
+      `loadstring(game:HttpGet("${url}"))()`,
     ].join('\n');
   }
 

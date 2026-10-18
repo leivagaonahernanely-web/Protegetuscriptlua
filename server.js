@@ -48,8 +48,15 @@ const cookieSecure = COOKIE_SECURE !== 'false';
 if (!DISCORD_CLIENT_ID || !DISCORD_CLIENT_SECRET) console.warn('⚠️  DISCORD_CLIENT_ID o DISCORD_CLIENT_SECRET no definidos: el login con Discord no funcionará.');
 console.log(`🔗 OAuth callback: ${REDIRECT_URI}`);
 // En Railway el disco del contenedor se borra en cada deploy: sin volumen se pierden usuarios, scripts y keys.
-if (process.env.RAILWAY_ENVIRONMENT && !DATABASE_PATH.startsWith('/data')) {
-  console.warn('⚠️  La base de datos NO está en un volumen: se borra en cada deploy. Monta un volumen en /data y usa DATABASE_PATH=/data/vantarmor.db');
+// Diagnóstico de persistencia: /data debe ser un Volume de Railway montado; si no, todo se borra en cada deploy.
+if (process.env.RAILWAY_ENVIRONMENT) {
+  let dataIsVolume = false;
+  try { dataIsVolume = fs.statSync('/data').dev !== fs.statSync('/').dev; } catch { /* /data no existe */ }
+  if (dataIsVolume && DATABASE_PATH.startsWith('/data')) {
+    console.log(`💾 Base de datos persistente en el volumen: ${DATABASE_PATH}`);
+  } else {
+    console.warn(`⚠️  Base de datos en ${DATABASE_PATH}. /data ${dataIsVolume ? 'sí' : 'NO'} es un volumen: se borra en cada deploy. En Railway crea un Volume con ruta /data en este servicio.`);
+  }
 }
 
 if (!JWT_SECRET) console.warn('⚠️  JWT_SECRET no está definido: se usará una clave guardada en la base de datos.');

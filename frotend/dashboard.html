@@ -523,9 +523,9 @@
 
   // ---------- CONFIG ----------
   const PLAN_LIMITS = {
-    free:    { scripts: 5,        keys: 150 },
-    premium: { scripts: 10,       keys: Infinity },
-    plus:    { scripts: Infinity, keys: Infinity },
+    free:    { scripts: 5,        keys: 150, obf: 10 },
+    premium: { scripts: 10,       keys: Infinity, obf: 30 },
+    plus:    { scripts: Infinity, keys: Infinity, obf: Infinity },
   };
   const PLAN_LABELS = { free: 'Free', premium: 'Premium', plus: 'Premium Plus' };
   const OBFUSCATORS = {
@@ -925,7 +925,9 @@
     $('statPlan').textContent = PLAN_LABELS[plan];
 
     $('statScripts').textContent = scriptsError ? '—' : scripts.length;
-    $('subScripts').textContent = Number.isFinite(lim.scripts) ? `de ${lim.scripts} permitidos` : 'Ilimitados';
+    const obfUsed = user?.obf_used ?? 0;
+    $('subScripts').textContent = (Number.isFinite(lim.scripts) ? `de ${lim.scripts} permitidos` : 'Ilimitados')
+      + ` · ${obfUsed}${Number.isFinite(lim.obf) ? `/${lim.obf}` : ''} ofuscaciones usadas`;
     $('meterScripts').style.width = Number.isFinite(lim.scripts) ? `${Math.min(100, scripts.length / lim.scripts * 100)}%` : '100%';
 
     $('statKeys').textContent = keysError ? '—' : active.length;

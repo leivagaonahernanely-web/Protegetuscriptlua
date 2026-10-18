@@ -30,7 +30,8 @@ const {
   DISCORD_CLIENT_SECRET,
   DISCORD_REDIRECT_URI,
   JWT_SECRET,
-  DATABASE_PATH = 'vantarmor.db',
+  // En Railway la base va al volumen montado en /data (si no, se pierde en cada deploy)
+  DATABASE_PATH = process.env.RAILWAY_ENVIRONMENT ? '/data/vantarmor.db' : 'vantarmor.db',
   FRONTEND_URL = 'https://vantarmorweb-production.up.railway.app',
   // En producción (https) debe ser true. Pon COOKIE_SECURE=false solo para probar en http.
   COOKIE_SECURE = 'true',
@@ -51,7 +52,7 @@ if (process.env.RAILWAY_ENVIRONMENT && !DATABASE_PATH.startsWith('/data')) {
   console.warn('⚠️  La base de datos NO está en un volumen: se borra en cada deploy. Monta un volumen en /data y usa DATABASE_PATH=/data/vantarmor.db');
 }
 
-if (!JWT_SECRET) console.warn('⚠️  JWT_SECRET no está definido: el login no funcionará.');
+if (!JWT_SECRET) console.warn('⚠️  JWT_SECRET no está definido: se usará una clave guardada en la base de datos.');
 
 app.use(express.json({ limit: '3mb' }));          // el default de Express (100 KB) no alcanza para 2 MB
 app.use(cookieParser());
@@ -102,10 +103,37 @@ db.exec(`
     if (!keyCols.includes(col)) db.exec(`ALTER TABLE keys ADD COLUMN ${col} ${type}`);
   }
 }
+// Migración: contador de ofuscaciones usadas por usuario
+{
+  const userCols = db.prepare('PRAGMA table_info(users)').all().map(c => c.name);
+  if (!userCols.includes('obf_used')) db.exec('ALTER TABLE users ADD COLUMN obf_used INTEGER DEFAULT 0');
+}
 ensureBotSchema(db);
 
+// Clave de sesión: JWT_SECRET si está definida; si no, una clave generada y guardada en la base de datos.
+// Así el login no se rompe en cada deploy mientras la base de datos esté en el volumen.
+db.exec('CREATE TABLE IF NOT EXISTS app_settings (name TEXT PRIMARY KEY, value TEXT)');
+const SESSION_SECRET = JWT_SECRET || (() => {
+  const row = db.prepare("SELECT value FROM app_settings WHERE name = 'session_secret'").get();
+  if (row) return row.value;
+  const secret = crypto.randomBytes(48).toString('hex');
+  db.prepare("INSERT INTO app_settings (name, value) VALUES ('session_secret', ?)").run(secret);
+  return secret;
+})();
+
+// Cuotas por plan (las mismas que muestra el dashboard)
+const PLAN_QUOTAS = {
+  free:    { scripts: 5,        obfuscations: 10 },
+  premium: { scripts: 10,       obfuscations: 30 },
+  plus:    { scripts: Infinity, obfuscations: Infinity },
+};
+const quotaFor = userId => PLAN_QUOTAS[stmt.userById.get(userId)?.plan] ?? PLAN_QUOTAS.free;
+
 const stmt = {
-  userById: db.prepare('SELECT id, username, avatar, plan FROM users WHERE id = ?'),
+  userById: db.prepare('SELECT id, username, avatar, plan, obf_used FROM users WHERE id = ?'),
+  scriptCount: db.prepare('SELECT COUNT(*) AS n FROM scripts WHERE user_id = ?'),
+  obfUsed: db.prepare('SELECT obf_used FROM users WHERE id = ?'),
+  obfIncrement: db.prepare('UPDATE users SET obf_used = obf_used + 1 WHERE id = ?'),
   upsertUser: db.prepare(`
     INSERT INTO users (id, username, avatar) VALUES (?, ?, ?)
     ON CONFLICT(id) DO UPDATE SET username = excluded.username, avatar = excluded.avatar
@@ -154,9 +182,9 @@ const sessionCookieOpts = {
 
 function getSession(req) {
   const token = req.cookies[SESSION_COOKIE];
-  if (!token || !JWT_SECRET) return null;
+  if (!token) return null;
   try {
-    return jwt.verify(token, JWT_SECRET);
+    return jwt.verify(token, SESSION_SECRET);
   } catch {
     return null;
   }
@@ -167,7 +195,7 @@ function requireAuth(req, res, next) {
   if (!session) {
     const reason = !req.cookies[SESSION_COOKIE]
       ? 'No hay cookie de sesión en este navegador (¿estás en el mismo dominio que el login?)'
-      : (!JWT_SECRET ? 'El servidor no tiene JWT_SECRET configurado' : 'Sesión inválida o expirada');
+      : 'Sesión inválida o expirada';
     return res.status(401).json({ error: reason });
   }
   req.userId = session.id;
@@ -331,7 +359,7 @@ app.get('/auth/discord/callback', async (req, res) => {
     // Upsert: conserva el plan del usuario al volver a iniciar sesión
     stmt.upsertUser.run(dUser.id, dUser.username, dUser.avatar);
 
-    const session = jwt.sign({ id: dUser.id, username: dUser.username }, JWT_SECRET, { expiresIn: '7d' });
+    const session = jwt.sign({ id: dUser.id, username: dUser.username }, SESSION_SECRET, { expiresIn: '7d' });
     res.cookie(SESSION_COOKIE, session, sessionCookieOpts);
     res.redirect('/dashboard.html');
   } catch (err) {
@@ -569,9 +597,23 @@ app.get('/api/scripts', requireAuth, (req, res) => {
   res.json(stmt.scriptsByUser.all(req.userId));
 });
 
+// Cuotas del plan: scripts creados y ofuscaciones usadas (borrar un script no devuelve la cuota)
+function quotaError(userId, { isNewScript, isFfa }) {
+  const quota = quotaFor(userId);
+  if (isNewScript && stmt.scriptCount.get(userId).n >= quota.scripts) {
+    return `Tu plan permite ${quota.scripts} scripts. Mejora tu plan para crear más.`;
+  }
+  if (!isFfa && (stmt.obfUsed.get(userId)?.obf_used ?? 0) >= quota.obfuscations) {
+    return `Ya usaste tus ${quota.obfuscations} ofuscaciones del plan. Mejora tu plan para seguir.`;
+  }
+  return null;
+}
+
 app.post('/api/scripts', requireAuth, async (req, res) => {
   const input = validateScriptInput(req.body || {});
   if (input.error) return res.status(400).json({ error: input.error });
+  const quotaMsg = quotaError(req.userId, { isNewScript: true, isFfa: input.isFfa });
+  if (quotaMsg) return res.status(403).json({ error: quotaMsg });
 
   try {
     const content = input.isFfa ? input.source : await obfuscate(input.source, input.obfuscator);
@@ -579,6 +621,7 @@ app.post('/api/scripts', requireAuth, async (req, res) => {
       req.userId, input.name, uniqueSlug(input.name), input.isFfa ? 1 : 0,
       input.obfuscator, input.source, content,
     );
+    if (!input.isFfa) stmt.obfIncrement.run(req.userId);
     res.status(201).json({ ok: true, id: info.lastInsertRowid });
   } catch (err) {
     console.error('Create script error:', err);
@@ -606,6 +649,8 @@ app.put('/api/scripts/:id', requireAuth, async (req, res) => {
 
   const input = validateScriptInput(req.body || {}, script);
   if (input.error) return res.status(400).json({ error: input.error });
+  const quotaMsg = quotaError(req.userId, { isNewScript: false, isFfa: input.isFfa });
+  if (quotaMsg) return res.status(403).json({ error: quotaMsg });
 
   try {
     const content = input.isFfa ? input.source : await obfuscate(input.source, input.obfuscator);
@@ -613,6 +658,7 @@ app.put('/api/scripts/:id', requireAuth, async (req, res) => {
       input.name, input.isFfa ? 1 : 0, input.obfuscator, input.source, content,
       script.id, req.userId,
     );
+    if (!input.isFfa) stmt.obfIncrement.run(req.userId);
     res.json({ ok: true });
   } catch (err) {
     console.error('Update script error:', err);

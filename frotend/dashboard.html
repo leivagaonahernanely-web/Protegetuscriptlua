@@ -783,9 +783,11 @@
     $('formScript').addEventListener('submit', submitScript);
   }
 
-  function openEditScriptModal(id) {
-    const s = scripts.find(x => String(x.id) === String(id));
-    if (!s) { toast('Script no encontrado', 'error'); return; }
+  async function openEditScriptModal(id) {
+    let s = scripts.find(x => String(x.id) === String(id));
+    // Si la lista no estaba cargada o quedó vieja, la recarga antes de rendirse
+    if (!s) { await loadData(); s = scripts.find(x => String(x.id) === String(id)); }
+    if (!s) { toast('No se pudo cargar ese script. Recarga la página e inténtalo de nuevo.', 'error'); return; }
     openModal(`Editar ${s.name}`, `
       <form id="formEditScript" novalidate>
         <div class="inline-note">Subir una nueva versión reemplaza el código actual. El loader no cambia.</div>

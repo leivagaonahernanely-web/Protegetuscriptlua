@@ -191,9 +191,13 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
   const settingFor = (workspaceId, name) => (workspaceId ? q.setting.get(workspaceId, name)?.value ?? null : null);
   const isPlatformOwner = id => Boolean(id) && id === owner();
   const createdAnyScript = userId => Boolean(q.scriptsOfUser.get(userId));
-  const findScript = value => /^\d+$/.test(String(value))
-    ? q.scriptById.get(Number(value))
-    : q.scriptByName.get(String(value ?? '').trim());
+  // Acepta el ID (lo que manda el autocompletado) o el nombre, ignorando espacios y un "#" inicial.
+  const findScript = value => {
+    const v = String(value ?? '').trim().replace(/^#/, '');
+    const found = /^\d+$/.test(v) ? q.scriptById.get(Number(v)) : q.scriptByName.get(v);
+    if (!found) console.warn(`[Bot] Script no encontrado para "${v}". Si pasa seguido, revisa que la base de datos sea la misma y no se haya reiniciado.`);
+    return found ?? null;
+  };
   const keyState = k => (k.banned ? 'baneada' : k.expires_at && k.expires_at <= now() ? 'expirada' : 'activa');
   // Roles recordados por usuario: si Discord no trae los roles en una interacción, se usan los últimos conocidos
   const roleCache = new Map();

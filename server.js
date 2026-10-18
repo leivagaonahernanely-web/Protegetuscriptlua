@@ -325,6 +325,10 @@ function runObfuscatorCli(bin, args, cwd, luaPath) {
     }, (err, stdout, stderr) => {
       if (err) {
         const detail = String(stderr || stdout || err.message).slice(0, 500);
+        // Error de sintaxis del propio script (p. ej. Luau en el Ofuscador 1 que es Lua 5.1)
+        if (/Parsing Error|syntax|unexpected token|expected <|expected/i.test(detail)) {
+          return reject(Object.assign(new Error('Tu script tiene sintaxis que este ofuscador no entiende. Si es código de Roblox (Luau), usa el Ofuscador 2 u Obscura.'), { status: 422 }));
+        }
         return reject(Object.assign(new Error(`El ofuscador falló: ${detail}`), { status: 500 }));
       }
       resolve(stdout);
@@ -353,8 +357,8 @@ async function obfuscate(source, obfuscator) {
       const extra = fs.readdirSync(dir).filter(f => f.endsWith('.lua') && f !== 'script.lua');
       if (extra.length) outFile = path.join(dir, extra[0]);
     }
-    const result = await fs.promises.readFile(outFile, 'utf8');
-    if (!result.trim()) throw Object.assign(new Error('El ofuscador no generó salida'), { status: 500 });
+    const result = await fs.promises.readFile(outFile, 'utf8').catch(() => '');
+    if (!result.trim()) throw Object.assign(new Error('El ofuscador no generó salida. Revisa que el script sea válido para este ofuscador.'), { status: 422 });
     return result;
   } finally {
     await fs.promises.rm(dir, { recursive: true, force: true });

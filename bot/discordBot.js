@@ -127,7 +127,7 @@ export const commands = [
 ].map(c => c.toJSON());
 
 // Comandos que responden en público
-const PUBLIC_COMMANDS = new Set(['panel', 'whitelist', 'unwhitelist', 'blacklist', 'unblacklist', 'warn', 'prices', 'updates']);
+const PUBLIC_COMMANDS = new Set(['panel', 'whitelist', 'unwhitelist', 'warn', 'prices', 'updates']);
 
 // ==========================================
 // Bot

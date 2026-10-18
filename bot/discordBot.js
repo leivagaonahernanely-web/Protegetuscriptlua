@@ -135,7 +135,9 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
   const q = {
     scriptById: db.prepare('SELECT * FROM scripts WHERE id = ?'),
     scriptByName: db.prepare('SELECT * FROM scripts WHERE lower(name) = lower(?) ORDER BY id DESC LIMIT 1'),
-    scriptsList: db.prepare('SELECT id, name FROM scripts ORDER BY id DESC LIMIT 100'),
+    scriptsList: db.prepare('SELECT id, name, user_id FROM scripts ORDER BY id DESC LIMIT 100'),
+    scriptsOfUser: db.prepare('SELECT 1 FROM scripts WHERE user_id = ? LIMIT 1'),
+    userById: db.prepare('SELECT id, username, avatar FROM users WHERE id = ?'),
     keyByCode: db.prepare('SELECT * FROM keys WHERE key = ?'),
     activeKeyFor: db.prepare(`
       SELECT * FROM keys WHERE script_id = ? AND discord_id = ? AND banned = 0
@@ -168,7 +170,10 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
   };
 
   const owner = () => ownerId || null;
-  const setting = name => q.setting.get(owner(), name)?.value ?? null;
+  // Cada creador tiene su propio workspace: sus roles (comprador/gestor) y sus scripts
+  const settingFor = (workspaceId, name) => (workspaceId ? q.setting.get(workspaceId, name)?.value ?? null : null);
+  const isPlatformOwner = id => Boolean(id) && id === owner();
+  const createdAnyScript = userId => Boolean(q.scriptsOfUser.get(userId));
   const findScript = value => /^\d+$/.test(String(value))
     ? q.scriptById.get(Number(value))
     : q.scriptByName.get(String(value ?? '').trim());
@@ -179,20 +184,22 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
     return Array.isArray(roles) ? roles.map(String) : [...(roles.cache?.keys() ?? [])];
   };
 
-  // Permiso de gestión: dueño del workspace, administrador o rol gestor
-  function canManage(interaction) {
-    if (interaction.user.id === owner()) return true;
+  // Permiso de gestión sobre el workspace de workspaceId (el creador del script):
+  // dueño de la plataforma, el propio creador, administrador del servidor o rol gestor de ese creador
+  function canManage(interaction, workspaceId) {
+    const actor = interaction.user.id;
+    if (isPlatformOwner(actor) || (workspaceId && actor === workspaceId)) return true;
     if (interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)) return true;
-    const managerRole = setting('manager_role');
+    const managerRole = settingFor(workspaceId, 'manager_role');
     return Boolean(managerRole && memberRoleIds(interaction).includes(managerRole));
   }
 
-  // Acceso a un script: blacklist, whitelist (usuario o rol), dueño, o key existente
+  // Acceso a un script: blacklist, whitelist (usuario o rol), creador/dueño, o key existente
   function resolveAccess(script, userId, roleIds) {
     if (q.blacklisted.get(script.id, userId)) return { status: 'blacklisted' };
     const existing = q.activeKeyFor.get(script.id, userId, now());
     if (existing) return { status: 'ok', key: existing.key };
-    const allowed = userId === owner()
+    const allowed = userId === owner() || userId === script.user_id
       || q.rulesForScript.all(script.id).some(r =>
         (r.kind === 'user' && r.discord_id === userId) || (r.kind === 'role' && roleIds.includes(r.discord_id)));
     if (!allowed) return { status: 'none' };
@@ -257,9 +264,9 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
     return `📊 **Tus keys**\n${lines.join('\n')}`;
   }
 
-  async function giveBuyerRole(interaction) {
-    const roleId = setting('buyer_role');
-    if (!roleId) return '👤 El dueño todavía no configuró el rol comprador con /getrole.';
+  async function giveBuyerRole(interaction, script) {
+    const roleId = settingFor(script.user_id, 'buyer_role');
+    if (!roleId) return '👤 El creador de este script todavía no configuró el rol comprador con /getrole.';
     try {
       const member = await interaction.guild.members.fetch(interaction.user.id);
       await member.roles.add(roleId);
@@ -270,14 +277,31 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
     }
   }
 
-  // Panel con botones (estilo Luarmor)
+  // Avatar de Discord; si el usuario no tiene avatar propio, usa el avatar por defecto
+  function avatarUrl(id, avatar) {
+    if (avatar) return `https://cdn.discordapp.com/avatars/${id}/${avatar}.png?size=64`;
+    return `https://cdn.discordapp.com/embed/avatars/${(BigInt(id) >> 22n) % 6n}.png`;
+  }
+
+  // Fecha en formato DD/MM/YYYY HH:mm, zona horaria de Ecuador
+  function formatPanelDate(ts) {
+    const parts = Object.fromEntries(new Intl.DateTimeFormat('en-GB', {
+      timeZone: 'America/Guayaquil', day: '2-digit', month: '2-digit', year: 'numeric',
+      hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+    }).formatToParts(ts).map(p => [p.type, p.value]));
+    return `${parts.day}/${parts.month}/${parts.year} ${parts.hour}:${parts.minute}`;
+  }
+
+  // Panel con botones (estilo Luarmor): muestra quién creó el script
   function panelPayload(script) {
+    const creator = script.user_id ? q.userById.get(script.user_id) : null;
+    const creatorName = creator?.username || (script.user_id ? `ID ${script.user_id}` : 'Vantarmor');
+    const creatorIcon = script.user_id ? avatarUrl(script.user_id, creator?.avatar) : undefined;
     const embed = new EmbedBuilder()
       .setColor(0x5865f2)
       .setTitle(`Panel de acceso · ${script.name}`)
       .setDescription('Si eres comprador, usa los botones para canjear tu key, obtener el script o tu rol.')
-      .setFooter({ text: 'Vantarmor' })
-      .setTimestamp();
+      .setFooter({ text: `Sent by ${creatorName} | ${formatPanelDate(new Date())}`, iconURL: creatorIcon });
     const row1 = new ActionRowBuilder().addComponents(
       new ButtonBuilder().setCustomId(`vanta:redeem:${script.id}`).setLabel('🔑 Redeem Key').setStyle(ButtonStyle.Success),
       new ButtonBuilder().setCustomId(`vanta:script:${script.id}`).setLabel('📜 Get Script').setStyle(ButtonStyle.Primary),
@@ -304,9 +328,9 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
         return reply(`Pong · ${Math.round(interaction.client.ws.ping)} ms`);
 
       case 'panel': {
-        if (!canManage(interaction)) return reply(denied);
         const script = findScript(interaction.options.getString('script', true));
         if (!script) return reply('❌ Script no encontrado.');
+        if (!canManage(interaction, script.user_id)) return reply(denied);
         const sent = await interaction.channel.send(panelPayload(script));
         q.panelInsert.run(script.id, interaction.channelId, sent.id, now());
         return reply(`✅ Panel de **${script.name}** publicado.`);
@@ -325,10 +349,10 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
       }
 
       case 'generatekey': {
-        if (!canManage(interaction)) return reply(denied);
-        if (onCooldown(actor)) return reply('⏳ Espera unos segundos antes de otra acción.');
         const script = findScript(interaction.options.getString('script', true));
         if (!script) return reply('❌ Script no encontrado.');
+        if (!canManage(interaction, script.user_id)) return reply(denied);
+        if (onCooldown(actor)) return reply('⏳ Espera unos segundos antes de otra acción.');
         const amount = interaction.options.getInteger('amount') ?? 1;
         const raw = interaction.options.getString('duration');
         let seconds = null;
@@ -351,19 +375,22 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
       }
 
       case 'deletekey': {
-        if (!canManage(interaction)) return reply(denied);
-        if (onCooldown(actor)) return reply('⏳ Espera unos segundos antes de otra acción.');
         const code = interaction.options.getString('key', true).trim();
-        if (!q.keyByCode.get(code)) return reply('❌ Esa key no existe.');
+        const k = q.keyByCode.get(code);
+        if (!k) return reply('❌ Esa key no existe.');
+        const script = q.scriptById.get(k.script_id);
+        if (!canManage(interaction, script?.user_id)) return reply(denied);
+        if (onCooldown(actor)) return reply('⏳ Espera unos segundos antes de otra acción.');
         q.deleteKey.run(code);
         return reply('🗑️ Key eliminada.');
       }
 
       case 'addtime': {
-        if (!canManage(interaction)) return reply(denied);
         const code = interaction.options.getString('key', true).trim();
         const k = q.keyByCode.get(code);
         if (!k) return reply('❌ Esa key no existe.');
+        const script = q.scriptById.get(k.script_id);
+        if (!canManage(interaction, script?.user_id)) return reply(denied);
         const secs = parseDuration(interaction.options.getString('duration', true));
         if (!secs) return reply('❌ Duración inválida. Usa 30d, 12h, 1w, 1mo o 1y.');
         if (k.expires_at === null) return reply('ℹ️ Esa key ya es forever.');
@@ -375,7 +402,7 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
         const script = findScript(interaction.options.getString('script', true));
         if (!script) return reply('❌ Script no encontrado.');
         const target = interaction.options.getUser('user');
-        const isManager = canManage(interaction);
+        const isManager = canManage(interaction, script.user_id);
         if (target && target.id !== actor && !isManager) return reply('⛔ Solo el dueño o un gestor puede reiniciar el HWID de otros.');
         const who = target?.id ?? actor;
         const bypass = Boolean(target && target.id !== actor && isManager);
@@ -384,9 +411,9 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
 
       case 'whitelist':
       case 'unwhitelist': {
-        if (!canManage(interaction)) return reply(denied);
         const script = findScript(interaction.options.getString('script', true));
         if (!script) return reply('❌ Script no encontrado.');
+        if (!canManage(interaction, script.user_id)) return reply(denied);
         const user = interaction.options.getUser('user');
         const role = interaction.options.getRole('role');
         if (!user && !role) return reply('❌ Selecciona un usuario o un rol.');
@@ -405,23 +432,26 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
       }
 
       case 'blacklist': {
-        if (!canManage(interaction)) return reply(denied);
         const script = findScript(interaction.options.getString('script'));
+        if (script && !canManage(interaction, script.user_id)) return reply(denied);
         const target = interaction.options.getUser('user', true);
         const reason = interaction.options.getString('reason') || 'Sin razón indicada';
-        const targets = script ? [script] : q.scriptsList.all().map(s => ({ id: s.id, name: s.name }));
+        // Sin script: solo afecta a los scripts que el actor puede gestionar
+        const targets = script ? [script] : q.scriptsList.all().filter(s => canManage(interaction, s.user_id));
+        if (!targets.length) return reply(denied);
         for (const s of targets) {
           q.blacklistInsert.run(s.id, target.id, reason, now());
           q.banKeys.run(reason, s.id, target.id);
         }
-        return reply(`⛔ <@${target.id}> bloqueado en **${script ? script.name : 'todos los scripts'}**.\nRazón: ${reason}`);
+        return reply(`⛔ <@${target.id}> bloqueado en **${script ? script.name : 'todos tus scripts'}**.\nRazón: ${reason}`);
       }
 
       case 'unblacklist': {
-        if (!canManage(interaction)) return reply(denied);
         const script = findScript(interaction.options.getString('script'));
+        if (script && !canManage(interaction, script.user_id)) return reply(denied);
         const target = interaction.options.getUser('user', true);
-        const targets = script ? [script] : q.scriptsList.all().map(s => ({ id: s.id, name: s.name }));
+        const targets = script ? [script] : q.scriptsList.all().filter(s => canManage(interaction, s.user_id));
+        if (!targets.length) return reply(denied);
         let removed = 0;
         for (const s of targets) {
           removed += q.blacklistDelete.run(s.id, target.id).changes;
@@ -430,22 +460,23 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
         return reply(removed ? `✅ Bloqueo quitado para <@${target.id}>.` : `ℹ️ <@${target.id}> no tenía bloqueo activo.`);
       }
 
+      // Cada creador configura su propio rol comprador (solo para sus scripts)
       case 'getrole': {
-        if (interaction.user.id !== owner()) return reply('⛔ Solo el dueño puede configurar el rol comprador.');
+        if (!isPlatformOwner(actor) && !createdAnyScript(actor)) return reply('⛔ Solo creadores de scripts pueden configurar el rol comprador.');
         const role = interaction.options.getRole('role', true);
-        q.settingSet.run(owner(), 'buyer_role', role.id);
-        return reply(`✅ Rol comprador: <@&${role.id}>.`);
+        q.settingSet.run(actor, 'buyer_role', role.id);
+        return reply(`✅ Rol comprador para tus scripts: <@&${role.id}>.`);
       }
 
       case 'generatekeyrole': {
-        if (interaction.user.id !== owner()) return reply('⛔ Solo el dueño puede configurar el rol gestor.');
+        if (!isPlatformOwner(actor) && !createdAnyScript(actor)) return reply('⛔ Solo creadores de scripts pueden configurar el rol gestor.');
         const role = interaction.options.getRole('role', true);
-        q.settingSet.run(owner(), 'manager_role', role.id);
-        return reply(`✅ Rol gestor: <@&${role.id}>. Puede usar /generatekey, /deletekey, /addtime y /blacklist.`);
+        q.settingSet.run(actor, 'manager_role', role.id);
+        return reply(`✅ Rol gestor para tus scripts: <@&${role.id}>. Puede usar /generatekey, /deletekey, /addtime, /whitelist y /blacklist en tus scripts.`);
       }
 
       case 'warn': {
-        if (!canManage(interaction)) return reply(denied);
+        if (!canManage(interaction, owner())) return reply(denied);
         const target = interaction.options.getUser('user', true);
         const reason = interaction.options.getString('reason', true);
         q.warnInsert.run(target.id, reason, now());
@@ -454,7 +485,7 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
 
       case 'prices':
       case 'updates': {
-        if (interaction.user.id !== owner()) return reply('⛔ Solo el dueño puede publicar esto.');
+        if (!isPlatformOwner(actor)) return reply('⛔ Solo el dueño puede publicar esto.');
         const title = interaction.options.getString('title', true);
         const description = interaction.options.getString('description', true).replace(/\\n/g, '\n');
         const embed = new EmbedBuilder()
@@ -497,7 +528,7 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
     if (action === 'role') {
       const access = resolveAccess(script, actor, memberRoleIds(interaction));
       if (access.status !== 'ok') return reply('❌ No tienes acceso a este script. Canjea una key o pide la whitelist.');
-      return reply(await giveBuyerRole(interaction));
+      return reply(await giveBuyerRole(interaction, script));
     }
     if (action === 'hwid') {
       const access = resolveAccess(script, actor, memberRoleIds(interaction));

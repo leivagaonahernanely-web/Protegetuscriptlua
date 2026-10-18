@@ -290,15 +290,17 @@ const OBF_CONFIG = {
   prometheus: {
     bin: 'lua5.1',
     dir: findEntryDir(path.join(OBF_DIR, 'prometheus'), 'cli.lua'),
-    args: (input, out) => ['cli.lua', '--preset', 'Medium', '--out', out, input],
-    output: (input, out) => out,
+    // El CLI no tiene opción --out: escribe <entrada>.obfuscated.lua junto al archivo
+    args: (input) => ['cli.lua', '--preset', 'Medium', input],
+    output: (input) => input.replace(/\.lua$/, '') + '.obfuscated.lua',
   },
   hercules: {
     bin: 'lua5.4',
     dir: findEntryDir(path.join(OBF_DIR, 'hercules'), 'hercules.lua'),
     // --light: el modo balanced tardaba más que el límite de la petición
-    args: (input) => ['hercules.lua', input, '--light'],
-    output: (input) => input.replace(/\.lua$/, '') + '_obfuscated.lua',
+    // --target luau: el código de Roblox es Luau; sin esto se trata como Lua normal
+    args: (input) => ['hercules.lua', input, '--target', 'luau', '--light'],
+    output: (input) => input.replace(/\.lua$/, '') + '_obfuscated.luau',
   },
   // Ofuscador 3 = Obscura (Python, MIT). CLI: python main.py <entrada> -o <salida> --mode lightweight
   obscura: {
@@ -354,7 +356,7 @@ async function obfuscate(source, obfuscator) {
     // Si el CLI guardó con otro nombre, toma el .lua nuevo que haya generado
     let outFile = cfg.output(input, out);
     if (!fs.existsSync(outFile)) {
-      const extra = fs.readdirSync(dir).filter(f => f.endsWith('.lua') && f !== 'script.lua');
+      const extra = fs.readdirSync(dir).filter(f => /\.luau?$/.test(f) && f !== 'script.lua');
       if (extra.length) outFile = path.join(dir, extra[0]);
     }
     const result = await fs.promises.readFile(outFile, 'utf8').catch(() => '');

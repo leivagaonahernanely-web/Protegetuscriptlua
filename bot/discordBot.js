@@ -21,6 +21,7 @@ import crypto from 'crypto';
 const KEY_ALPHABET = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
 const HWID_RESET_COOLDOWN_S = 24 * 3600;
 const ACTION_COOLDOWN_MS = 5_000;
+const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 const UNIT_SECONDS = { h: 3600, d: 86400, w: 604800, mo: 2592000, y: 31536000 };
 
 export function parseDuration(raw) {
@@ -75,7 +76,8 @@ const durationOpt = (o, required = false) => o.setName('duration').setDescriptio
 export const commands = [
   new SlashCommandBuilder().setName('ping').setDescription('Verifica que el bot responde'),
   new SlashCommandBuilder().setName('panel').setDescription('Publica el panel de acceso de un script en este canal')
-    .addStringOption(o => scriptOpt(o)),
+    .addStringOption(o => scriptOpt(o))
+    .addStringOption(o => o.setName('descripcion').setDescription('Descripción del panel (opcional, usa \\n para saltos de línea)').setMaxLength(800)),
   new SlashCommandBuilder().setName('stats').setDescription('Muestra tus keys'),
   new SlashCommandBuilder().setName('redeem').setDescription('Canjea una key')
     .addStringOption(o => o.setName('key').setDescription('Tu key').setRequired(true).setMinLength(32).setMaxLength(64)),
@@ -87,8 +89,9 @@ export const commands = [
     .addStringOption(o => durationOpt(o)),
   new SlashCommandBuilder().setName('deletekey').setDescription('Elimina una key (dueño o gestor)')
     .addStringOption(o => o.setName('key').setDescription('Key').setRequired(true)),
-  new SlashCommandBuilder().setName('dropkey').setDescription('Elimina una key (creador o gestor)')
-    .addStringOption(o => o.setName('key').setDescription('Key').setRequired(true)),
+  new SlashCommandBuilder().setName('dropkey').setDescription('Sortea keys en el canal con cuenta regresiva (creador o gestor)')
+    .addStringOption(o => scriptOpt(o))
+    .addIntegerOption(o => o.setName('amount').setDescription('Cantidad de keys (1-50)').setMinValue(1).setMaxValue(50).setRequired(true)),
   new SlashCommandBuilder().setName('logs').setDescription('Elige el canal donde se registran los usos de tus scripts')
     .addChannelOption(o => o.setName('canal').setDescription('Canal de logs').setRequired(true)),
   new SlashCommandBuilder().setName('addtime').setDescription('Añade tiempo a una key (dueño o gestor)')
@@ -128,7 +131,7 @@ export const commands = [
 ].map(c => c.toJSON());
 
 // Comandos que responden en público
-const PUBLIC_COMMANDS = new Set(['panel', 'whitelist', 'unwhitelist', 'blacklist', 'unblacklist', 'warn', 'prices', 'updates']);
+const PUBLIC_COMMANDS = new Set(['panel', 'whitelist', 'unwhitelist', 'blacklist', 'unblacklist', 'warn', 'prices', 'updates', 'dropkey']);
 
 // ==========================================
 // Bot
@@ -188,10 +191,25 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
     : q.scriptByName.get(String(value ?? '').trim());
   const keyState = k => (k.banned ? 'baneada' : k.expires_at && k.expires_at <= now() ? 'expirada' : 'activa');
   const memberRoleIds = interaction => {
+    if (interaction._roleIds) return interaction._roleIds;
     const roles = interaction.member?.roles;
     if (!roles) return [];
     return Array.isArray(roles) ? roles.map(String) : [...(roles.cache?.keys() ?? [])];
   };
+  // Si Discord no trajo los roles del miembro (caché vacía), se piden al servidor antes de decidir acceso
+  async function loadRoles(interaction) {
+    if (interaction._roleIds) return;
+    let ids = memberRoleIds(interaction);
+    if (!ids.length && interaction.guild) {
+      try {
+        const member = await interaction.guild.members.fetch(interaction.user.id);
+        ids = [...member.roles.cache.keys()];
+      } catch (err) {
+        console.error('[Bot] No se pudieron cargar los roles del miembro:', err.message);
+      }
+    }
+    interaction._roleIds = ids;
+  }
 
   // Comandos que el rol gestor (/generatekeyrole) puede usar. El resto solo lo usa el creador.
   const MANAGER_COMMANDS = new Set(['whitelist', 'unwhitelist', 'blacklist', 'unblacklist', 'generatekey', 'deletekey', 'dropkey']);
@@ -368,14 +386,15 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
   }
 
   // Panel con botones (estilo Luarmor): muestra quién creó el script
-  function panelPayload(script) {
+  function panelPayload(script, customDescription) {
     const creator = script.user_id ? q.userById.get(script.user_id) : null;
     const creatorName = creator?.username || (script.user_id ? `ID ${script.user_id}` : 'Vantarmor');
     const creatorIcon = script.user_id ? avatarUrl(script.user_id, creator?.avatar) : undefined;
+    const defaultDescription = `This control panel is for the project: **${script.name}**\nIf you're a buyer, click on the buttons below to redeem your key, get the script or get your role`;
     const embed = new EmbedBuilder()
       .setColor(0x5865f2)
       .setTitle(`Panel de acceso · ${script.name}`)
-      .setDescription('Si eres comprador, usa los botones para canjear tu key, obtener el script o tu rol.')
+      .setDescription(customDescription || defaultDescription)
       .setFooter({ text: `Sent by ${creatorName} | ${formatPanelDate(new Date())}`, iconURL: creatorIcon });
     const row1 = new ActionRowBuilder().addComponents(
       new ButtonBuilder().setCustomId(`vanta:redeem:${script.id}`).setLabel('🔑 Redeem Key').setStyle(ButtonStyle.Success),
@@ -397,6 +416,7 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
     const cmd = interaction.commandName;
     const isPublic = PUBLIC_COMMANDS.has(cmd);
     await interaction.deferReply(isPublic ? {} : { flags: MessageFlags.Ephemeral });
+    await loadRoles(interaction);
     const reply = content => interaction.editReply({ content });
     const denied = '⛔ No tienes permiso para esta acción.';
 
@@ -408,7 +428,8 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
         const script = findScript(interaction.options.getString('script', true));
         if (!script) return reply('❌ Script no encontrado.');
         if (!canUse(interaction, script.user_id)) return reply(denied);
-        const sent = await interaction.channel.send(panelPayload(script));
+        const customDescription = interaction.options.getString('descripcion')?.replace(/\\n/g, '\n');
+        const sent = await interaction.channel.send(panelPayload(script, customDescription));
         q.panelInsert.run(script.id, interaction.channelId, sent.id, now());
         logScriptEvent(script, `📌 Panel publicado por <@${actor}> en <#${interaction.channelId}>`);
         return reply(`✅ Panel de **${script.name}** publicado.`);
@@ -460,8 +481,37 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
         return reply(`✅ Los logs de tus scripts se enviarán a <#${channel.id}>.`);
       }
 
-      case 'deletekey':
+      // Sorteo: genera las keys y anuncia la cuenta regresiva (un mensaje por número)
       case 'dropkey': {
+        const script = findScript(interaction.options.getString('script', true));
+        if (!script) return reply('❌ Script no encontrado.');
+        if (!canUse(interaction, script.user_id)) return reply(denied);
+        if (onCooldown(actor)) return reply('⏳ Espera unos segundos antes de otra acción.');
+        const amount = interaction.options.getInteger('amount', true);
+        const list = db.transaction(() => {
+          const out = [];
+          for (let i = 0; i < amount; i++) {
+            let k;
+            do { k = makeKey(); } while (q.keyByCode.get(k));
+            q.insertKey.run(k, script.id, null);
+            out.push(k);
+          }
+          return out;
+        })();
+        const channel = interaction.channel;
+        await channel.send('# Key drop!!\n@everyone');
+        for (let n = 10; n >= 1; n--) {
+          await sleep(1000);
+          await channel.send(String(n));
+        }
+        await sleep(1000);
+        await channel.send('# GO!!');
+        await channel.send(`\`\`\`\n${list.join('\n')}\n\`\`\``);
+        logScriptEvent(script, `🎁 Key drop de ${amount} key(s) por <@${actor}>`);
+        return reply(`✅ Drop de ${amount} key(s) para **${script.name}** enviado.`);
+      }
+
+      case 'deletekey': {
         const code = interaction.options.getString('key', true).trim();
         const k = q.keyByCode.get(code);
         if (!k) return reply('❌ Esa key no existe.');
@@ -621,6 +671,7 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
     }
 
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+    await loadRoles(interaction);
     const reply = content => interaction.editReply({ content });
     const actor = interaction.user.id;
 

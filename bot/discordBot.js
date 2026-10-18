@@ -194,19 +194,23 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
     ? q.scriptById.get(Number(value))
     : q.scriptByName.get(String(value ?? '').trim());
   const keyState = k => (k.banned ? 'baneada' : k.expires_at && k.expires_at <= now() ? 'expirada' : 'activa');
+  // Roles recordados por usuario: si Discord no trae los roles en una interacción, se usan los últimos conocidos
+  const roleCache = new Map();
+  const ROLE_CACHE_MS = 10 * 60_000;
   const memberRoleIds = interaction => {
     if (interaction._roleIds) return interaction._roleIds;
     const roles = interaction.member?.roles;
-    if (!roles) return [];
-    return Array.isArray(roles) ? roles.map(String) : [...(roles.cache?.keys() ?? [])];
+    const live = !roles ? [] : Array.isArray(roles) ? roles.map(String) : [...(roles.cache?.keys() ?? [])];
+    if (live.length) return live;
+    const cached = roleCache.get(interaction.user.id);
+    return cached && Date.now() - cached.at < ROLE_CACHE_MS ? cached.ids : [];
   };
-  // Si Discord no trajo los roles del miembro (caché vacía), se piden al servidor antes de decidir acceso
+  // Si no hay roles en la interacción, pide el miembro al servidor (con tope de 2,5 s) y recuerda sus roles
   async function loadRoles(interaction) {
     if (interaction._roleIds) return;
     let ids = memberRoleIds(interaction);
     if (!ids.length && interaction.guild) {
       try {
-        // Límite de 2,5 s: si Discord tarda, seguimos con lo que hay en vez de dejar sin responder
         const member = await Promise.race([
           interaction.guild.members.fetch(interaction.user.id),
           sleep(2500).then(() => { throw new Error('tiempo agotado'); }),
@@ -216,6 +220,7 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
         console.error('[Bot] No se pudieron cargar los roles del miembro:', err.message);
       }
     }
+    if (ids.length) roleCache.set(interaction.user.id, { ids, at: Date.now() });
     interaction._roleIds = ids;
   }
 
@@ -265,6 +270,14 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
     }
   }
 
+  // Ya tiene acceso (key activa, creador, o whitelist por usuario o rol). No crea keys.
+  function hasAccess(script, userId, roleIds) {
+    if (q.activeKeyFor.get(script.id, userId, now())) return true;
+    if (userId === owner() || userId === script.user_id) return true;
+    return q.rulesForScript.all(script.id).some(r =>
+      (r.kind === 'user' && r.discord_id === userId) || (r.kind === 'role' && roleIds.includes(r.discord_id)));
+  }
+
   // Mensaje para quien no tiene whitelist ni key (estilo Luarmor)
   const NO_ACCESS_MSG = 'You need to be whitelisted to get this script.\nIf you have a script key, click on the Redeem button below to redeem it';
 
@@ -308,7 +321,10 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
     if (script.ffa) return `\`\`\`lua\n${loaderText(script)}\n\`\`\``;
     const access = resolveAccess(script, userId, roleIds);
     if (access.status === 'blacklisted') return `⛔ Estás bloqueado para **${script.name}**.`;
-    if (access.status === 'none') return NO_ACCESS_MSG;
+    if (access.status === 'none') {
+      console.log(`[Bot] Sin acceso: script ${script.id} (${script.name}), usuario ${userId}, roles vistos ${roleIds.length}`);
+      return NO_ACCESS_MSG;
+    }
     logScriptEvent(script, `📜 <@${userId}> obtuvo el loader`);
     return `\`\`\`lua\n${loaderText(script, access.key)}\n\`\`\``;
   }
@@ -320,6 +336,7 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
     if (k.expires_at && k.expires_at <= now()) return '❌ Esta key expiró.';
     if (k.discord_id && k.discord_id !== userId) return '❌ Esta key ya está vinculada a otra cuenta.';
     if (isBlocked({ id: k.script_id }, userId)) return '⛔ Estás bloqueado para este script.';
+    if (q.activeKeyFor.get(k.script_id, userId, now())) return '✅ Ya tienes acceso a este script. Usa Get Script.';
     q.claim.run(userId, code);
     const claimedScript = q.scriptById.get(k.script_id);
     if (claimedScript) logScriptEvent(claimedScript, `🎟️ <@${userId}> canjeó una key`);
@@ -686,6 +703,9 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
 
     // El modal no puede ir después de deferReply
     if (action === 'redeem') {
+      if (hasAccess(script, interaction.user.id, memberRoleIds(interaction))) {
+        return interaction.reply({ content: `✅ Ya tienes acceso a **${script.name}**. Usa **Get Script** para obtener tu loader.`, flags: MessageFlags.Ephemeral });
+      }
       const modal = new ModalBuilder().setCustomId(`vanta:redeem-modal:${script.id}`).setTitle('Redeem Key');
       modal.addComponents(new ActionRowBuilder().addComponents(
         new TextInputBuilder().setCustomId('key').setLabel('Key').setStyle(TextInputStyle.Short)

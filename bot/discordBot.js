@@ -176,6 +176,7 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
     setting: db.prepare('SELECT value FROM bot_settings WHERE owner = ? AND name = ?'),
     settingSet: db.prepare('INSERT OR REPLACE INTO bot_settings (owner, name, value) VALUES (?, ?, ?)'),
     panelInsert: db.prepare('INSERT INTO bot_panels (script_id, channel_id, message_id, created_at) VALUES (?, ?, ?, ?)'),
+    managerRoleRows: db.prepare("SELECT owner, value FROM bot_settings WHERE name = 'manager_role' AND value IS NOT NULL"),
     panelForScript: db.prepare('SELECT channel_id FROM bot_panels WHERE script_id = ? ORDER BY created_at DESC LIMIT 1'),
     warnInsert: db.prepare('INSERT INTO bot_warnings (discord_id, reason, created_at) VALUES (?, ?, ?)'),
     planKeyInsert: db.prepare('INSERT INTO plan_keys (key, plan, created_at) VALUES (?, ?, ?)'),
@@ -209,6 +210,21 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
       }
     }
     interaction._roleIds = ids;
+  }
+
+  // Scripts que aparecen al elegir uno en un comando:
+  // - /panel: solo los propios del usuario.
+  // - /getscript: todos (los compradores lo usan así).
+  // - el resto: los propios y los de creadores que le dieron rol gestor.
+  function scriptsForAutocomplete(interaction) {
+    const actor = interaction.user.id;
+    if (interaction.commandName === 'getscript') return q.scriptsList.all();
+    const creators = new Set([actor]);
+    if (interaction.commandName !== 'panel') {
+      const roleIds = memberRoleIds(interaction);
+      for (const row of q.managerRoleRows.all()) if (roleIds.includes(row.value)) creators.add(row.owner);
+    }
+    return q.scriptsList.all().filter(s => creators.has(s.user_id));
   }
 
   // Comandos que el rol gestor (/generatekeyrole) puede usar. El resto solo lo usa el creador.
@@ -427,7 +443,8 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
       case 'panel': {
         const script = findScript(interaction.options.getString('script', true));
         if (!script) return reply('❌ Script no encontrado.');
-        if (!canUse(interaction, script.user_id)) return reply(denied);
+        // Solo el creador publica el panel de sus scripts (ni gestores ni admins)
+        if (script.user_id !== actor) return reply('⛔ Solo el creador de este script puede publicar su panel.');
         const customDescription = interaction.options.getString('descripcion')?.replace(/\\n/g, '\n');
         const sent = await interaction.channel.send(panelPayload(script, customDescription));
         q.panelInsert.run(script.id, interaction.channelId, sent.id, now());
@@ -723,8 +740,9 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
   client.on('interactionCreate', async interaction => {
     try {
       if (interaction.isAutocomplete()) {
+        await loadRoles(interaction);
         const focused = interaction.options.getFocused().toLowerCase();
-        const choices = q.scriptsList.all()
+        const choices = scriptsForAutocomplete(interaction)
           .filter(s => s.name.toLowerCase().includes(focused))
           .slice(0, 25)
           .map(s => ({ name: s.name.slice(0, 100), value: String(s.id) }));

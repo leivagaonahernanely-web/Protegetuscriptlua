@@ -12,14 +12,16 @@ RUN mkdir -p /opt/obfuscators \
  && git clone --depth 1 https://github.com/zeusssz/hercules-obfuscator.git /opt/obfuscators/hercules \
  && git clone --depth 1 https://github.com/vo3pal/obscura.git /opt/obfuscators/obscura
 
-# Obscura necesita Python 3.12 (Debian trae 3.11). uv instala el intérprete y las dependencias.
+# Obscura necesita Python 3.12 (Debian trae 3.11). uv instala el intérprete y crea un venv
+# propio para Obscura (el Python gestionado de uv no admite instalar paquetes directamente).
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 RUN uv python install 3.12 \
- && ln -s "$(uv python find 3.12)" /usr/local/bin/python312 \
- && uv pip install --python /usr/local/bin/python312 -r /opt/obfuscators/obscura/requirements.txt
+ && uv venv --python 3.12 /opt/obscura-venv \
+ && uv pip install --python /opt/obscura-venv/bin/python -r /opt/obfuscators/obscura/requirements.txt
 
 ENV NODE_ENV=production \
-    OBFUSCATOR_DIR=/opt/obfuscators
+    OBFUSCATOR_DIR=/opt/obfuscators \
+    OBSCURA_PYTHON=/opt/obscura-venv/bin/python
 
 WORKDIR /app
 COPY package*.json ./

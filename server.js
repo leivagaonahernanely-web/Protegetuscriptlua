@@ -228,7 +228,7 @@ const OBF_CONFIG = {
   // Ofuscador 3 = Obscura (Python, MIT). CLI: python main.py <entrada> -o <salida> --mode lightweight
   obscura: {
     // Obscura usa sintaxis de Python 3.12; el Dockerfile instala ese intérprete
-    bin: process.env.OBSCURA_PYTHON || '/usr/local/bin/python312',
+    bin: process.env.OBSCURA_PYTHON || '/opt/obscura-venv/bin/python',
     dir: path.join(OBF_DIR, 'obscura'),
     args: (input, out) => ['main.py', input, '-o', out, '--mode', 'lightweight'],
     output: (input, out) => out,

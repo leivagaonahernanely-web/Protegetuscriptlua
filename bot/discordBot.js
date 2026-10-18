@@ -63,6 +63,9 @@ export function ensureBotSchema(db) {
       discord_id TEXT, reason TEXT, created_at INTEGER
     );
   `);
+  // Migración: la whitelist puede ser por tiempo (expires_at NULL = permanente)
+  const hasExp = db.prepare("SELECT 1 FROM pragma_table_info('bot_access_rules') WHERE name = 'expires_at'").get();
+  if (!hasExp) db.exec('ALTER TABLE bot_access_rules ADD COLUMN expires_at INTEGER');
 }
 
 // ==========================================
@@ -87,9 +90,10 @@ export const commands = [
     .addStringOption(o => scriptOpt(o))
     .addIntegerOption(o => o.setName('amount').setDescription('Cantidad (1-50)').setMinValue(1).setMaxValue(50))
     .addStringOption(o => durationOpt(o)),
-  new SlashCommandBuilder().setName('deletekey').setDescription('Elimina una key o todas las keys vinculadas a un usuario (creador o gestor)')
+  new SlashCommandBuilder().setName('deletekey').setDescription('Elimina una key o las keys vinculadas a un usuario (creador o gestor)')
     .addStringOption(o => o.setName('key').setDescription('Key a eliminar').setRequired(false))
-    .addUserOption(o => userOpt(o, false)),
+    .addUserOption(o => userOpt(o, false))
+    .addStringOption(o => scriptOpt(o, 'Script (opcional: si no eliges, aplica a todos los tuyos)').setRequired(false)),
   new SlashCommandBuilder().setName('dropkey').setDescription('Sortea keys en el canal con cuenta regresiva (creador o gestor)')
     .addStringOption(o => scriptOpt(o))
     .addIntegerOption(o => o.setName('amount').setDescription('Cantidad de keys (1-50)').setMinValue(1).setMaxValue(50).setRequired(true)),
@@ -104,7 +108,8 @@ export const commands = [
   new SlashCommandBuilder().setName('whitelist').setDescription('Añade un usuario o rol a la whitelist')
     .addStringOption(o => scriptOpt(o))
     .addUserOption(o => userOpt(o))
-    .addRoleOption(o => roleOpt(o)),
+    .addRoleOption(o => roleOpt(o))
+    .addStringOption(o => durationOpt(o)),
   new SlashCommandBuilder().setName('unwhitelist').setDescription('Quita un usuario o rol de la whitelist')
     .addStringOption(o => scriptOpt(o))
     .addUserOption(o => userOpt(o))
@@ -175,8 +180,9 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
     blacklisted: db.prepare('SELECT 1 FROM bot_blacklist WHERE script_id = ? AND discord_id = ?'),
     blacklistInsert: db.prepare('INSERT OR REPLACE INTO bot_blacklist (script_id, discord_id, reason, created_at) VALUES (?, ?, ?, ?)'),
     blacklistDelete: db.prepare('DELETE FROM bot_blacklist WHERE script_id = ? AND discord_id = ?'),
-    rulesForScript: db.prepare('SELECT kind, discord_id FROM bot_access_rules WHERE script_id = ?'),
-    ruleInsert: db.prepare('INSERT OR IGNORE INTO bot_access_rules (script_id, kind, discord_id, label) VALUES (?, ?, ?, ?)'),
+    rulesForScript: db.prepare('SELECT kind, discord_id, expires_at FROM bot_access_rules WHERE script_id = ?'),
+    ruleInsert: db.prepare('INSERT OR REPLACE INTO bot_access_rules (script_id, kind, discord_id, label, expires_at) VALUES (?, ?, ?, ?, ?)'),
+    insertKeyExp: db.prepare('INSERT INTO keys (key, script_id, expires_at, discord_id) VALUES (?, ?, ?, ?)'),
     ruleDelete: db.prepare('DELETE FROM bot_access_rules WHERE script_id = ? AND kind = ? AND discord_id = ?'),
     setting: db.prepare('SELECT value FROM bot_settings WHERE owner = ? AND name = ?'),
     settingSet: db.prepare('INSERT OR REPLACE INTO bot_settings (owner, name, value) VALUES (?, ?, ?)'),
@@ -290,11 +296,14 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
     }
   }
 
+  // Una regla de whitelist vale solo mientras no venza (expires_at NULL = permanente)
+  const ruleActive = r => r.expires_at == null || r.expires_at > now();
+
   // Ya tiene acceso (key activa, creador, o whitelist por usuario o rol). No crea keys.
   function hasAccess(script, userId, roleIds) {
     if (q.activeKeyFor.get(script.id, userId, now())) return true;
     if (userId === owner() || userId === script.user_id) return true;
-    return q.rulesForScript.all(script.id).some(r =>
+    return q.rulesForScript.all(script.id).filter(ruleActive).some(r =>
       (r.kind === 'user' && r.discord_id === userId) || (r.kind === 'role' && roleIds.includes(r.discord_id)));
   }
 
@@ -311,7 +320,7 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
     const existing = q.activeKeyFor.get(script.id, userId, now());
     if (existing) return { status: 'ok', key: existing.key };
     const allowed = userId === owner() || userId === script.user_id
-      || q.rulesForScript.all(script.id).some(r =>
+      || q.rulesForScript.all(script.id).filter(ruleActive).some(r =>
         (r.kind === 'user' && r.discord_id === userId) || (r.kind === 'role' && roleIds.includes(r.discord_id)));
     if (!allowed) return { status: 'none' };
     const key = makeKey();
@@ -576,6 +585,10 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
         const code = interaction.options.getString('key')?.trim();
         const target = interaction.options.getUser('user');
         if (!code && !target) return reply('❌ Indica una key o un usuario.');
+        // Script opcional: si no lo eliges, aplica a todos tus scripts (o los que gestionas)
+        const scriptArg = interaction.options.getString('script');
+        const onlyScript = scriptArg ? findScript(scriptArg) : null;
+        if (scriptArg && !onlyScript) return reply('❌ Script no encontrado.');
 
         // Por key: borra esa key si el script es tuyo (o de un creador que te dio rol gestor)
         if (code) {
@@ -590,7 +603,7 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
         }
 
         // Por usuario: borra sus keys vinculadas solo de los scripts que puedes gestionar
-        const linked = q.keysByDiscord.all(target.id);
+        const linked = q.keysByDiscord.all(target.id).filter(k => !onlyScript || k.script_id === onlyScript.id);
         const allowed = linked.filter(k => {
           const s = q.scriptById.get(k.script_id);
           return s && canUse(interaction, s.user_id);
@@ -646,15 +659,22 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
         const id = (user ?? role).id;
         const label = user ? `<@${id}>` : `<@&${id}>`;
         if (cmd === 'whitelist') {
-          q.ruleInsert.run(script.id, kind, id, user ? user.username : role.name);
-          logScriptEvent(script, `✅ ${label} añadido a la whitelist por <@${actor}>`);
-          // Whitelist de usuario: se le asigna su key al instante (si no tiene una activa y no está bloqueado)
-          if (user && !isBlocked(script, id) && !q.activeKeyFor.get(script.id, id, now())) {
-            q.insertClaimed.run(makeKey(), script.id, id);
+          const raw = interaction.options.getString('duration');
+          const secs = raw ? parseDuration(raw) : null;
+          if (raw && !secs) return reply('❌ Duración inválida. Usa 30d, 12h, 1w, 1mo o 1y, o déjalo vacío para permanente.');
+          const expires = secs ? now() + secs : null;
+          const expiryText = expires ? `hasta <t:${expires}:f>` : 'permanente';
+          q.ruleInsert.run(script.id, kind, id, user ? user.username : role.name, expires);
+          logScriptEvent(script, `✅ ${label} añadido a la whitelist por <@${actor}> (${expires ? 'temporal' : 'permanente'})`);
+          // Whitelist de usuario: su key se crea (o se ajusta) con la misma duración, si no está bloqueado
+          if (user && !isBlocked(script, id)) {
+            const active = q.activeKeyFor.get(script.id, id, now());
+            if (active) q.setExpiry.run(expires, active.key);
+            else q.insertKeyExp.run(makeKey(), script.id, expires, id);
           }
           const panel = q.panelForScript.get(script.id);
           const where = panel ? ` en el panel <#${panel.channel_id}>` : '';
-          return reply(`✅ ${label} añadido a la whitelist de **${script.name}**. Puede obtener el script con Get Script${where}.`);
+          return reply(`✅ ${label} añadido a la whitelist de **${script.name}** (${expiryText}). Puede obtener el script con Get Script${where}.`);
         }
         q.ruleDelete.run(script.id, kind, id);
         logScriptEvent(script, `➖ ${label} quitado de la whitelist por <@${actor}>`);

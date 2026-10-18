@@ -586,7 +586,7 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
           if (onCooldown(actor)) return reply('⏳ Espera unos segundos antes de otra acción.');
           q.deleteKey.run(code);
           if (script) logScriptEvent(script, `🗑️ <@${actor}> eliminó una key`);
-          return reply('🗑️ Key eliminada.');
+          return reply(`🗑️ Key eliminada de **${script?.name ?? 'script desconocido'}**.`);
         }
 
         // Por usuario: borra sus keys vinculadas solo de los scripts que puedes gestionar
@@ -605,7 +605,8 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
           const s = q.scriptById.get(scriptId);
           if (s) logScriptEvent(s, `🗑️ <@${actor}> eliminó ${n} key(s) de <@${target.id}>`);
         }
-        return reply(`🗑️ ${allowed.length} key(s) de <@${target.id}> eliminadas.${allowed.length < linked.length ? ` (${linked.length - allowed.length} de otros creadores no se tocaron.)` : ''}`);
+        const names = [...byScript.keys()].map(id => `**${q.scriptById.get(id)?.name ?? id}**`).join(', ');
+        return reply(`🗑️ ${allowed.length} key(s) de <@${target.id}> eliminadas en ${names}.${allowed.length < linked.length ? ` (${linked.length - allowed.length} de otros creadores no se tocaron.)` : ''}`);
       }
 
       case 'addtime': {

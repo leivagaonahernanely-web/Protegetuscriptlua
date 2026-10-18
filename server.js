@@ -270,16 +270,32 @@ function validateScriptInput({ name, ffa, obfuscator, code, hwidResetHours }, cu
 // Se ejecutan sin shell (execFile + argumentos separados) para evitar inyección.
 const OBF_DIR = process.env.OBFUSCATOR_DIR || '/opt/obfuscators';
 const OBF_TIMEOUT_MS = Number(process.env.OBFUSCATOR_TIMEOUT_MS) || 120_000;
+
+// Busca la carpeta que contiene el archivo de entrada del ofuscador. Así sirve si el repo
+// trae el CLI en la raíz o dentro de una subcarpeta (src/, etc.).
+function findEntryDir(root, entry, depth = 0) {
+  try {
+    if (!fs.existsSync(root)) return null;
+    if (fs.existsSync(path.join(root, entry))) return root;
+    if (depth >= 3) return null;
+    for (const d of fs.readdirSync(root, { withFileTypes: true })) {
+      if (!d.isDirectory() || d.name.startsWith('.')) continue;
+      const found = findEntryDir(path.join(root, d.name), entry, depth + 1);
+      if (found) return found;
+    }
+  } catch { /* sin acceso: se considera no instalado */ }
+  return null;
+}
 const OBF_CONFIG = {
   prometheus: {
     bin: 'lua5.1',
-    dir: path.join(OBF_DIR, 'prometheus'),
+    dir: findEntryDir(path.join(OBF_DIR, 'prometheus'), 'cli.lua'),
     args: (input, out) => ['cli.lua', '--preset', 'Medium', '--out', out, input],
     output: (input, out) => out,
   },
   hercules: {
     bin: 'lua5.4',
-    dir: path.join(OBF_DIR, 'hercules', 'src'),
+    dir: findEntryDir(path.join(OBF_DIR, 'hercules'), 'hercules.lua'),
     // --light: el modo balanced tardaba más que el límite de la petición
     args: (input) => ['hercules.lua', input, '--light'],
     output: (input) => input.replace(/\.lua$/, '') + '_obfuscated.lua',
@@ -288,11 +304,16 @@ const OBF_CONFIG = {
   obscura: {
     // Obscura usa sintaxis de Python 3.12; el Dockerfile instala ese intérprete
     bin: process.env.OBSCURA_PYTHON || '/opt/obscura-venv/bin/python',
-    dir: path.join(OBF_DIR, 'obscura'),
+    dir: findEntryDir(path.join(OBF_DIR, 'obscura'), 'main.py'),
     args: (input, out) => ['main.py', input, '-o', out, '--mode', 'lightweight'],
     output: (input, out) => out,
   },
 };
+
+// Diagnóstico al arrancar: se ve en los logs de Railway qué ofuscadores están listos
+for (const [name, c] of Object.entries(OBF_CONFIG)) {
+  console.log(c.dir ? `[Obf] ${name}: listo (${c.dir})` : `[Obf] ${name}: NO encontrado en ${OBF_DIR}`);
+}
 
 function runObfuscatorCli(bin, args, cwd, luaPath) {
   return new Promise((resolve, reject) => {
@@ -314,8 +335,8 @@ function runObfuscatorCli(bin, args, cwd, luaPath) {
 async function obfuscate(source, obfuscator) {
   const cfg = OBF_CONFIG[obfuscator];
   if (!cfg) throw Object.assign(new Error('Elige un ofuscador válido'), { status: 400 });
-  if (!fs.existsSync(cfg.dir)) {
-    throw Object.assign(new Error(`Ofuscador no instalado en el servidor (${cfg.dir})`), { status: 501 });
+  if (!cfg.dir) {
+    throw Object.assign(new Error(`Ofuscador no instalado en el servidor (no encuentro su archivo principal dentro de ${OBF_DIR}). Revisa los logs de arranque.`), { status: 501 });
   }
 
   const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'vp-obf-'));
@@ -326,7 +347,13 @@ async function obfuscate(source, obfuscator) {
 
     await runObfuscatorCli(cfg.bin, cfg.args(input, out), cfg.dir, cfg.dir);
 
-    const result = await fs.promises.readFile(cfg.output(input, out), 'utf8');
+    // Si el CLI guardó con otro nombre, toma el .lua nuevo que haya generado
+    let outFile = cfg.output(input, out);
+    if (!fs.existsSync(outFile)) {
+      const extra = fs.readdirSync(dir).filter(f => f.endsWith('.lua') && f !== 'script.lua');
+      if (extra.length) outFile = path.join(dir, extra[0]);
+    }
+    const result = await fs.promises.readFile(outFile, 'utf8');
     if (!result.trim()) throw Object.assign(new Error('El ofuscador no generó salida'), { status: 500 });
     return result;
   } finally {

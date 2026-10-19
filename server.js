@@ -108,6 +108,17 @@ db.exec(`
   );
 `);
 
+// Chat de la comunidad (web): mensajes de los usuarios con sesión
+db.exec(`
+  CREATE TABLE IF NOT EXISTS web_chat (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id TEXT NOT NULL,
+    text TEXT NOT NULL,
+    created_at INTEGER NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS idx_web_chat_created ON web_chat(created_at);
+`);
+
 // Migraciones: añade columnas nuevas si la base ya existía
 {
   const cols = db.prepare('PRAGMA table_info(scripts)').all().map(c => c.name);
@@ -672,6 +683,55 @@ app.get('/api/me', requireAuth, (req, res) => {
   const user = stmt.userById.get(req.userId);
   if (!user) return res.status(401).json({ error: 'Usuario no encontrado' });
   res.json({ ...user, owner: isOwnerId(req.userId) });
+});
+
+// ---------- Chat de la comunidad ----------
+const CHAT_MAX_CHARS = 500;
+const CHAT_COOLDOWN_MS = 2000;               // un mensaje cada 2 s por usuario
+const chatLastPost = new Map();
+const CHAT_SELECT = `SELECT c.id, c.user_id, c.text, c.created_at, u.username, u.avatar, u.custom_avatar
+  FROM web_chat c LEFT JOIN users u ON u.id = c.user_id`;
+const chatStmt = {
+  latest: db.prepare(`${CHAT_SELECT} ORDER BY c.id DESC LIMIT 60`),
+  newer: db.prepare(`${CHAT_SELECT} WHERE c.id > ? ORDER BY c.id ASC LIMIT 100`),
+  one: db.prepare(`${CHAT_SELECT} WHERE c.id = ?`),
+  insert: db.prepare('INSERT INTO web_chat (user_id, text, created_at) VALUES (?, ?, ?)'),
+};
+const chatView = r => ({
+  id: r.id,
+  user_id: r.user_id,
+  username: r.username || `ID ${r.user_id}`,
+  avatar: r.custom_avatar || (r.avatar ? `https://cdn.discordapp.com/avatars/${r.user_id}/${r.avatar}.png?size=64` : null),
+  text: r.text,
+  created_at: r.created_at,
+});
+
+// Mensajes nuevos (after = último id que ya tiene el cliente) o los últimos 60 si no hay after
+app.get('/api/chat', requireAuth, (req, res) => {
+  const after = Number(req.query.after) || 0;
+  const rows = after > 0 ? chatStmt.newer.all(after) : chatStmt.latest.all().reverse();
+  res.json({ messages: rows.map(chatView) });
+});
+
+app.post('/api/chat', requireAuth, (req, res) => {
+  const text = String(req.body?.text ?? '').replace(/\s+/g, ' ').trim();
+  if (!text) return res.status(400).json({ error: 'Escribe un mensaje' });
+  if (text.length > CHAT_MAX_CHARS) return res.status(400).json({ error: `Máximo ${CHAT_MAX_CHARS} caracteres` });
+  const last = chatLastPost.get(req.userId) ?? 0;
+  if (Date.now() - last < CHAT_COOLDOWN_MS) return res.status(429).json({ error: 'Espera un momento antes de enviar otro mensaje' });
+  chatLastPost.set(req.userId, Date.now());
+  const info = chatStmt.insert.run(req.userId, text, Math.floor(Date.now() / 1000));
+  res.json({ message: chatView(chatStmt.one.get(info.lastInsertRowid)) });
+});
+
+// Borrar: cada usuario sus mensajes; el dueño puede borrar cualquiera (moderación)
+app.delete('/api/chat/:id', requireAuth, (req, res) => {
+  const id = Number(req.params.id);
+  const row = db.prepare('SELECT user_id FROM web_chat WHERE id = ?').get(id);
+  if (!row) return res.status(404).json({ error: 'Mensaje no encontrado' });
+  if (row.user_id !== req.userId && !isOwnerId(req.userId)) return res.status(403).json({ error: 'Solo puedes borrar tus mensajes' });
+  db.prepare('DELETE FROM web_chat WHERE id = ?').run(id);
+  res.json({ ok: true });
 });
 
 // Foto de perfil por URL (solo https). URL vacía = volver a la foto de Discord.

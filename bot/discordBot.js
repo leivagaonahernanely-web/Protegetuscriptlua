@@ -111,6 +111,9 @@ export const commands = [
     .addUserOption(o => userOpt(o))
     .addRoleOption(o => roleOpt(o))
     .addStringOption(o => durationOpt(o)),
+  new SlashCommandBuilder().setName('cookiegame').setDescription('Juego de la galleta: el primero que haga click gana la whitelist')
+    .addStringOption(o => scriptOpt(o))
+    .addStringOption(o => durationOpt(o)),
   new SlashCommandBuilder().setName('unwhitelist').setDescription('Quita un usuario o rol de la whitelist')
     .addStringOption(o => scriptOpt(o))
     .addUserOption(o => userOpt(o))
@@ -261,7 +264,7 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
   }
 
   // Comandos que el rol gestor (/generatekeyrole) puede usar. El resto solo lo usa el creador.
-  const MANAGER_COMMANDS = new Set(['whitelist', 'unwhitelist', 'blacklist', 'unblacklist', 'generatekey', 'deletekey', 'dropkey']);
+  const MANAGER_COMMANDS = new Set(['whitelist', 'unwhitelist', 'blacklist', 'unblacklist', 'generatekey', 'deletekey', 'dropkey', 'cookiegame']);
 
   // Permiso sobre el workspace de workspaceId (el creador del script) para el comando actual:
   // dueño de la plataforma, el propio creador o admin del servidor usan todo;
@@ -715,6 +718,18 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
         return reply(`✅ ${label} quitado de la whitelist de **${script.name}**.`);
       }
 
+      case 'cookiegame': {
+        const script = findScript(interaction.options.getString('script', true));
+        if (!script) return reply('❌ Script no encontrado.');
+        if (!canUse(interaction, script.user_id)) return reply(denied);
+        const raw = interaction.options.getString('duration');
+        const secs = raw ? parseDuration(raw) : null;
+        if (raw && !secs) return reply('❌ Duración inválida. Usa 30d, 12h, 1w, 1mo o 1y, o déjalo vacío para permanente.');
+        const channel = interaction.channel;
+        if (!channel?.isTextBased()) return reply('❌ Usa /cookiegame en un canal de texto.');
+        return reply(await startCookieGame(channel, script, secs, raw));
+      }
+
       case 'blacklist': {
         const script = findScript(interaction.options.getString('script'));
         if (script && !canUse(interaction, script.user_id)) return reply(denied);
@@ -789,9 +804,63 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
     }
   }
 
+  // ---------- Juego de la galleta (/cookiegame) ----------
+  // Partidas en memoria: el primero que hace click se lleva la whitelist del script por el tiempo elegido
+  const COOKIE_GAME_MS = 30_000;
+  const cookieGames = new Map();
+
+  async function startCookieGame(channel, script, secs, raw) {
+    const id = crypto.randomBytes(6).toString('hex');
+    const durText = secs ? `por ${raw}` : 'de forma permanente';
+    const endsAt = now() + Math.round(COOKIE_GAME_MS / 1000);
+    const embed = new EmbedBuilder().setColor(0xf1c40f)
+      .setTitle(`🍪 Juego de la galleta · ${script.name}`)
+      .setDescription(`¡El primero que haga click en la galleta gana la whitelist ${durText} de **${script.name}**!\nTermina <t:${endsAt}:R>`);
+    const row = new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId(`vanta:cookie:${id}`).setLabel('🍪 ¡Click!').setStyle(ButtonStyle.Success));
+    const message = await channel.send({ embeds: [embed], components: [row] });
+    const game = { id, script, secs, durText, message, winner: null, timer: null };
+    game.timer = setTimeout(() => endCookieGame(game, null), COOKIE_GAME_MS);
+    cookieGames.set(id, game);
+    return `✅ Juego publicado en <#${channel.id}>. Se lo lleva el primero que haga click, ${durText}.`;
+  }
+
+  async function endCookieGame(game, winnerId) {
+    clearTimeout(game.timer);
+    cookieGames.delete(game.id);
+    const text = winnerId
+      ? `🏆 <@${winnerId}> fue el primero y ganó la whitelist ${game.durText} de **${game.script.name}**.`
+      : '⌛ Nadie hizo click a tiempo. La galleta se perdió.';
+    const embed = new EmbedBuilder().setColor(winnerId ? 0x57f287 : 0x99aab5)
+      .setTitle(`🍪 Juego de la galleta · ${game.script.name}`).setDescription(text);
+    await game.message.edit({ embeds: [embed], components: [] }).catch(err =>
+      console.error('[Bot] No se pudo actualizar el juego de la galleta:', err.message));
+  }
+
+  async function handleCookieClick(interaction, gameId) {
+    const game = cookieGames.get(gameId);
+    if (!game) return interaction.reply({ content: '⌛ Este juego ya terminó.', flags: MessageFlags.Ephemeral });
+    const userId = interaction.user.id;
+    if (isBlocked(game.script, userId)) {
+      return interaction.reply({ content: `⛔ Estás bloqueado para **${game.script.name}**.`, flags: MessageFlags.Ephemeral });
+    }
+    // Sin esperas antes de este punto: el primer click borra la partida y los demás ya no ganan
+    cookieGames.delete(gameId);
+    game.winner = userId;
+    const expires = game.secs ? now() + game.secs : null;
+    q.ruleInsert.run(game.script.id, 'user', userId, interaction.user.username, expires);
+    const active = q.activeKeyFor.get(game.script.id, userId, now());
+    if (active) q.setExpiry.run(expires, active.key);
+    else q.insertKeyExp.run(makeKey(), game.script.id, expires, userId);
+    logScriptEvent(game.script, `🍪 <@${userId}> ganó el juego de la galleta (whitelist ${game.durText})`);
+    await interaction.reply({ content: `🏆 ¡Ganaste! Quedaste en la whitelist de **${game.script.name}** ${game.durText}. Usa Get Script para obtener tu loader.`, flags: MessageFlags.Ephemeral });
+    await endCookieGame(game, userId);
+  }
+
   async function handleButton(interaction) {
     const [ns, action, rawId] = interaction.customId.split(':');
     if (ns !== 'vanta') return;
+    if (action === 'cookie') return handleCookieClick(interaction, rawId);
     const script = findScript(rawId);
     if (!script) return interaction.reply({ content: NO_ACCESS_MSG, flags: MessageFlags.Ephemeral });
 

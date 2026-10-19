@@ -97,6 +97,8 @@ export const commands = [
   new SlashCommandBuilder().setName('dropkey').setDescription('Sortea keys en el canal con cuenta regresiva (creador o gestor)')
     .addStringOption(o => scriptOpt(o))
     .addIntegerOption(o => o.setName('amount').setDescription('Cantidad de keys (1-50)').setMinValue(1).setMaxValue(50).setRequired(true)),
+  new SlashCommandBuilder().setName('botavatar').setDescription('Cambia la foto de perfil del bot (solo dueño de la plataforma)')
+    .addStringOption(o => o.setName('url').setDescription('URL https de la imagen').setRequired(true)),
   new SlashCommandBuilder().setName('logs').setDescription('Elige el canal donde se registran los usos de tus scripts')
     .addChannelOption(o => o.setName('canal').setDescription('Canal de logs').setRequired(true)),
   new SlashCommandBuilder().setName('addtime').setDescription('Añade tiempo a una key (dueño o gestor)')
@@ -733,6 +735,20 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
         const reason = interaction.options.getString('reason', true);
         q.warnInsert.run(target.id, reason, now());
         return reply(`⚠️ <@${target.id}> recibió una advertencia.\nRazón: ${reason}`);
+      }
+
+      case 'botavatar': {
+        if (!isPlatformOwner(actor)) return reply('⛔ Solo el dueño de la plataforma puede cambiar la foto del bot.');
+        const raw = interaction.options.getString('url', true).trim();
+        let parsed;
+        try { parsed = new URL(raw); } catch { return reply('❌ La URL no es válida.'); }
+        if (parsed.protocol !== 'https:') return reply('❌ Usa una URL https de una imagen.');
+        try {
+          await interaction.client.user.setAvatar(parsed.toString());
+          return reply('✅ Foto del bot actualizada.');
+        } catch (err) {
+          return reply(`❌ Discord no aceptó la imagen: ${err.message}`);
+        }
       }
 
       case 'prices':

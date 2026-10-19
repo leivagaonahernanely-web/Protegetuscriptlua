@@ -806,27 +806,40 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
 
   // ---------- Juego de la galleta (/cookiegame) ----------
   // Partidas en memoria: el primero que hace click se lleva la whitelist del script por el tiempo elegido
-  const COOKIE_GAME_MS = 5_000; // fijo: no es una opción del comando
+  // Tiempos fijos: 5 s con el botón bloqueado y luego 15 s para hacer click (20 s en total)
+  const COOKIE_LOCK_MS = 5_000;
+  const COOKIE_OPEN_MS = 15_000;
   const cookieGames = new Map();
+
+  const cookieRow = (id, disabled) => new ActionRowBuilder().addComponents(
+    new ButtonBuilder().setCustomId(`vanta:cookie:${id}`).setLabel('🍪 ¡Click!').setStyle(ButtonStyle.Success).setDisabled(disabled));
 
   async function startCookieGame(channel, script, secs, raw) {
     const id = crypto.randomBytes(6).toString('hex');
     const durText = secs ? `por ${raw}` : 'de forma permanente';
-    const endsAt = now() + Math.round(COOKIE_GAME_MS / 1000);
-    const embed = new EmbedBuilder().setColor(0xf1c40f)
+    const startedMs = Date.now();
+    const openMs = startedMs + COOKIE_LOCK_MS;
+    const endsAt = Math.floor((startedMs + COOKIE_LOCK_MS + COOKIE_OPEN_MS) / 1000);
+    const openAt = Math.floor(openMs / 1000);
+    const embed = open => new EmbedBuilder().setColor(open ? 0xf1c40f : 0x99aab5)
       .setTitle(`🍪 Juego de la galleta · ${script.name}`)
-      .setDescription(`¡El primero que haga click en la galleta gana la whitelist ${durText} de **${script.name}**!\nTermina <t:${endsAt}:R>`);
-    const row = new ActionRowBuilder().addComponents(
-      new ButtonBuilder().setCustomId(`vanta:cookie:${id}`).setLabel('🍪 ¡Click!').setStyle(ButtonStyle.Success));
-    const message = await channel.send({ embeds: [embed], components: [row] });
-    const game = { id, script, secs, durText, message, winner: null, timer: null };
-    game.timer = setTimeout(() => endCookieGame(game, null), COOKIE_GAME_MS);
+      .setDescription(open
+        ? `¡Click ahora! El primero gana la whitelist ${durText} de **${script.name}**.\nSe cierra <t:${endsAt}:R>`
+        : `🔒 Botón bloqueado. Se activa <t:${openAt}:R>\nSe cierra <t:${endsAt}:R>`);
+    const message = await channel.send({ embeds: [embed(false)], components: [cookieRow(id, true)] });
+    const game = { id, script, secs, durText, message, winner: null, openMs, timers: [] };
+    game.timers.push(setTimeout(() => {
+      if (game.winner || !cookieGames.has(id)) return;
+      game.message.edit({ embeds: [embed(true)], components: [cookieRow(id, false)] })
+        .catch(err => console.error('[Bot] No se pudo activar el botón de la galleta:', err.message));
+    }, COOKIE_LOCK_MS));
+    game.timers.push(setTimeout(() => endCookieGame(game, null), COOKIE_LOCK_MS + COOKIE_OPEN_MS));
     cookieGames.set(id, game);
     return `✅ Juego publicado en <#${channel.id}>. Se lo lleva el primero que haga click, ${durText}.`;
   }
 
   async function endCookieGame(game, winnerId) {
-    clearTimeout(game.timer);
+    game.timers.forEach(clearTimeout);
     cookieGames.delete(game.id);
     const text = winnerId
       ? `🏆 <@${winnerId}> fue el primero y ganó la whitelist ${game.durText} de **${game.script.name}**.`
@@ -840,6 +853,7 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
   async function handleCookieClick(interaction, gameId) {
     const game = cookieGames.get(gameId);
     if (!game) return interaction.reply({ content: '⌛ Este juego ya terminó.', flags: MessageFlags.Ephemeral });
+    if (Date.now() < game.openMs) return interaction.reply({ content: '🔒 El botón todavía está bloqueado.', flags: MessageFlags.Ephemeral });
     const userId = interaction.user.id;
     if (isBlocked(game.script, userId)) {
       return interaction.reply({ content: `⛔ Estás bloqueado para **${game.script.name}**.`, flags: MessageFlags.Ephemeral });

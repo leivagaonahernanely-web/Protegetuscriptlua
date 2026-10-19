@@ -78,7 +78,7 @@ pre{white-space:pre-wrap;word-break:break-all;background:#040407;border:1px soli
 
     <section class="card hidden" data-panel="users">
       <div class="row"><input class="field" id="userSearch" placeholder="Search username"></div>
-      <table><thead><tr><th>User</th><th>Scripts</th><th>Obfuscations</th><th>Plan</th><th></th></tr></thead><tbody id="usersBody"></tbody></table>
+      <table><thead><tr><th>User</th><th>Scripts</th><th>Obfuscations</th><th>Plan</th><th></th><th>Staff</th><th></th></tr></thead><tbody id="usersBody"></tbody></table>
     </section>
 
     <section class="card hidden" data-panel="publisher">
@@ -237,10 +237,29 @@ function renderUsers() {
         </select>
       </td>
       <td><button class="btn" data-save-plan="${esc(u.id)}">Save</button></td>
-    </tr>`).join('') : '<tr><td colspan="5" class="muted">No users found.</td></tr>';
+      <td>
+        <select class="field" data-staff-for="${esc(u.id)}">
+          <option value="" ${!u.staff_role ? 'selected' : ''}>Ninguno</option>
+          <option value="admin" ${u.staff_role === 'admin' ? 'selected' : ''}>Admin</option>
+          <option value="owner" ${u.staff_role === 'owner' ? 'selected' : ''}>Owner</option>
+        </select>
+      </td>
+      <td><button class="btn" data-save-staff="${esc(u.id)}">Save</button></td>
+    </tr>`).join('') : '<tr><td colspan="7" class="muted">No users found.</td></tr>';
 }
 $('userSearch').addEventListener('input', renderUsers);
 $('usersBody').addEventListener('click', async e => {
+  const st = e.target.closest('[data-save-staff]');
+  if (st) {
+    const id = st.dataset.saveStaff;
+    const sel = document.querySelector(`[data-staff-for="${CSS.escape(id)}"]`);
+    try {
+      await api('POST', `/admin/api/users/${encodeURIComponent(id)}/staff`, { role: sel.value });
+      toast('Rol actualizado');
+      await loadUsers();
+    } catch (err) { toast(err.message); }
+    return;
+  }
   const b = e.target.closest('[data-save-plan]');
   if (!b) return;
   const id = b.dataset.savePlan;

@@ -95,6 +95,7 @@
   .chat-bubble { background: rgba(127, 127, 127, .12); border-radius: 12px; padding: 8px 12px; }
   .chat-head { font-size: 12px; color: var(--text-soft); display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
   .chat-head b { color: var(--text); }
+  .chat-badge { font-size: 11px; font-weight: 700; padding: 1px 8px; border-radius: 999px; border: 1px solid currentColor; line-height: 16px; }
   .chat-text { font-size: 14px; white-space: pre-wrap; overflow-wrap: anywhere; margin-top: 2px; }
   .chat-del { margin-left: auto; background: none; border: 0; color: var(--text-soft); cursor: pointer; font-size: 14px; padding: 0 4px; }
   .chat-form { display: flex; gap: 10px; padding: 12px; border-top: 1px solid rgba(127, 127, 127, .2); }
@@ -1371,6 +1372,14 @@
   // ---------- CHAT DE LA COMUNIDAD ----------
   let chatMessages = [];
   let chatTimer = null;
+  // Colores y nombre de cada rol en el chat
+  const ROLE_STYLE = {
+    owner:   { label: 'Owner',        color: '#ff5c7a' },
+    admin:   { label: 'Admin',        color: '#5865f2' },
+    plus:    { label: 'Premium Plus', color: '#2ecc71' },
+    premium: { label: 'Premium',      color: '#f1c40f' },
+    free:    { label: 'Free',         color: '#99aab5' },
+  };
   const chatAvatar = m => m.avatar
     ? `<img src="${esc(m.avatar)}" alt="" referrerpolicy="no-referrer">`
     : esc((m.username || '?').charAt(0).toUpperCase());
@@ -1385,11 +1394,12 @@
     list.innerHTML = chatMessages.map(m => {
       const mine = !!user && m.user_id === user.id;
       const canDelete = mine || !!(user && user.owner);
+      const rs = ROLE_STYLE[m.role] || ROLE_STYLE.free;
       const time = new Date(m.created_at * 1000).toLocaleTimeString('es-EC', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Guayaquil' });
       return `<div class="chat-msg${mine ? ' mine' : ''}">
         <div class="chat-av">${chatAvatar(m)}</div>
         <div class="chat-bubble" style="flex:1;min-width:0">
-          <div class="chat-head"><b>${esc(m.username)}</b><span>${time}</span>${canDelete ? `<button class="chat-del" data-del="${m.id}" title="Borrar mensaje" aria-label="Borrar mensaje">✕</button>` : ''}</div>
+          <div class="chat-head"><b style="color:${rs.color}">${esc(m.username)}</b><span class="chat-badge" style="color:${rs.color}">${rs.label}</span><span>${time}</span>${canDelete ? `<button class="chat-del" data-del="${m.id}" title="Borrar mensaje" aria-label="Borrar mensaje">✕</button>` : ''}</div>
           <div class="chat-text">${esc(m.text)}</div>
         </div>
       </div>`;

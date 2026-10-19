@@ -127,6 +127,8 @@ db.exec(`
   if (!db.prepare("SELECT 1 FROM pragma_table_info('users') WHERE name = 'custom_avatar'").get()) db.exec('ALTER TABLE users ADD COLUMN custom_avatar TEXT');
   // Foto del bot solo en los servidores del creador (se aplica desde sus paneles)
   if (!db.prepare("SELECT 1 FROM pragma_table_info('users') WHERE name = 'bot_avatar'").get()) db.exec('ALTER TABLE users ADD COLUMN bot_avatar TEXT');
+  // Rol de staff asignado desde el panel admin: 'admin' o 'owner' (NULL = ninguno). Owner real = DISCORD_OWNER_ID
+  if (!db.prepare("SELECT 1 FROM pragma_table_info('users') WHERE name = 'staff_role'").get()) db.exec('ALTER TABLE users ADD COLUMN staff_role TEXT');
   // source = código original (nunca se envía al cliente); content = lo que se sirve al loader
   if (!cols.includes('source')) db.exec('ALTER TABLE scripts ADD COLUMN source TEXT');
   if (!cols.includes('hwid_reset_hours')) db.exec('ALTER TABLE scripts ADD COLUMN hwid_reset_hours INTEGER DEFAULT 24');
@@ -689,8 +691,16 @@ app.get('/api/me', requireAuth, (req, res) => {
 const CHAT_MAX_CHARS = 500;
 const CHAT_COOLDOWN_MS = 2000;               // un mensaje cada 2 s por usuario
 const chatLastPost = new Map();
-const CHAT_SELECT = `SELECT c.id, c.user_id, c.text, c.created_at, u.username, u.avatar, u.custom_avatar
+const CHAT_SELECT = `SELECT c.id, c.user_id, c.text, c.created_at, u.username, u.avatar, u.custom_avatar, u.plan, u.staff_role
   FROM web_chat c LEFT JOIN users u ON u.id = c.user_id`;
+// Rol que se muestra: owner (DISCORD_OWNER_ID o asignado), admin (asignado), o el plan
+function roleOf(userId, plan, staffRole) {
+  if (isOwnerId(userId) || staffRole === 'owner') return 'owner';
+  if (staffRole === 'admin') return 'admin';
+  if (plan === 'plus') return 'plus';
+  if (plan === 'premium') return 'premium';
+  return 'free';
+}
 const chatStmt = {
   latest: db.prepare(`${CHAT_SELECT} ORDER BY c.id DESC LIMIT 60`),
   newer: db.prepare(`${CHAT_SELECT} WHERE c.id > ? ORDER BY c.id ASC LIMIT 100`),
@@ -702,6 +712,7 @@ const chatView = r => ({
   user_id: r.user_id,
   username: r.username || `ID ${r.user_id}`,
   avatar: r.custom_avatar || (r.avatar ? `https://cdn.discordapp.com/avatars/${r.user_id}/${r.avatar}.png?size=64` : null),
+  role: roleOf(r.user_id, r.plan, r.staff_role),
   text: r.text,
   created_at: r.created_at,
 });
@@ -803,7 +814,7 @@ app.post('/api/owner/plan-keys', requireOwnerApi, (req, res) => {
 });
 // ---- Usuarios (solo dueño): ver planes y cambiarlos ----
 app.get('/api/owner/users', requireOwnerApi, (req, res) => {
-  res.json(db.prepare(`SELECT u.id, u.username, u.avatar, u.plan, u.obf_used,
+  res.json(db.prepare(`SELECT u.id, u.username, u.avatar, u.plan, u.obf_used, u.staff_role,
       (SELECT COUNT(*) FROM scripts s WHERE s.user_id = u.id) AS scripts
     FROM users u ORDER BY u.rowid DESC LIMIT 500`).all());
 });
@@ -813,6 +824,15 @@ app.post('/api/owner/users/:id/plan', requireOwnerApi, (req, res) => {
   const info = db.prepare('UPDATE users SET plan = ? WHERE id = ?').run(plan, req.params.id);
   if (!info.changes) return res.status(404).json({ error: 'Usuario no encontrado' });
   res.json({ ok: true, plan });
+});
+
+// Asignar rol de staff (solo desde el panel admin / dueño). Vacío = quitarlo
+app.post('/api/owner/users/:id/staff', requireOwnerApi, (req, res) => {
+  const raw = req.body?.role;
+  const role = raw === 'admin' || raw === 'owner' ? raw : null;
+  const info = db.prepare('UPDATE users SET staff_role = ? WHERE id = ?').run(role, req.params.id);
+  if (!info.changes) return res.status(404).json({ error: 'Usuario no encontrado' });
+  res.json({ ok: true, staff_role: role });
 });
 
 app.get('/api/owner/publisher', requireOwnerApi, (req, res) => {

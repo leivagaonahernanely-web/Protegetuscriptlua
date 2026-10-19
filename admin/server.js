@@ -116,6 +116,10 @@ app.post('/admin/api/users/:id/plan', requireSession, (req, res) => {
   forward(res, 'POST', `/users/${encodeURIComponent(req.params.id)}/plan`, req.body);
 });
 
+app.post('/admin/api/users/:id/staff', requireSession, (req, res) => {
+  forward(res, 'POST', `/users/${encodeURIComponent(req.params.id)}/staff`, req.body);
+});
+
 app.post('/admin/api/:resource', requireSession, (req, res) => {
   const route = ALLOWED[req.params.resource]?.POST;
   if (!route) return res.status(404).json({ error: 'No existe' });

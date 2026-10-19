@@ -577,8 +577,6 @@
   };
   const PLAN_LABELS = { free: 'Free', premium: 'Premium', plus: 'Premium Plus' };
   const OBFUSCATORS = {
-    prometheus: 'Ofuscador 1',
-    hercules:   'Ofuscador 2 (recomendado)',
     obscura:    'Ofuscador 3 (Obscura)',
     none:       'Sin ofuscar (solo key)',
   };
@@ -640,7 +638,7 @@
 
   // Protección del script: 'ffa' (sin key) o 'protected' (con key y ofuscador)
   const protectionOf = s => (s.ffa ? 'ffa' : 'protected');
-  const obfuscatorOf = s => (OBFUSCATORS[s.obfuscator] ? s.obfuscator : 'prometheus');
+  const obfuscatorOf = s => (OBFUSCATORS[s.obfuscator] ? s.obfuscator : 'obscura');
 
   async function api(path, opts = {}) {
     const headers = opts.body ? { 'Content-Type': 'application/json' } : {};
@@ -830,7 +828,7 @@
           ${Object.entries(OBFUSCATORS).map(([val, label]) =>
             `<option value="${val}" ${val === currentObf ? 'selected' : ''}>${label}</option>`).join('')}
         </select>
-        <div class="hint">Se aplica en el servidor al guardar el script. Para Roblox (Luau) recomendamos el Ofuscador 2 o el 3. El Ofuscador 1 (Lua 5.1) aún no tiene soporte completo para Luau.</div>
+        <div class="hint">Se aplica en el servidor al guardar el script. Para Roblox (Luau) recomendamos el Ofuscador 3.</div>
       </div>
       <div class="input-group" id="hwidGroup">
         <label for="fHwid">Reinicio de HWID</label>
@@ -952,7 +950,7 @@
     const name = String(fd.get('name') || '').trim();
     const code = $('fCode').value;
     const protection = fd.get('protection') || 'protected';
-    const obfuscator = fd.get('obfuscator') || 'prometheus';
+    const obfuscator = fd.get('obfuscator') || 'obscura';
 
     if (!name) { toast('Escribe un nombre', 'error'); return; }
     if (!editId && !code.trim()) { toast('Agrega el código del script', 'error'); return; }

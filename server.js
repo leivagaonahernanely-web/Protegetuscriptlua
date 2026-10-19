@@ -19,7 +19,7 @@ const app = express();
 // 0. CONSTANTES Y CONFIGURACIÓN
 // ==========================================
 const MAX_CODE_BYTES = 2 * 1024 * 1024;           // 2 MB por script
-const OBFUSCATORS = ['prometheus', 'hercules', 'obscura', 'none'];   // Ofuscador 1, 2 y 3; 'none' = sin ofuscar (solo key)
+const OBFUSCATORS = ['obscura', 'none'];   // Ofuscador 3 (Obscura); 'none' = sin ofuscar (solo key)
 const KEY_ALPHABET = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
 // Un error suelto no debe tirar el servidor ni dejar al bot a medias: se registra y el proceso sigue
 process.on('unhandledRejection', err => console.error('[Proceso] Promesa sin manejar:', err));
@@ -267,10 +267,7 @@ function validateScriptInput({ name, ffa, obfuscator, code, hwidResetHours }, cu
 // ==========================================
 // 4. OFUSCACIÓN
 // ==========================================
-// Ofuscadores reales (CLIs locales). El Dockerfile instala Lua 5.1 / 5.4 y
-// clona ambos repos en OBFUSCATOR_DIR (por defecto /opt/obfuscators).
-//   Ofuscador 1 = Prometheus (Lua 5.1)
-//   Ofuscador 2 = Hercules  (Lua 5.4)
+// Ofuscador real (CLI local): Obscura (Python). El Dockerfile lo clona en OBFUSCATOR_DIR (por defecto /opt/obfuscators).
 // Se ejecutan sin shell (execFile + argumentos separados) para evitar inyección.
 const OBF_DIR = process.env.OBFUSCATOR_DIR || '/opt/obfuscators';
 const OBF_TIMEOUT_MS = Number(process.env.OBFUSCATOR_TIMEOUT_MS) || 120_000;
@@ -291,21 +288,6 @@ function findEntryDir(root, entry, depth = 0) {
   return null;
 }
 const OBF_CONFIG = {
-  prometheus: {
-    bin: 'lua5.1',
-    dir: findEntryDir(path.join(OBF_DIR, 'prometheus'), 'cli.lua'),
-    // El CLI no tiene opción --out: escribe <entrada>.obfuscated.lua junto al archivo
-    args: (input) => ['cli.lua', '--preset', 'Medium', input],
-    output: (input) => input.replace(/\.lua$/, '') + '.obfuscated.lua',
-  },
-  hercules: {
-    bin: 'lua5.4',
-    dir: findEntryDir(path.join(OBF_DIR, 'hercules'), 'hercules.lua'),
-    // --light: el modo balanced tardaba más que el límite de la petición
-    // --target luau: el código de Roblox es Luau; sin esto se trata como Lua normal
-    args: (input) => ['hercules.lua', input, '--target', 'luau', '--light'],
-    output: (input) => input.replace(/\.lua$/, '') + '_obfuscated.luau',
-  },
   // Ofuscador 3 = Obscura (Python, MIT). CLI: python main.py <entrada> -o <salida> --mode lightweight
   obscura: {
     // Obscura usa sintaxis de Python 3.12; el Dockerfile instala ese intérprete
@@ -331,9 +313,9 @@ function runObfuscatorCli(bin, args, cwd, luaPath) {
     }, (err, stdout, stderr) => {
       if (err) {
         const detail = String(stderr || stdout || err.message).slice(0, 500);
-        // Error de sintaxis del propio script (p. ej. Luau en el Ofuscador 1 que es Lua 5.1)
+        // Error de sintaxis del propio script
         if (/Parsing Error|syntax|unexpected token|expected <|expected/i.test(detail)) {
-          return reject(Object.assign(new Error('Tu script tiene sintaxis que este ofuscador no entiende. Si es código de Roblox (Luau), usa el Ofuscador 2 u Obscura.'), { status: 422 }));
+          return reject(Object.assign(new Error('Tu script tiene sintaxis que el ofuscador no entiende. Revisa que sea Lua/Luau válido o usa Sin ofuscar.'), { status: 422 }));
         }
         return reject(Object.assign(new Error(`El ofuscador falló: ${detail}`), { status: 500 }));
       }
@@ -365,15 +347,6 @@ async function obfuscate(source, obfuscator) {
     }
     const result = await fs.promises.readFile(outFile, 'utf8').catch(() => '');
     if (!result.trim()) throw Object.assign(new Error('El ofuscador no generó salida. Revisa que el script sea válido para este ofuscador.'), { status: 422 });
-
-    // El Ofuscador 1 es Lua 5.1: su salida debe compilar antes de guardarla (si no, el loader da "Verification failed")
-    if (obfuscator === 'prometheus') {
-      try {
-        await runObfuscatorCli('lua5.1', ['-e', `assert(loadfile(${JSON.stringify(outFile)}))`], dir, dir);
-      } catch {
-        throw Object.assign(new Error('El Ofuscador 1 generó un código que no compila en Lua 5.1. Prueba el Ofuscador 2, el 3 o Sin ofuscar.'), { status: 422 });
-      }
-    }
     return result;
   } finally {
     await fs.promises.rm(dir, { recursive: true, force: true });

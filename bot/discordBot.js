@@ -4,6 +4,7 @@ import {
   ActionRowBuilder,
   ButtonBuilder,
   ButtonStyle,
+  ChannelType,
   Client,
   EmbedBuilder,
   GatewayIntentBits,
@@ -98,7 +99,7 @@ export const commands = [
     .addStringOption(o => scriptOpt(o))
     .addIntegerOption(o => o.setName('amount').setDescription('Cantidad de keys (1-50)').setMinValue(1).setMaxValue(50).setRequired(true)),
   new SlashCommandBuilder().setName('logs').setDescription('Elige el canal donde se registran los usos de tus scripts')
-    .addChannelOption(o => o.setName('canal').setDescription('Canal de logs').setRequired(true)),
+    .addChannelOption(o => o.setName('canal').setDescription('Canal de logs (opcional: si no eliges, uso o creo #logs-bot)').setRequired(false)),
   new SlashCommandBuilder().setName('addtime').setDescription('Añade tiempo a una key (dueño o gestor)')
     .addStringOption(o => o.setName('key').setDescription('Key').setRequired(true))
     .addStringOption(o => durationOpt(o, true)),
@@ -546,9 +547,36 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
 
       case 'logs': {
         if (!isPlatformOwner(actor) && !createdAnyScript(actor)) return reply('⛔ Solo creadores de scripts pueden configurar los logs.');
-        const channel = interaction.options.getChannel('canal', true);
+        let channel = interaction.options.getChannel('canal');
+        let created = false;
+        if (!channel) {
+          // Sin canal: usa #logs-bot si ya existe en el servidor, o lo crea (visible solo para ti y el bot)
+          const guild = interaction.guild;
+          if (!guild) return reply('❌ Usa /logs dentro de tu servidor de Discord.');
+          await guild.channels.fetch();
+          channel = guild.channels.cache.find(c => c.name === 'logs-bot' && c.type === ChannelType.GuildText) || null;
+          if (!channel) {
+            try {
+              channel = await guild.channels.create({
+                name: 'logs-bot',
+                type: ChannelType.GuildText,
+                topic: 'Registro de usos de tus scripts de Vantarmor',
+                permissionOverwrites: [
+                  { id: guild.roles.everyone.id, deny: [PermissionFlagsBits.ViewChannel] },
+                  { id: actor, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory] },
+                  { id: interaction.client.user.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.EmbedLinks] },
+                ],
+                reason: `/logs por ${interaction.user.tag}`,
+              });
+              created = true;
+            } catch (err) {
+              console.error('[Bot] No se pudo crear #logs-bot:', err.message);
+              return reply('❌ No pude crear #logs-bot. Dale al bot el permiso "Gestionar canales" o elige un canal con la opción canal.');
+            }
+          }
+        }
         q.settingSet.run(actor, 'log_channel', channel.id);
-        return reply(`✅ Los logs de tus scripts se enviarán a <#${channel.id}>.`);
+        return reply(`✅ Los logs de tus scripts se enviarán a <#${channel.id}>.${created ? ' Creé #logs-bot para ti; solo lo ves tú y el bot.' : ''}`);
       }
 
       // Sorteo: genera las keys y anuncia la cuenta regresiva (un mensaje por número)

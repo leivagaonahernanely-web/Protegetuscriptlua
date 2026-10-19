@@ -728,7 +728,7 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
       }
 
       case 'warn': {
-        if (!canUse(interaction, owner())) return reply(denied);
+        if (!isPlatformOwner(actor) && !createdAnyScript(actor)) return reply('⛔ Solo creadores de scripts pueden advertir a usuarios.');
         const target = interaction.options.getUser('user', true);
         const reason = interaction.options.getString('reason', true);
         q.warnInsert.run(target.id, reason, now());
@@ -737,7 +737,7 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
 
       case 'prices':
       case 'updates': {
-        if (!isPlatformOwner(actor)) return reply('⛔ Solo el dueño puede publicar esto.');
+        if (!isPlatformOwner(actor) && !createdAnyScript(actor)) return reply('⛔ Solo creadores de scripts pueden publicar esto.');
         const title = interaction.options.getString('title', true);
         const description = interaction.options.getString('description', true).replace(/\\n/g, '\n');
         const embed = new EmbedBuilder()

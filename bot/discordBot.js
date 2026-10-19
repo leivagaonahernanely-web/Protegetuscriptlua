@@ -806,7 +806,7 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
 
   // ---------- Juego de la galleta (/cookiegame) ----------
   // Partidas en memoria: el primero que hace click se lleva la whitelist del script por el tiempo elegido
-  const COOKIE_GAME_MS = 30_000;
+  const COOKIE_GAME_MS = 5_000; // fijo: no es una opción del comando
   const cookieGames = new Map();
 
   async function startCookieGame(channel, script, secs, raw) {

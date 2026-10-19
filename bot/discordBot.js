@@ -820,6 +820,30 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
       .sort((a, b) => a.name.localeCompare(b.name));
   };
 
+  // Foto del bot solo en los servidores donde el creador tiene su panel (por servidor, no global)
+  client.setGuildAvatarFor = async (userId, url) => {
+    const rows = db.prepare('SELECT DISTINCT p.channel_id FROM bot_panels p JOIN scripts s ON s.id = p.script_id WHERE s.user_id = ?').all(userId);
+    if (!rows.length) throw new Error('Primero publica tu panel en tu servidor con /panel y luego pon la foto.');
+    const res = await fetch(url, { signal: AbortSignal.timeout(10_000) });
+    const type = (res.headers.get('content-type') || '').split(';')[0].trim();
+    if (!res.ok || !['image/png', 'image/jpeg', 'image/gif', 'image/webp'].includes(type)) {
+      throw new Error('La URL no es una imagen válida (png, jpg, gif o webp).');
+    }
+    const buf = Buffer.from(await res.arrayBuffer());
+    if (buf.length > 5 * 1024 * 1024) throw new Error('La imagen pesa más de 5 MB.');
+    const dataUri = `data:${type};base64,${buf.toString('base64')}`;
+    const guilds = new Set();
+    for (const r of rows) {
+      const channel = await client.channels.fetch(r.channel_id).catch(() => null);
+      if (channel?.guildId) guilds.add(channel.guildId);
+    }
+    if (!guilds.size) throw new Error('No encuentro tu servidor de Discord.');
+    for (const guildId of guilds) {
+      await client.rest.patch(Routes.guildMember(guildId, '@me'), { body: { avatar: dataUri } });
+    }
+    return guilds.size;
+  };
+
   // Changelogs y tabla de precios: los publica el panel admin, no comandos de Discord
   client.announce = async (kind, channelId, title, description) => {
     const channel = await client.channels.fetch(channelId);

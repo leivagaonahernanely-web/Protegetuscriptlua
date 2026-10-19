@@ -685,27 +685,35 @@
   function openAvatarModal() {
     openModal('Foto de perfil', `
       <form id="formAvatar" novalidate>
-        <div class="inline-note">Pega la URL de una imagen (https://…). Se verá en tu dashboard y en el panel de tus scripts.</div>
+        <div class="inline-note">Pega URLs de imágenes (https://…). La foto de perfil sale en el panel de tus scripts. La foto del bot solo cambia en tu servidor de Discord, y necesitas tener un panel publicado con /panel.</div>
         <div class="input-group">
-          <label for="fAvatar">URL de la imagen</label>
+          <label for="fAvatar">Foto de perfil (URL)</label>
           <input id="fAvatar" class="field block" type="url" maxlength="500" value="${esc(user?.custom_avatar || '')}" placeholder="https://…/foto.png">
         </div>
+        <div class="input-group">
+          <label for="fBotAvatar">Foto del bot en tu servidor (URL)</label>
+          <input id="fBotAvatar" class="field block" type="url" maxlength="500" value="${esc(user?.bot_avatar || '')}" placeholder="https://…/bot.png">
+        </div>
         <div class="form-actions">
-          <button type="button" class="btn ghost" id="avReset">Usar la de Discord</button>
+          <button type="button" class="btn ghost" id="avReset">Quitar ambas</button>
           <button type="submit" class="btn">Guardar</button>
         </div>
       </form>`);
-    $('formAvatar').addEventListener('submit', e => { e.preventDefault(); saveAvatar($('fAvatar').value.trim()); });
-    $('avReset').addEventListener('click', () => saveAvatar(''));
+    $('formAvatar').addEventListener('submit', e => { e.preventDefault(); saveAvatars($('fAvatar').value.trim(), $('fBotAvatar').value.trim()); });
+    $('avReset').addEventListener('click', () => saveAvatars('', ''));
   }
 
-  async function saveAvatar(url) {
+  async function saveAvatars(url, botUrl) {
     try {
       const data = await api('/api/me/avatar', { method: 'POST', body: JSON.stringify({ url }) });
       if (user) user.custom_avatar = data.avatarUrl;
       renderUser();
+      if (botUrl || user?.bot_avatar) {
+        await api('/api/me/bot-avatar', { method: 'POST', body: JSON.stringify({ url: botUrl }) });
+        if (user) user.bot_avatar = botUrl || null;
+      }
       closeModal();
-      toast(url ? 'Foto de perfil actualizada' : 'Ahora se usa la foto de Discord');
+      toast('Guardado');
     } catch (err) {
       toast(err.message, 'error');
     }

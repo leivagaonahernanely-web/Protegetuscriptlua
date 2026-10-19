@@ -114,6 +114,8 @@ db.exec(`
   if (!cols.includes('obfuscator')) db.exec('ALTER TABLE scripts ADD COLUMN obfuscator TEXT');
   // Foto de perfil personalizada (URL). Si es NULL se usa la de Discord.
   if (!db.prepare("SELECT 1 FROM pragma_table_info('users') WHERE name = 'custom_avatar'").get()) db.exec('ALTER TABLE users ADD COLUMN custom_avatar TEXT');
+  // Foto del bot solo en los servidores del creador (se aplica desde sus paneles)
+  if (!db.prepare("SELECT 1 FROM pragma_table_info('users') WHERE name = 'bot_avatar'").get()) db.exec('ALTER TABLE users ADD COLUMN bot_avatar TEXT');
   // source = código original (nunca se envía al cliente); content = lo que se sirve al loader
   if (!cols.includes('source')) db.exec('ALTER TABLE scripts ADD COLUMN source TEXT');
   if (!cols.includes('hwid_reset_hours')) db.exec('ALTER TABLE scripts ADD COLUMN hwid_reset_hours INTEGER DEFAULT 24');
@@ -151,7 +153,7 @@ const PLAN_QUOTAS = {
 const quotaFor = userId => PLAN_QUOTAS[stmt.userById.get(userId)?.plan] ?? PLAN_QUOTAS.free;
 
 const stmt = {
-  userById: db.prepare('SELECT id, username, avatar, custom_avatar, plan, obf_used FROM users WHERE id = ?'),
+  userById: db.prepare('SELECT id, username, avatar, custom_avatar, bot_avatar, plan, obf_used FROM users WHERE id = ?'),
   scriptCount: db.prepare('SELECT COUNT(*) AS n FROM scripts WHERE user_id = ?'),
   obfUsed: db.prepare('SELECT obf_used FROM users WHERE id = ?'),
   obfIncrement: db.prepare('UPDATE users SET obf_used = obf_used + 1 WHERE id = ?'),
@@ -705,6 +707,29 @@ app.post('/api/me/avatar', requireAuth, (req, res) => {
   const url = parsed.toString();
   db.prepare('UPDATE users SET custom_avatar = ? WHERE id = ?').run(url, req.userId);
   res.json({ ok: true, avatarUrl: url });
+});
+
+// Foto del bot solo en los servidores donde el creador tiene su panel. Vacío = quitarla.
+app.post('/api/me/bot-avatar', requireAuth, async (req, res) => {
+  const raw = String(req.body?.url ?? '').trim();
+  if (!raw) {
+    db.prepare('UPDATE users SET bot_avatar = NULL WHERE id = ?').run(req.userId);
+    return res.json({ ok: true });
+  }
+  let parsed;
+  try { parsed = new URL(raw); } catch { return res.status(400).json({ error: 'La URL no es válida' }); }
+  if (parsed.protocol !== 'https:' || raw.length > 500) {
+    return res.status(400).json({ error: 'Usa una URL https de una imagen (máximo 500 caracteres)' });
+  }
+  if (!discordBot?.setGuildAvatarFor) return res.status(503).json({ error: 'El bot todavía no está conectado' });
+  try {
+    const url = parsed.toString();
+    await discordBot.setGuildAvatarFor(req.userId, url);
+    db.prepare('UPDATE users SET bot_avatar = ? WHERE id = ?').run(url, req.userId);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
 });
 
 // ---- Panel del dueño: solo DISCORD_OWNER_ID ----

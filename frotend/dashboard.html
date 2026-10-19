@@ -681,6 +681,36 @@
   }
   function closeModal() { $('modal').hidden = true; }
 
+  // ---------- FOTO DE PERFIL (URL) ----------
+  function openAvatarModal() {
+    openModal('Foto de perfil', `
+      <form id="formAvatar" novalidate>
+        <div class="inline-note">Pega la URL de una imagen (https://…). Se verá en tu dashboard y en el panel de tus scripts.</div>
+        <div class="input-group">
+          <label for="fAvatar">URL de la imagen</label>
+          <input id="fAvatar" class="field block" type="url" maxlength="500" value="${esc(user?.custom_avatar || '')}" placeholder="https://…/foto.png">
+        </div>
+        <div class="form-actions">
+          <button type="button" class="btn ghost" id="avReset">Usar la de Discord</button>
+          <button type="submit" class="btn">Guardar</button>
+        </div>
+      </form>`);
+    $('formAvatar').addEventListener('submit', e => { e.preventDefault(); saveAvatar($('fAvatar').value.trim()); });
+    $('avReset').addEventListener('click', () => saveAvatar(''));
+  }
+
+  async function saveAvatar(url) {
+    try {
+      const data = await api('/api/me/avatar', { method: 'POST', body: JSON.stringify({ url }) });
+      if (user) user.custom_avatar = data.avatarUrl;
+      renderUser();
+      closeModal();
+      toast(url ? 'Foto de perfil actualizada' : 'Ahora se usa la foto de Discord');
+    } catch (err) {
+      toast(err.message, 'error');
+    }
+  }
+
   function codeFieldHtml(initial = '') {
     return `
       <div class="input-group">
@@ -926,10 +956,13 @@
     $('userPlan').textContent = PLAN_LABELS[planKey(user.plan)];
     const av = $('userAvatar');
     av.innerHTML = '';
-    if (user.avatar && user.id) {
+    const src = user.custom_avatar
+      || (user.avatar && user.id ? `https://cdn.discordapp.com/avatars/${encodeURIComponent(user.id)}/${encodeURIComponent(user.avatar)}.png` : null);
+    if (src) {
       const img = document.createElement('img');
       img.alt = '';
-      img.src = `https://cdn.discordapp.com/avatars/${encodeURIComponent(user.id)}/${encodeURIComponent(user.avatar)}.png`;
+      img.src = src;
+      img.onerror = () => { av.textContent = (user.username || '?').charAt(0).toUpperCase(); };
       av.appendChild(img);
     } else {
       av.textContent = (user.username || '?').charAt(0).toUpperCase();
@@ -1343,6 +1376,10 @@
     if (!$('modal').hidden) closeModal();
     else if (isMobile() && !$('sidebar').classList.contains('collapsed')) setSidebar(false);
   });
+
+  $('userAvatar').addEventListener('click', openAvatarModal);
+  $('userAvatar').title = 'Cambiar foto de perfil';
+  $('userAvatar').style.cursor = 'pointer';
 
   $('menuBtn').addEventListener('click', () => setSidebar($('sidebar').classList.contains('collapsed')));
   $('scrim').addEventListener('click', () => setSidebar(false));

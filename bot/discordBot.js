@@ -153,7 +153,7 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
     scriptByName: db.prepare('SELECT * FROM scripts WHERE lower(name) = lower(?) ORDER BY id DESC LIMIT 1'),
     scriptsList: db.prepare('SELECT id, name, user_id FROM scripts ORDER BY id DESC LIMIT 100'),
     scriptsOfUser: db.prepare('SELECT 1 FROM scripts WHERE user_id = ? LIMIT 1'),
-    userById: db.prepare('SELECT id, username, avatar FROM users WHERE id = ?'),
+    userById: db.prepare('SELECT id, username, avatar, custom_avatar FROM users WHERE id = ?'),
     keyByCode: db.prepare('SELECT * FROM keys WHERE key = ?'),
     keysByDiscord: db.prepare('SELECT * FROM keys WHERE discord_id = ?'),
     activeKeyFor: db.prepare(`
@@ -458,7 +458,7 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
   function panelPayload(script, customDescription) {
     const creator = script.user_id ? q.userById.get(script.user_id) : null;
     const creatorName = creator?.username || (script.user_id ? `ID ${script.user_id}` : 'Vantarmor');
-    const creatorIcon = script.user_id ? avatarUrl(script.user_id, creator?.avatar) : undefined;
+    const creatorIcon = script.user_id ? (creator?.custom_avatar || avatarUrl(script.user_id, creator?.avatar)) : undefined;
     const defaultDescription = `This control panel is for the project: **${script.name}**\nIf you're a buyer, click on the buttons below to redeem your key, get the script or get your role`;
     const embed = new EmbedBuilder()
       .setColor(0x5865f2)

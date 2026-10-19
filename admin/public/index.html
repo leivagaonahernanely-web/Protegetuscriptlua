@@ -66,7 +66,6 @@ pre{white-space:pre-wrap;word-break:break-all;background:#040407;border:1px soli
       <button class="tab" data-tab="logs">Logs</button>
       <button class="tab" data-tab="prices">Prices &amp; Plans</button>
       <button class="tab" data-tab="changelog">Changelog</button>
-      <button class="tab" data-tab="bot">Bot</button>
     </nav>
 
     <section class="card" data-panel="keys">
@@ -111,12 +110,6 @@ pre{white-space:pre-wrap;word-break:break-all;background:#040407;border:1px soli
       <div class="row"><input class="field" id="cgTitle" placeholder="Version or title, for example: v1.2 — Loader update" style="flex:1"></div>
       <textarea class="field" id="cgBody" rows="10" placeholder="What changed, one item per line" style="width:100%"></textarea>
       <div class="row" style="margin:14px 0 0"><button class="btn primary" id="cgSend">Publish to channel</button></div>
-    </section>
-
-    <section class="card hidden" data-panel="bot">
-      <p class="muted" style="margin-top:0">Changes the bot's profile picture in Discord. Use a direct https link to an image (png, jpg or gif). Discord limits how often this can change, so wait a few minutes between tries.</p>
-      <div class="row"><input class="field" id="botAvUrl" type="url" maxlength="500" placeholder="https://…/bot.png" style="flex:1;min-width:220px"></div>
-      <div class="row" style="margin:14px 0 0"><button class="btn primary" id="botAvSend">Set bot picture</button></div>
     </section>
   </section>
 </main>
@@ -210,18 +203,6 @@ async function publishAnnouncement(kind, channelField, titleField, bodyField) {
 }
 $('pcSend').addEventListener('click', () => publishAnnouncement('prices', 'pcChannel', 'pcTitle', 'pcBody'));
 $('cgSend').addEventListener('click', () => publishAnnouncement('changelog', 'cgChannel', 'cgTitle', 'cgBody'));
-
-// ---- Foto del bot ----
-$('botAvSend').addEventListener('click', async () => {
-  const url = $('botAvUrl').value.trim();
-  if (!url) return toast('Pega la URL de la imagen');
-  if (!confirm('Change the bot\'s profile picture in Discord now?')) return;
-  try {
-    await api('POST', '/admin/api/bot-avatar', { url });
-    toast('Bot picture updated');
-  } catch (err) { toast(err.message); }
-});
-
 // ---- Plan keys ----
 function renderKeys() {
   $('keysBody').innerHTML = cache.keys.length ? cache.keys.map(k => `

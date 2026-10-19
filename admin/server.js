@@ -86,7 +86,6 @@ const ALLOWED = {
   logs: { GET: '/logs' },
   channels: { GET: '/channels' },
   announce: { POST: '/announce' },
-  'bot-avatar': { POST: '/bot-avatar' },
 };
 
 async function forward(res, method, route, body) {

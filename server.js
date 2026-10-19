@@ -19,7 +19,7 @@ const app = express();
 // 0. CONSTANTES Y CONFIGURACIÓN
 // ==========================================
 const MAX_CODE_BYTES = 2 * 1024 * 1024;           // 2 MB por script
-const OBFUSCATORS = ['prometheus', 'hercules', 'obscura'];   // Ofuscador 1, 2 y 3
+const OBFUSCATORS = ['prometheus', 'hercules', 'obscura', 'none'];   // Ofuscador 1, 2 y 3; 'none' = sin ofuscar (solo key)
 const KEY_ALPHABET = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
 // Un error suelto no debe tirar el servidor ni dejar al bot a medias: se registra y el proceso sigue
 process.on('unhandledRejection', err => console.error('[Proceso] Promesa sin manejar:', err));
@@ -784,7 +784,7 @@ app.post('/api/scripts', requireAuth, async (req, res) => {
   if (quotaMsg) return res.status(403).json({ error: quotaMsg });
 
   try {
-    const content = input.isFfa ? input.source : await obfuscate(input.source, input.obfuscator);
+    const content = (input.isFfa || input.obfuscator === 'none') ? input.source : await obfuscate(input.source, input.obfuscator);
     const info = stmt.scriptInsert.run(
       req.userId, input.name, uniqueSlug(input.name), input.isFfa ? 1 : 0,
       input.obfuscator, input.source, content, input.hwidResetHours,
@@ -821,7 +821,7 @@ app.put('/api/scripts/:id', requireAuth, async (req, res) => {
   if (quotaMsg) return res.status(403).json({ error: quotaMsg });
 
   try {
-    const content = input.isFfa ? input.source : await obfuscate(input.source, input.obfuscator);
+    const content = (input.isFfa || input.obfuscator === 'none') ? input.source : await obfuscate(input.source, input.obfuscator);
     stmt.scriptUpdate.run(
       input.name, input.isFfa ? 1 : 0, input.obfuscator, input.source, content, input.hwidResetHours,
       script.id, req.userId,

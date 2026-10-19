@@ -820,6 +820,11 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
       .sort((a, b) => a.name.localeCompare(b.name));
   };
 
+  // Foto de perfil del bot en Discord (la cambia el panel admin). Discord limita cuántas veces por hora.
+  client.setBotAvatar = async url => {
+    await client.user.setAvatar(url);
+  };
+
   // Changelogs y tabla de precios: los publica el panel admin, no comandos de Discord
   client.announce = async (kind, channelId, title, description) => {
     const channel = await client.channels.fetch(channelId);

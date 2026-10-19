@@ -764,6 +764,21 @@ app.get('/api/owner/channels', requireOwnerApi, (req, res) => {
   res.json(discordBot.listTextChannels());
 });
 
+// Foto de perfil del bot en Discord (solo dueño, desde el panel admin). Solo https.
+app.post('/api/owner/bot-avatar', requireOwnerApi, async (req, res) => {
+  const raw = String(req.body?.url ?? '').trim();
+  let parsed;
+  try { parsed = new URL(raw); } catch { return res.status(400).json({ error: 'La URL no es válida' }); }
+  if (parsed.protocol !== 'https:' || raw.length > 500) return res.status(400).json({ error: 'Usa una URL https de una imagen' });
+  if (!discordBot?.setBotAvatar) return res.status(503).json({ error: 'El bot todavía no está conectado' });
+  try {
+    await discordBot.setBotAvatar(parsed.toString());
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(502).json({ error: `Discord no aceptó la imagen: ${err.message}` });
+  }
+});
+
 // Publica un changelog o la tabla de precios en un canal elegido en el panel admin
 app.post('/api/owner/announce', requireOwnerApi, async (req, res) => {
   const { kind, channelId, title, description } = req.body || {};

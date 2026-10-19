@@ -152,6 +152,7 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
   const q = {
     scriptById: db.prepare('SELECT * FROM scripts WHERE id = ?'),
     scriptByName: db.prepare('SELECT * FROM scripts WHERE lower(name) = lower(?) ORDER BY id DESC LIMIT 1'),
+    scriptsNamed: db.prepare('SELECT id FROM scripts WHERE lower(name) = lower(?)'),
     scriptsList: db.prepare('SELECT id, name, user_id FROM scripts ORDER BY id DESC LIMIT 100'),
     scriptsOfUser: db.prepare('SELECT 1 FROM scripts WHERE user_id = ? LIMIT 1'),
     userById: db.prepare('SELECT id, username, avatar, custom_avatar FROM users WHERE id = ?'),
@@ -676,7 +677,12 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
 
       case 'whitelist':
       case 'unwhitelist': {
-        const script = findScript(interaction.options.getString('script', true));
+        const rawScript = String(interaction.options.getString('script', true) ?? '').trim().replace(/^#/, '');
+        // Con nombre escrito a mano y varios scripts con ese nombre, no adivina: obliga a elegir de la lista
+        if (!/^\d+$/.test(rawScript) && q.scriptsNamed.all(rawScript).length > 1) {
+          return reply('❌ Hay varios scripts con ese nombre. Elige el correcto de la lista que aparece al escribir el script (autocompletado).');
+        }
+        const script = findScript(rawScript);
         if (!script) return reply('❌ Script no encontrado.');
         if (!canUse(interaction, script.user_id)) return reply(denied);
         const user = interaction.options.getUser('user');

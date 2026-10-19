@@ -365,6 +365,15 @@ async function obfuscate(source, obfuscator) {
     }
     const result = await fs.promises.readFile(outFile, 'utf8').catch(() => '');
     if (!result.trim()) throw Object.assign(new Error('El ofuscador no generó salida. Revisa que el script sea válido para este ofuscador.'), { status: 422 });
+
+    // El Ofuscador 1 es Lua 5.1: su salida debe compilar antes de guardarla (si no, el loader da "Verification failed")
+    if (obfuscator === 'prometheus') {
+      try {
+        await runObfuscatorCli('lua5.1', ['-e', `assert(loadfile(${JSON.stringify(outFile)}))`], dir, dir);
+      } catch {
+        throw Object.assign(new Error('El Ofuscador 1 generó un código que no compila en Lua 5.1. Prueba el Ofuscador 2, el 3 o Sin ofuscar.'), { status: 422 });
+      }
+    }
     return result;
   } finally {
     await fs.promises.rm(dir, { recursive: true, force: true });

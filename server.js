@@ -19,7 +19,7 @@ const app = express();
 // 0. CONSTANTES Y CONFIGURACIÓN
 // ==========================================
 const MAX_CODE_BYTES = 2 * 1024 * 1024;           // 2 MB por script
-const OBFUSCATORS = ['obscura', 'none'];   // Ofuscador 3 (Obscura); 'none' = sin ofuscar (solo key)
+const OBFUSCATORS = ['clyde', 'obscura', 'none'];   // Ofuscador 1 (Clyde), Ofuscador 2 (Obscura); 'none' = sin ofuscar (solo key)
 const KEY_ALPHABET = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
 // Un error suelto no debe tirar el servidor ni dejar al bot a medias: se registra y el proceso sigue
 process.on('unhandledRejection', err => console.error('[Proceso] Promesa sin manejar:', err));
@@ -287,7 +287,7 @@ function validateScriptInput({ name, ffa, obfuscator, code, hwidResetHours }, cu
 // ==========================================
 // 4. OFUSCACIÓN
 // ==========================================
-// Ofuscador real (CLI local): Obscura (Python). El Dockerfile lo clona en OBFUSCATOR_DIR (por defecto /opt/obfuscators).
+// Ofuscadores reales (CLI locales): Clyde (Node, Luau) y Obscura (Python). El Dockerfile los clona en OBFUSCATOR_DIR (por defecto /opt/obfuscators).
 // Se ejecutan sin shell (execFile + argumentos separados) para evitar inyección.
 const OBF_DIR = process.env.OBFUSCATOR_DIR || '/opt/obfuscators';
 const OBF_TIMEOUT_MS = Number(process.env.OBFUSCATOR_TIMEOUT_MS) || 120_000;
@@ -308,7 +308,14 @@ function findEntryDir(root, entry, depth = 0) {
   return null;
 }
 const OBF_CONFIG = {
-  // Ofuscador 3 = Obscura (Python, MIT). CLI: python main.py <entrada> -o <salida> --mode lightweight
+  // Ofuscador 1 = Clyde (Node/TypeScript, MIT, Luau). CLI: node dist/cli/obfuscate.js <entrada> -o <salida>
+  clyde: {
+    bin: process.execPath,
+    dir: findEntryDir(path.join(OBF_DIR, 'clyde'), path.join('dist', 'cli', 'obfuscate.js')),
+    args: (input, out) => [path.join('dist', 'cli', 'obfuscate.js'), input, '-o', out],
+    output: (input, out) => out,
+  },
+  // Ofuscador 2 = Obscura (Python, MIT). CLI: python main.py <entrada> -o <salida> --mode lightweight
   obscura: {
     // Obscura usa sintaxis de Python 3.12; el Dockerfile instala ese intérprete
     bin: process.env.OBSCURA_PYTHON || '/opt/obscura-venv/bin/python',

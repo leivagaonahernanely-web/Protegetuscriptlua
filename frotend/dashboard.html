@@ -698,7 +698,8 @@
   };
   const PLAN_LABELS = { free: 'Free', premium: 'Premium', plus: 'Premium Plus' };
   const OBFUSCATORS = {
-    obscura:    'Ofuscador 3 (Obscura)',
+    clyde:      'Ofuscador 1 (Clyde)',
+    obscura:    'Ofuscador 2 (Obscura)',
     none:       'Sin ofuscar (solo key)',
   };
   const NAV = {
@@ -942,7 +943,7 @@
   // Selector de protección: FFA o Protegido, y si es Protegido, el ofuscador
   function protectionHtml(s = {}) {
     const current = s.ffa === undefined ? 'protected' : protectionOf(s);
-    const currentObf = obfuscatorOf(s);
+    const currentObf = s.id ? obfuscatorOf(s) : 'clyde';
     return `
       <div class="input-group">
         <span class="label">Protección</span>
@@ -963,7 +964,7 @@
           ${Object.entries(OBFUSCATORS).map(([val, label]) =>
             `<option value="${val}" ${val === currentObf ? 'selected' : ''}>${label}</option>`).join('')}
         </select>
-        <div class="hint">Se aplica en el servidor al guardar el script. Para Roblox (Luau) recomendamos el Ofuscador 3.</div>
+        <div class="hint">Se aplica en el servidor al guardar el script. Para Roblox (Luau) recomendamos el Ofuscador 1.</div>
       </div>
       <div class="input-group" id="hwidGroup">
         <label for="fHwid">Reinicio de HWID</label>
@@ -1090,7 +1091,7 @@
     const name = String(fd.get('name') || '').trim();
     const code = $('fCode').value;
     const protection = fd.get('protection') || 'protected';
-    const obfuscator = fd.get('obfuscator') || 'obscura';
+    const obfuscator = fd.get('obfuscator') || 'clyde';
 
     if (!name) { toast('Escribe un nombre', 'error'); return; }
     if (!editId && !code.trim()) { toast('Agrega el código del script', 'error'); return; }

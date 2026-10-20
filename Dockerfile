@@ -5,9 +5,15 @@ RUN apt-get update \
  && apt-get install -y --no-install-recommends git ca-certificates python3 python3-click make g++ \
  && rm -rf /var/lib/apt/lists/*
 
-# Ofuscador 3 = Obscura (CLI local, no se usa su web)
+# Ofuscadores 1 y 2 (CLI locales, no se usan sus webs)
+# Ofuscador 1 = Clyde (Node/TypeScript). Necesita devDependencies para compilar, por eso no usa --omit=dev.
 RUN mkdir -p /opt/obfuscators \
- && git clone --depth 1 https://github.com/vo3pal/obscura.git /opt/obfuscators/obscura
+ && git clone --depth 1 https://github.com/sfr-development/Lua-Obfuscator-Clyde-Protection.git /opt/obfuscators/clyde \
+ && cd /opt/obfuscators/clyde && npm install \
+ && (npm run build || test -f dist/cli/obfuscate.js)
+
+# Ofuscador 2 = Obscura
+RUN git clone --depth 1 https://github.com/vo3pal/obscura.git /opt/obfuscators/obscura
 
 # Obscura necesita Python 3.12 (Debian trae 3.11). uv instala el intérprete y crea un venv
 # propio para Obscura (el Python gestionado de uv no admite instalar paquetes directamente).

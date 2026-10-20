@@ -493,7 +493,7 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
     return { embeds: [embed], components: [row1, row2] };
   }
 
-  // Aviso que se muestra solo cuando Discord responde "Missing Permissions" al publicar (código 50013)
+  // Aviso que se muestra cuando Discord responde "Missing Permissions" (código 50013) al publicar en un canal
   const BOT_PERMS_HELP = 'El bot no tiene permisos para publicar en ese canal. Dale al bot (o a su rol) los permisos Ver canal, Enviar mensajes e Insertar enlaces en ese canal. Tutorial: https://files.catbox.moe/ombcj8.mp4';
 
   // ---------- Manejadores ----------
@@ -827,12 +827,7 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
           .setFooter({ text: `${interaction.user.username} · Vantarmor` })
           .setTimestamp();
         if (imageUrl) embed.setImage(imageUrl);
-        try {
-          await channel.send({ embeds: [embed] });
-        } catch (err) {
-          if (err.code === 50013) return reply(`❌ ${BOT_PERMS_HELP}`);
-          throw err;
-        }
+        await channel.send({ embeds: [embed] });
         return reply(`✅ Precios publicados en <#${channel.id}>.`);
       }
 
@@ -1131,7 +1126,9 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
     } catch (err) {
       console.error('[Bot] Error en interacción:', err);
       // Errores de Discord (permisos, canal, etc.) se muestran con su motivo; el resto, genérico
-      const discordMsg = err?.code && err?.message ? `Discord rechazó la acción: ${err.message}` : 'Ocurrió un error. Inténtalo de nuevo.';
+      // Falta de permisos del bot en el canal (/panel, /prices, etc.): se explica cómo darlos con el tutorial
+      const discordMsg = err?.code === 50013 ? BOT_PERMS_HELP
+        : err?.code && err?.message ? `Discord rechazó la acción: ${err.message}` : 'Ocurrió un error. Inténtalo de nuevo.';
       const payload = { content: `❌ ${discordMsg}`, flags: MessageFlags.Ephemeral };
       if (interaction.deferred || interaction.replied) await interaction.editReply(payload).catch(() => {});
       else if (interaction.isRepliable?.()) await interaction.reply(payload).catch(() => {});

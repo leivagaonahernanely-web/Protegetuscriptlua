@@ -571,7 +571,7 @@
           </div>
           <div class="input-group">
             <label for="weText">Mensaje</label>
-            <textarea id="weText" class="field block" rows="4" maxlength="1000" placeholder="Bienvenido {user} a {server}!"></textarea>
+            <textarea id="weText" class="field block" rows="4" maxlength="1000"></textarea>
           </div>
           <div class="input-group">
             <label for="weImg">Imagen (URL https, opcional)</label>
@@ -1680,6 +1680,7 @@
 
   // ---------- BIENVENIDA (solo Premium Plus) ----------
   let welcomeGuilds = [];
+  const WELCOME_DEFAULT_TEXT = 'Bienvenido {user} a {server}!';
   function fillWelcomeChannels() {
     const guild = welcomeGuilds.find(g => g.id === $('weGuild').value);
     const channels = guild ? guild.channels : [];
@@ -1699,7 +1700,7 @@
       fillWelcomeChannels();
       if (data.channelId) $('weCh').value = data.channelId;
       $('weChId').value = '';
-      $('weText').value = data.text || '';
+      $('weText').value = data.text || WELCOME_DEFAULT_TEXT;
       $('weImg').value = data.imageUrl || '';
     } catch (err) {
       toast(err.message, 'error');

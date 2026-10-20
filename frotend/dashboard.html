@@ -290,7 +290,7 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 2 3 7v6c0 5 4 9 9 9s9-4 9-9V7l-9-5z"/></svg>
           Planes
         </button>
-        <button class="nav-item" data-nav="profile">
+        <button class="nav-item" data-nav="profile" data-plan-only style="display:none">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 3.6-7 8-7s8 3 8 7"/></svg>
           Perfil
         </button>
@@ -497,7 +497,7 @@
       <section class="view" data-view="profile">
         <div class="grid-stats" style="grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));">
           <article class="card">
-            <h3>Foto de perfil <span style="font-size:13px;font-weight:500;color:var(--text-soft);">(solo planes pagos)</span></h3>
+            <h3>Foto de perfil</h3>
             <p style="margin:6px 0 14px;font-size:14px;color:var(--text-soft);">Sale en el panel de tus scripts cuando los compradores abren tu panel en Discord.</p>
             <div id="pvProfile" style="width:72px;height:72px;border-radius:14px;overflow:hidden;display:grid;place-items:center;margin-bottom:14px;background:#fff;color:#000;font-weight:900;font-size:24px"></div>
             <div class="input-group">
@@ -510,7 +510,7 @@
             </div>
           </article>
           <article class="card">
-            <h3>Foto del bot en tu servidor <span style="font-size:13px;font-weight:500;color:var(--text-soft);">(solo planes pagos)</span></h3>
+            <h3>Foto del bot en tu servidor</h3>
             <p style="margin:6px 0 14px;font-size:14px;color:var(--text-soft);">Cambia la foto del bot solo en tu servidor de Discord. Necesitas tener un panel publicado con /panel.</p>
             <div id="pvBot" style="width:72px;height:72px;border-radius:14px;overflow:hidden;display:grid;place-items:center;margin-bottom:14px;background:#fff;color:#000;font-weight:900;font-size:14px"></div>
             <div class="input-group">
@@ -733,6 +733,10 @@
     document.querySelectorAll('.view').forEach(v => v.classList.toggle('active', v.dataset.view === name));
     $('pageTitle').firstChild.textContent = NAV[name].title;
     $('pageSub').textContent = NAV[name].sub;
+    if (name === 'profile' && !hasPerkPlan()) {
+      toast('El perfil es solo para Premium y Premium Plus', 'error');
+      return showView('plans');
+    }
     if (name === 'profile') renderProfile();
     if (name === 'chat') startChatPolling(); else stopChatPolling();
     if (isMobile()) setSidebar(false);
@@ -864,10 +868,12 @@
       </div>
       <div class="input-group" id="hwidGroup">
         <label for="fHwid">Reinicio de HWID</label>
-        <select id="fHwid" name="hwidReset" class="field block">
-          ${HWID_OPTIONS.map(([h, label]) => `<option value="${h}" ${h === (s.hwid_reset_hours ?? 24) ? 'selected' : ''}>${label}</option>`).join('')}
+        <select id="fHwid" name="hwidReset" class="field block" ${hasPerkPlan() ? '' : 'disabled'}>
+          ${HWID_OPTIONS.map(([h, label]) => `<option value="${h}" ${h === (hasPerkPlan() ? (s.hwid_reset_hours ?? 24) : 0) ? 'selected' : ''}>${label}</option>`).join('')}
         </select>
-        <div class="hint">Cada cuánto puede reiniciar su HWID un comprador. Si lo desactivas, el botón Reset HWID del panel queda gris. El creador siempre puede usar /resethwid.</div>
+        <div class="hint">${hasPerkPlan()
+          ? 'Cada cuánto puede reiniciar su HWID un comprador. Si lo desactivas, el botón Reset HWID del panel queda gris. El creador siempre puede usar /resethwid.'
+          : 'Solo planes pagos (Premium y Premium Plus). En tu plan Free el reinicio de HWID está desactivado.'}</div>
       </div>`;
   }
 
@@ -875,7 +881,7 @@
     const sync = () => {
       const isProtected = document.querySelector('input[name="protection"]:checked')?.value === 'protected';
       $('obfGroup').hidden = !isProtected;
-      $('hwidGroup').hidden = true; // reinicio de HWID desactivado para compradores
+      $('hwidGroup').hidden = !isProtected;
     };
     document.querySelectorAll('input[name="protection"]').forEach(r => r.addEventListener('change', sync));
     sync();
@@ -994,7 +1000,7 @@
       ffa: protection === 'ffa',
       // El ofuscador solo aplica a scripts protegidos
       obfuscator: protection === 'protected' ? obfuscator : null,
-      hwidResetHours: Number(fd.get('hwidReset') ?? 24),
+      hwidResetHours: hasPerkPlan() ? Number(fd.get('hwidReset') ?? 24) : 0,
     };
     if (code.trim()) body.code = code;
 
@@ -1237,6 +1243,9 @@
   let ownerData = { planKeys: [], publisher: [], users: [] };
   const PLAN_OPTIONS = [['free', 'Free'], ['premium', 'Premium'], ['plus', 'Premium Plus']];
   const hasPerkPlan = () => !!user && (user.plan === 'premium' || user.plan === 'plus');
+  function setPlanNav(allowed) {
+    document.querySelectorAll('[data-plan-only]').forEach(b => { b.style.display = allowed ? '' : 'none'; });
+  }
   function setOwnerNav(isOwner) {
     document.querySelectorAll('[data-owner-only]').forEach(b => { b.style.display = isOwner ? '' : 'none'; });
   }
@@ -1485,6 +1494,7 @@
 
     clearAuthLoop();
     setOwnerNav(!!user.owner);
+    setPlanNav(hasPerkPlan());
     loadOwnerData();
 
     const [s, k] = await Promise.allSettled([api('/api/scripts'), api('/api/keys')]);

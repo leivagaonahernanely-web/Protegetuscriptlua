@@ -493,6 +493,15 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
     return { embeds: [embed], components: [row1, row2] };
   }
 
+  // Permisos del bot para escribir en un canal. Si faltan, se explica cómo darlos (con tutorial)
+  const BOT_PERMS_HELP = 'El bot no tiene permisos para publicar en ese canal. Dale al bot (o a su rol) los permisos Ver canal, Enviar mensajes e Insertar enlaces en ese canal. Tutorial: https://files.catbox.moe/ombcj8.mp4';
+  async function canPostIn(channel) {
+    const me = await channel.guild?.members.fetch(client.user.id).catch(() => null);
+    if (!me) return true; // si no se puede comprobar, se intenta enviar y el error se traduce después
+    const perms = channel.permissionsFor(me);
+    return Boolean(perms?.has([PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.EmbedLinks]));
+  }
+
   // ---------- Manejadores ----------
 
   async function handleChat(interaction) {
@@ -816,6 +825,7 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
         if (!channelId) return reply('❌ Elige un canal con la opción canal. Se guardará para la próxima vez.');
         const channel = await interaction.client.channels.fetch(channelId).catch(() => null);
         if (!channel?.isTextBased()) return reply('❌ No encuentro el canal guardado. Elige otro con la opción canal.');
+        if (!(await canPostIn(channel))) return reply(`❌ ${BOT_PERMS_HELP}`);
         const imageUrl = imageRaw !== null ? (imageRaw.trim() || null) : settingFor(actor, 'prices_image');
         const embed = new EmbedBuilder()
           .setColor(0x5865f2)
@@ -824,7 +834,12 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
           .setFooter({ text: `${interaction.user.username} · Vantarmor` })
           .setTimestamp();
         if (imageUrl) embed.setImage(imageUrl);
-        await channel.send({ embeds: [embed] });
+        try {
+          await channel.send({ embeds: [embed] });
+        } catch (err) {
+          if (err.code === 50013) return reply(`❌ ${BOT_PERMS_HELP}`);
+          throw err;
+        }
         return reply(`✅ Precios publicados en <#${channel.id}>.`);
       }
 
@@ -1030,6 +1045,7 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
     if (!channel?.guild) throw new Error('No encuentro ese canal. Revisa el ID y que el bot esté en ese servidor.');
     if (!channel.isTextBased()) throw new Error('Ese canal no es de texto.');
     if (!(await isStaffOf(channel.guild, userId))) throw new Error('Solo puedes publicar en servidores donde eres dueño o mod.');
+    if (!(await canPostIn(channel))) throw new Error(BOT_PERMS_HELP);
     return channel;
   };
 
@@ -1070,6 +1086,7 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
   client.announce = async (kind, channelId, title, description, imageUrl = null) => {
     const channel = await client.channels.fetch(channelId);
     if (!channel?.isTextBased()) throw new Error('Ese canal no es de texto');
+    if (!(await canPostIn(channel))) throw new Error(BOT_PERMS_HELP);
     const isPrices = kind === 'prices';
     const embed = new EmbedBuilder()
       .setColor(isPrices ? 0x5865f2 : 0xe93540)
@@ -1078,7 +1095,10 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
       .setFooter({ text: `Vantarmor · ${new Date().getFullYear()}` })
       .setTimestamp();
     if (imageUrl) embed.setImage(imageUrl);
-    await channel.send({ embeds: [embed] });
+    await channel.send({ embeds: [embed] }).catch(err => {
+      if (err.code === 50013) throw new Error(BOT_PERMS_HELP);
+      throw err;
+    });
   };
 
   // Expuesto al servidor para registrar cuando se ejecuta un loader

@@ -145,7 +145,8 @@ export const commands = [
 ].map(c => c.toJSON());
 
 // Comandos que responden en público
-const PUBLIC_COMMANDS = new Set(['panel', 'whitelist', 'unwhitelist', 'blacklist', 'unblacklist', 'warn', 'prices', 'updates', 'dropkey']);
+// /panel no es público: sus errores y su confirmación solo los ve quien lo ejecuta (el panel sí se publica en el canal)
+const PUBLIC_COMMANDS = new Set(['whitelist', 'unwhitelist', 'blacklist', 'unblacklist', 'warn', 'prices', 'updates', 'dropkey']);
 
 // ==========================================
 // Bot

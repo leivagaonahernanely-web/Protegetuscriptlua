@@ -300,6 +300,10 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M20.6 13.4 13.4 20.6a2 2 0 0 1-2.8 0L2 12V2h10l8.6 8.6a2 2 0 0 1 0 2.8z"/><circle cx="7" cy="7" r="1.5"/></svg>
           Precios
         </button>
+        <button class="nav-item" data-nav="bienvenida" data-plus-only style="display:none">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg>
+          Bienvenida
+        </button>
         <button class="nav-item" data-nav="planskeys" data-owner-only style="display:none">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="7.5" cy="15.5" r="4.5"/><path d="M10.7 12.3 21 2M17 6l3 3M14 9l2 2"/></svg>
           Plans keys
@@ -548,6 +552,38 @@
         </article>
       </section>
 
+      <section class="view" data-view="bienvenida">
+        <article class="card" style="max-width:720px">
+          <h3>Mensaje de bienvenida</h3>
+          <p style="margin:6px 0 14px;font-size:14px;color:var(--text-soft);">Se envía a cada nuevo miembro del servidor que elijas. Usa {user} para mencionarlo y {server} para el nombre del servidor.</p>
+          <div class="input-group">
+            <label for="weGuild">Servidor (donde eres dueño o mod)</label>
+            <select id="weGuild" class="field block"></select>
+          </div>
+          <div class="input-group">
+            <label for="weCh">Canal</label>
+            <select id="weCh" class="field block"></select>
+          </div>
+          <div class="input-group">
+            <label for="weChId">…o pega el ID del canal</label>
+            <input id="weChId" class="field block" type="text" inputmode="numeric" maxlength="20" placeholder="Ej: 123456789012345678">
+            <div class="hint">Si pegas un ID, se usa ese canal. Debes ser dueño o mod de ese servidor y el bot debe estar en él.</div>
+          </div>
+          <div class="input-group">
+            <label for="weText">Mensaje</label>
+            <textarea id="weText" class="field block" rows="4" maxlength="1000" placeholder="Bienvenido {user} a {server}!"></textarea>
+          </div>
+          <div class="input-group">
+            <label for="weImg">Imagen (URL https, opcional)</label>
+            <input id="weImg" class="field block" type="url" maxlength="500" placeholder="https://…/bienvenida.png">
+          </div>
+          <div class="form-actions">
+            <button type="button" class="btn ghost" id="weOff">Desactivar</button>
+            <button type="button" class="btn" id="weSave">Guardar</button>
+          </div>
+        </article>
+      </section>
+
       <section class="view" data-view="profile">
         <div class="grid-stats" style="grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));">
           <article class="card">
@@ -669,6 +705,7 @@
     dashboard: { title: 'Dashboard', sub: 'Resumen de tu cuenta' },
     profile:   { title: 'Perfil', sub: 'Foto de perfil y foto del bot en tu servidor' },
     precios:   { title: 'Precios', sub: 'Publica tu tabla de precios en tu servidor (solo planes pagos)' },
+    bienvenida: { title: 'Bienvenida', sub: 'Mensaje para nuevos miembros de tu servidor (solo Premium Plus)' },
     scripts:   { title: 'Scripts',   sub: 'Código, protección y loader de cada script' },
     keys:      { title: 'Keys',      sub: 'Licencias generadas' },
     chat:      { title: 'Chat',      sub: 'Chat de la comunidad de Vantarmor' },
@@ -789,12 +826,17 @@
     document.querySelectorAll('.view').forEach(v => v.classList.toggle('active', v.dataset.view === name));
     $('pageTitle').firstChild.textContent = NAV[name].title;
     $('pageSub').textContent = NAV[name].sub;
+    if (name === 'bienvenida' && !hasPlusPlan()) {
+      toast('La bienvenida es solo para Premium Plus', 'error');
+      return showView('plans');
+    }
     if ((name === 'profile' || name === 'precios') && !hasPerkPlan()) {
       toast('Esta sección es solo para Premium y Premium Plus', 'error');
       return showView('plans');
     }
     if (name === 'profile') renderProfile();
     if (name === 'precios') loadPricesForm();
+    if (name === 'bienvenida') loadWelcomeForm();
     if (name === 'chat') startChatPolling(); else stopChatPolling();
     if (isMobile()) setSidebar(false);
   }
@@ -1303,6 +1345,10 @@
   let ownerData = { planKeys: [], publisher: [], users: [] };
   const PLAN_OPTIONS = [['free', 'Free'], ['premium', 'Premium'], ['plus', 'Premium Plus']];
   const hasPerkPlan = () => !!user && (user.plan === 'premium' || user.plan === 'plus');
+  const hasPlusPlan = () => !!user && user.plan === 'plus';
+  function setPlusNav(allowed) {
+    document.querySelectorAll('[data-plus-only]').forEach(b => { b.style.display = allowed ? '' : 'none'; });
+  }
   function setPlanNav(allowed) {
     document.querySelectorAll('[data-plan-only]').forEach(b => { b.style.display = allowed ? '' : 'none'; });
   }
@@ -1632,6 +1678,61 @@
     }
   });
 
+  // ---------- BIENVENIDA (solo Premium Plus) ----------
+  let welcomeGuilds = [];
+  function fillWelcomeChannels() {
+    const guild = welcomeGuilds.find(g => g.id === $('weGuild').value);
+    const channels = guild ? guild.channels : [];
+    $('weCh').innerHTML = channels.length
+      ? channels.map(c => `<option value="${esc(c.id)}">${esc(c.parent ? `${c.parent} / ` : '')}#${esc(c.name)}</option>`).join('')
+      : '<option value="">Sin canales</option>';
+  }
+  async function loadWelcomeForm() {
+    if (!hasPlusPlan()) return;
+    try {
+      const data = await api('/api/welcome');
+      welcomeGuilds = data.guilds || [];
+      const saved = welcomeGuilds.find(g => g.id === data.guildId || g.channels.some(c => c.id === data.channelId));
+      $('weGuild').innerHTML = welcomeGuilds.length
+        ? welcomeGuilds.map(g => `<option value="${esc(g.id)}" ${saved && g.id === saved.id ? 'selected' : ''}>${esc(g.name)}</option>`).join('')
+        : '<option value="">No eres dueño ni mod de ningún servidor donde esté el bot</option>';
+      fillWelcomeChannels();
+      if (data.channelId) $('weCh').value = data.channelId;
+      $('weChId').value = '';
+      $('weText').value = data.text || '';
+      $('weImg').value = data.imageUrl || '';
+    } catch (err) {
+      toast(err.message, 'error');
+    }
+  }
+  $('weGuild').addEventListener('change', fillWelcomeChannels);
+  $('weSave').addEventListener('click', async () => {
+    const channelId = $('weChId').value.trim() || $('weCh').value;
+    if (!channelId) return toast('Elige un canal o pega su ID', 'error');
+    $('weSave').disabled = true;
+    try {
+      await api('/api/welcome', { method: 'POST', body: JSON.stringify({
+        channelId, text: $('weText').value.trim(), imageUrl: $('weImg').value.trim(),
+      }) });
+      toast('Bienvenida guardada');
+      await loadWelcomeForm();
+    } catch (err) {
+      toast(err.message, 'error');
+    } finally {
+      $('weSave').disabled = false;
+    }
+  });
+  $('weOff').addEventListener('click', async () => {
+    if (!confirm('¿Desactivar la bienvenida?')) return;
+    try {
+      await api('/api/welcome', { method: 'DELETE' });
+      toast('Bienvenida desactivada');
+      await loadWelcomeForm();
+    } catch (err) {
+      toast(err.message, 'error');
+    }
+  });
+
   // ---------- BORRAR KEYS ----------
   async function deleteKeys(list) {
     if (!list.length) return;
@@ -1675,6 +1776,7 @@
     setOwnerNav(!!user.owner);
     loadExecStats();
     setPlanNav(hasPerkPlan());
+    setPlusNav(hasPlusPlan());
     loadOwnerData();
 
     const [s, k] = await Promise.allSettled([api('/api/scripts'), api('/api/keys')]);

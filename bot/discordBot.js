@@ -118,11 +118,6 @@ export const commands = [
   new SlashCommandBuilder().setName('cookiegame').setDescription('Juego de la galleta: el primero que haga click gana la whitelist')
     .addStringOption(o => scriptOpt(o))
     .addStringOption(o => durationOpt(o)),
-  new SlashCommandBuilder().setName('welcome').setDescription('Mensaje de bienvenida para nuevos miembros (solo Premium Plus)')
-    .addChannelOption(o => o.setName('canal').setDescription('Canal donde se da la bienvenida (se guarda)').setRequired(false))
-    .addStringOption(o => o.setName('mensaje').setDescription('Texto. Usa {user} para mencionar y {server} para el nombre del servidor').setRequired(false))
-    .addStringOption(o => o.setName('imagen').setDescription('URL https de imagen (opcional, se guarda)').setRequired(false))
-    .addBooleanOption(o => o.setName('apagar').setDescription('Desactivar la bienvenida').setRequired(false)),
   new SlashCommandBuilder().setName('unwhitelist').setDescription('Quita un usuario o rol de la whitelist')
     .addStringOption(o => scriptOpt(o))
     .addUserOption(o => userOpt(o))
@@ -747,39 +742,6 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
         const channel = interaction.channel;
         if (!channel?.isTextBased()) return reply('❌ Usa /cookiegame en un canal de texto.');
         return reply(await startCookieGame(channel, script, secs, raw));
-      }
-
-      case 'welcome': {
-        const guild = interaction.guild;
-        if (!guild) return reply('❌ Usa /welcome dentro de tu servidor.');
-        if (!isPlatformOwner(actor) && !hasPlusPlan(actor)) return reply('⛔ /welcome es solo para planes Premium Plus.');
-        if (!isPlatformOwner(actor) && !(await isStaffOf(guild, actor))) return reply(denied);
-        // La bienvenida es de un servidor: se guarda a qué servidor pertenece
-        if (interaction.options.getBoolean('apagar')) {
-          for (const n of ['welcome_guild', 'welcome_channel', 'welcome_text', 'welcome_image']) q.settingDel.run(actor, n);
-          return reply('✅ Bienvenida desactivada.');
-        }
-        const chosen = interaction.options.getChannel('canal');
-        const text = interaction.options.getString('mensaje');
-        const imageRaw = interaction.options.getString('imagen');
-        if (imageRaw !== null) {
-          const trimmed = imageRaw.trim();
-          if (!trimmed) q.settingDel.run(actor, 'welcome_image');
-          else {
-            let parsed;
-            try { parsed = new URL(trimmed); } catch { return reply('❌ La imagen debe ser una URL https válida.'); }
-            if (parsed.protocol !== 'https:' || parsed.href.length > 500) return reply('❌ La imagen debe ser una URL https (máx. 500 caracteres).');
-            q.settingSet.run(actor, 'welcome_image', parsed.href);
-          }
-        }
-        if (chosen) q.settingSet.run(actor, 'welcome_channel', chosen.id);
-        if (text !== null) {
-          if (!text.trim()) q.settingDel.run(actor, 'welcome_text');
-          else q.settingSet.run(actor, 'welcome_text', text.trim().slice(0, 1000));
-        }
-        if (!settingFor(actor, 'welcome_channel') && !chosen) return reply('❌ Elige un canal con la opción canal.');
-        q.settingSet.run(actor, 'welcome_guild', guild.id);
-        return reply(`✅ Bienvenida activada en <#${settingFor(actor, 'welcome_channel')}>. Se guardó el canal, el mensaje y la imagen para la próxima vez.`);
       }
 
       case 'blacklist': {

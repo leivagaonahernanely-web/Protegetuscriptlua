@@ -836,6 +836,64 @@ app.post('/api/prices', requireAuth, requirePerkPlan, async (req, res) => {
   res.json({ ok: true });
 });
 
+// ---- Bienvenida desde la web (solo Premium Plus): canal, mensaje e imagen de un servidor donde eres dueño o mod ----
+function requirePlusPlan(req, res, next) {
+  if (stmt.userById.get(req.userId)?.plan !== 'plus') {
+    return res.status(403).json({ error: 'La bienvenida es solo para Premium Plus' });
+  }
+  next();
+}
+app.get('/api/welcome', requireAuth, requirePlusPlan, async (req, res) => {
+  let guilds = [];
+  if (discordBot?.guildsForUser) {
+    try { guilds = await discordBot.guildsForUser(req.userId); } catch (err) { console.warn('[Bienvenida] No se pudieron listar servidores:', err.message); }
+  }
+  const guildId = settingGet(req.userId, 'welcome_guild');
+  const channelId = settingGet(req.userId, 'welcome_channel');
+  res.json({
+    guildId,
+    channelId,
+    text: settingGet(req.userId, 'welcome_text'),
+    imageUrl: settingGet(req.userId, 'welcome_image'),
+    enabled: Boolean(guildId && channelId),
+    guilds,
+  });
+});
+
+app.post('/api/welcome', requireAuth, requirePlusPlan, async (req, res) => {
+  const channelId = String(req.body?.channelId ?? '').trim();
+  const text = String(req.body?.text ?? '').trim();
+  const imageRaw = String(req.body?.imageUrl ?? '').trim();
+  if (!/^\d{17,20}$/.test(channelId)) return res.status(400).json({ error: 'Elige un canal' });
+  if (text.length > 1000) return res.status(400).json({ error: 'El mensaje es demasiado largo (máx. 1000)' });
+  let image = null;
+  if (imageRaw) {
+    let parsed;
+    try { parsed = new URL(imageRaw); } catch { return res.status(400).json({ error: 'La imagen debe ser una URL https válida' }); }
+    if (parsed.protocol !== 'https:' || parsed.href.length > 500) return res.status(400).json({ error: 'La imagen debe ser una URL https (máx. 500 caracteres)' });
+    image = parsed.href;
+  }
+  if (!discordBot?.channelForStaff) return res.status(503).json({ error: 'El bot todavía no está conectado' });
+  let channel;
+  try {
+    channel = await discordBot.channelForStaff(req.userId, channelId);
+  } catch (err) {
+    return res.status(403).json({ error: err.message });
+  }
+  settingPut(req.userId, 'welcome_guild', channel.guild.id);
+  settingPut(req.userId, 'welcome_channel', channelId);
+  if (text) settingPut(req.userId, 'welcome_text', text);
+  else settingDelete(req.userId, 'welcome_text');
+  if (image) settingPut(req.userId, 'welcome_image', image);
+  else settingDelete(req.userId, 'welcome_image');
+  res.json({ ok: true });
+});
+
+app.delete('/api/welcome', requireAuth, requirePlusPlan, (req, res) => {
+  for (const name of ['welcome_guild', 'welcome_channel', 'welcome_text', 'welcome_image']) settingDelete(req.userId, name);
+  res.json({ ok: true });
+});
+
 // Perfil (foto de perfil y foto del bot): solo Premium y Premium Plus
 function requirePerkPlan(req, res, next) {
   const plan = stmt.userById.get(req.userId)?.plan;

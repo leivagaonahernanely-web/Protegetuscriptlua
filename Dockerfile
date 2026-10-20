@@ -9,7 +9,8 @@ RUN apt-get update \
 # Ofuscador 1 = Clyde (Node/TypeScript). Necesita devDependencies para compilar, por eso no usa --omit=dev.
 RUN mkdir -p /opt/obfuscators \
  && git clone --depth 1 https://github.com/sfr-development/Lua-Obfuscator-Clyde-Protection.git /opt/obfuscators/clyde \
- && cd /opt/obfuscators/clyde && npm install \
+ && cd /opt/obfuscators/clyde \
+ && (for i in 1 2 3; do npm ci && break; sleep 5; done) \
  && (npm run build || test -f dist/cli/obfuscate.js)
 
 # Ofuscador 2 = Obscura

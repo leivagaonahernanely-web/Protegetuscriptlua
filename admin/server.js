@@ -85,6 +85,7 @@ const ALLOWED = {
   publisher: { GET: '/publisher' },
   logs: { GET: '/logs' },
   channels: { GET: '/channels' },
+  obfuscators: { GET: '/obfuscators' },
   announce: { POST: '/announce' },
 };
 

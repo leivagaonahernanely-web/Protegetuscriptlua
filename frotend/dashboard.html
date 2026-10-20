@@ -699,6 +699,7 @@
   const PLAN_LABELS = { free: 'Free', premium: 'Premium', plus: 'Premium Plus' };
   const OBFUSCATORS = {
     clyde:      'Ofuscador 1 (Clyde)',
+    clyde_max:  'Ofuscador 1 (Clyde) · Máximo',
     obscura:    'Ofuscador 2 (Obscura)',
     none:       'Sin ofuscar (solo key)',
   };
@@ -773,6 +774,8 @@
     if (!res.ok) {
       const err = new Error((data && data.error) || `Error ${res.status}`);
       err.status = res.status;
+      err.code = data && data.code;
+      err.invite = data && data.invite;
       throw err;
     }
     return data;
@@ -851,6 +854,27 @@
     setTimeout(() => $('modalBody').querySelector('input, select, textarea')?.focus(), 30);
   }
   function closeModal() { $('modal').hidden = true; }
+
+  // Plan Free: antes de crear scripts debe unirse al servidor de Discord. El aviso sale cada vez hasta que confirme
+  function showDiscordGate(invite) {
+    const url = invite || 'https://discord.gg/ex9rNMqc';
+    openModal('Únete a nuestro Discord', `
+      <p>Para crear scripts con el plan Free necesitas estar en nuestro servidor de Discord.</p>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:14px">
+        <a class="btn btn-ghost" href="${url}" target="_blank" rel="noopener">Unirme al servidor</a>
+        <button class="btn" type="button" id="dcVerify">Ya me uní</button>
+      </div>
+      <p class="hint" style="margin-top:14px">Este aviso aparecerá cada vez que intentes crear un script hasta que confirmes que te uniste.</p>`);
+    $('dcVerify').addEventListener('click', async () => {
+      const btn = $('dcVerify');
+      setBusy(btn, true);
+      try {
+        await api('/api/discord/joined', { method: 'POST' });
+        toast('¡Listo! Ya puedes crear scripts');
+        closeModal();
+      } catch (err) { toast(err.message, 'error'); setBusy(btn, false); }
+    });
+  }
 
   // ---------- PERFIL: foto de perfil y foto del bot en tu servidor (por URL) ----------
   function setPreview(el, src, fallback) {
@@ -943,7 +967,10 @@
   // Selector de protección: FFA o Protegido, y si es Protegido, el ofuscador
   function protectionHtml(s = {}) {
     const current = s.ffa === undefined ? 'protected' : protectionOf(s);
-    const currentObf = s.id ? obfuscatorOf(s) : 'clyde';
+    const savedObf = s.id ? obfuscatorOf(s) : 'clyde';
+    // Clyde máximo se guarda como 'clyde_max'; en el formulario es Clyde + nivel Máximo
+    const currentObf = savedObf === 'clyde_max' ? 'clyde' : savedObf;
+    const currentLevel = savedObf === 'clyde_max' ? 'max' : 'normal';
     return `
       <div class="input-group">
         <span class="label">Protección</span>
@@ -961,10 +988,18 @@
       <div class="input-group" id="obfGroup">
         <label for="fObf">Ofuscador</label>
         <select id="fObf" name="obfuscator" class="field block">
-          ${Object.entries(OBFUSCATORS).map(([val, label]) =>
+          ${Object.entries(OBFUSCATORS).filter(([val]) => val !== 'clyde_max').map(([val, label]) =>
             `<option value="${val}" ${val === currentObf ? 'selected' : ''}>${label}</option>`).join('')}
         </select>
         <div class="hint">Se aplica en el servidor al guardar el script. Para Roblox (Luau) recomendamos el Ofuscador 1.</div>
+      </div>
+      <div class="input-group" id="obfLevelGroup">
+        <label for="fObfLevel">Nivel de protección (Ofuscador 1)</label>
+        <select id="fObfLevel" name="obfLevel" class="field block">
+          <option value="normal" ${currentLevel === 'normal' ? 'selected' : ''}>Normal</option>
+          <option value="max" ${currentLevel === 'max' ? 'selected' : ''}>Máximo</option>
+        </select>
+        <div class="hint">Normal protege con máquina virtual. Máximo usa más capas de protección; tarda un poco más.</div>
       </div>
       <div class="input-group" id="hwidGroup">
         <label for="fHwid">Reinicio de HWID</label>
@@ -985,8 +1020,10 @@
       const isProtected = document.querySelector('input[name="protection"]:checked')?.value === 'protected';
       $('obfGroup').hidden = !isProtected;
       $('hwidGroup').hidden = !isProtected;
+      $('obfLevelGroup').hidden = !isProtected || $('fObf').value !== 'clyde';
     };
     document.querySelectorAll('input[name="protection"]').forEach(r => r.addEventListener('change', sync));
+    $('fObf').addEventListener('change', sync);
     sync();
   }
 
@@ -1091,7 +1128,8 @@
     const name = String(fd.get('name') || '').trim();
     const code = $('fCode').value;
     const protection = fd.get('protection') || 'protected';
-    const obfuscator = fd.get('obfuscator') || 'clyde';
+    let obfuscator = fd.get('obfuscator') || 'clyde';
+    if (obfuscator === 'clyde' && fd.get('obfLevel') === 'max') obfuscator = 'clyde_max';
 
     if (!name) { toast('Escribe un nombre', 'error'); return; }
     if (!editId && !code.trim()) { toast('Agrega el código del script', 'error'); return; }
@@ -1120,6 +1158,7 @@
       closeModal();
       await loadData();
     } catch (err) {
+      if (err.code === 'DISCORD_REQUIRED') { showDiscordGate(err.invite); return; }
       toast(err.message, 'error');
       setBusy(btn, false);
     }

@@ -19,7 +19,7 @@ const app = express();
 // 0. CONSTANTES Y CONFIGURACIÓN
 // ==========================================
 const MAX_CODE_BYTES = 2 * 1024 * 1024;           // 2 MB por script
-const OBFUSCATORS = ['clyde', 'obscura', 'none'];   // Ofuscador 1 (Clyde), Ofuscador 2 (Obscura); 'none' = sin ofuscar (solo key)
+const OBFUSCATORS = ['clyde', 'clyde_max', 'obscura', 'none'];   // Ofuscador 1 normal/máximo (Clyde), Ofuscador 2 (Obscura); 'none' = sin ofuscar (solo key)
 const KEY_ALPHABET = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
 // Un error suelto no debe tirar el servidor ni dejar al bot a medias: se registra y el proceso sigue
 process.on('unhandledRejection', err => console.error('[Proceso] Promesa sin manejar:', err));
@@ -133,6 +133,7 @@ db.exec(`
   if (!db.prepare("SELECT 1 FROM pragma_table_info('users') WHERE name = 'bot_avatar'").get()) db.exec('ALTER TABLE users ADD COLUMN bot_avatar TEXT');
   // Rol de staff asignado desde el panel admin: 'admin' o 'owner' (NULL = ninguno). Owner real = DISCORD_OWNER_ID
   if (!db.prepare("SELECT 1 FROM pragma_table_info('users') WHERE name = 'staff_role'").get()) db.exec('ALTER TABLE users ADD COLUMN staff_role TEXT');
+  if (!db.prepare("SELECT 1 FROM pragma_table_info('users') WHERE name = 'discord_joined'").get()) db.exec('ALTER TABLE users ADD COLUMN discord_joined INTEGER DEFAULT 0');
   // source = código original (nunca se envía al cliente); content = lo que se sirve al loader
   if (!cols.includes('source')) db.exec('ALTER TABLE scripts ADD COLUMN source TEXT');
   if (!cols.includes('hwid_reset_hours')) db.exec('ALTER TABLE scripts ADD COLUMN hwid_reset_hours INTEGER DEFAULT 24');
@@ -170,7 +171,7 @@ const PLAN_QUOTAS = {
 const quotaFor = userId => PLAN_QUOTAS[stmt.userById.get(userId)?.plan] ?? PLAN_QUOTAS.free;
 
 const stmt = {
-  userById: db.prepare('SELECT id, username, avatar, custom_avatar, bot_avatar, plan, obf_used, staff_role FROM users WHERE id = ?'),
+  userById: db.prepare('SELECT id, username, avatar, custom_avatar, bot_avatar, plan, obf_used, staff_role, discord_joined FROM users WHERE id = ?'),
   scriptCount: db.prepare('SELECT COUNT(*) AS n FROM scripts WHERE user_id = ?'),
   obfUsed: db.prepare('SELECT obf_used FROM users WHERE id = ?'),
   obfIncrement: db.prepare('UPDATE users SET obf_used = obf_used + 1 WHERE id = ?'),
@@ -309,10 +310,17 @@ function findEntryDir(root, entry, depth = 0) {
 }
 const OBF_CONFIG = {
   // Ofuscador 1 = Clyde (Node/TypeScript, MIT, Luau). CLI: node dist/cli/obfuscate.js <entrada> -o <salida>
+  // Nivel normal = VM (--vm); nivel máximo = VM con --max
   clyde: {
     bin: process.execPath,
     dir: findEntryDir(path.join(OBF_DIR, 'clyde'), path.join('dist', 'cli', 'obfuscate.js')),
-    args: (input, out) => [path.join('dist', 'cli', 'obfuscate.js'), input, '-o', out],
+    args: (input, out) => [path.join('dist', 'cli', 'obfuscate.js'), input, '--vm', '-o', out],
+    output: (input, out) => out,
+  },
+  clyde_max: {
+    bin: process.execPath,
+    dir: findEntryDir(path.join(OBF_DIR, 'clyde'), path.join('dist', 'cli', 'obfuscate.js')),
+    args: (input, out) => [path.join('dist', 'cli', 'obfuscate.js'), input, '--vm', '--max', '-o', out],
     output: (input, out) => out,
   },
   // Ofuscador 2 = Obscura (Python, MIT). CLI: python main.py <entrada> -o <salida> --mode lightweight
@@ -629,6 +637,11 @@ app.get('/scripts/hosted/:slug', (req, res) => {
 // Tokens de un solo uso para entregar el código: /auth los emite, /payload los consume.
 // Registro de usos del loader en el canal de logs del creador (el bot se asigna al arrancar)
 let discordBot = null;
+// Plan Free: para crear scripts debe unirse a nuestro servidor de Discord (una sola vez)
+const DISCORD_JOIN_URL = 'https://discord.gg/ex9rNMqc';
+function discordJoinDone(userId) {
+  return isPaidPlanId(userId) || Boolean(stmt.userById.get(userId)?.discord_joined);
+}
 const logUse = (scriptId, text) => { try { discordBot?.logScriptEvent?.(scriptId, text); } catch { /* el log nunca rompe el loader */ } };
 
 const payloadTokens = new Map(); // token -> { scriptId, expires }
@@ -705,7 +718,9 @@ app.get('/api/me', requireAuth, (req, res) => {
 const CHAT_MAX_CHARS = 500;
 const CHAT_COOLDOWN_MS = 2000;               // un mensaje cada 2 s por usuario
 // Palabras que no se permiten en el chat (en minúsculas). Edita esta lista a tu gusto.
-const CHAT_BLOCKED_WORDS = [];
+const CHAT_BLOCKED_WORDS = ['discord', 'scripts'];
+// Enlaces: http(s)://, www. o dominios comunes (ej. algo.gg, algo.com)
+const CHAT_LINK_RE = /(https?:\/\/|www\.|\b[a-z0-9-]+\.(com|gg|net|org|io|me|xyz|ly|gl|cc|to|link|app|dev)\b)/i;
 const chatLastPost = new Map();
 const CHAT_SELECT = `SELECT c.id, c.user_id, c.text, c.created_at, u.username, u.avatar, u.custom_avatar, u.plan, u.staff_role
   FROM web_chat c LEFT JOIN users u ON u.id = c.user_id`;
@@ -763,6 +778,7 @@ app.post('/api/chat', requireAuth, (req, res) => {
   if (CHAT_BLOCKED_WORDS.some(w => new RegExp(`(^|\\W)${w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}($|\\W)`).test(lowered))) {
     return res.status(400).json({ error: 'Tu mensaje contiene palabras no permitidas' });
   }
+  if (CHAT_LINK_RE.test(text)) return res.status(400).json({ error: 'No se permiten enlaces en el chat' });
   const last = chatLastPost.get(req.userId) ?? 0;
   if (Date.now() - last < CHAT_COOLDOWN_MS) return res.status(429).json({ error: 'Espera un momento antes de enviar otro mensaje' });
   chatLastPost.set(req.userId, Date.now());
@@ -976,6 +992,10 @@ app.post('/api/owner/plan-keys', requireOwnerApi, (req, res) => {
   res.json({ key, plan });
 });
 // ---- Usuarios (solo dueño): ver planes y cambiarlos ----
+app.get('/api/owner/obfuscators', requireOwnerApi, (req, res) => {
+  res.json(Object.entries(OBF_CONFIG).map(([id, c]) => ({ id, ready: Boolean(c.dir) })));
+});
+
 app.get('/api/owner/users', requireOwnerApi, (req, res) => {
   res.json(db.prepare(`SELECT u.id, u.username, u.avatar, u.plan, u.obf_used, u.staff_role,
       (SELECT COUNT(*) FROM scripts s WHERE s.user_id = u.id) AS scripts
@@ -1053,9 +1073,18 @@ function quotaError(userId, { isNewScript, isFfa }) {
   return null;
 }
 
+// El usuario confirma que ya se unió; queda guardado y el aviso no vuelve a salir
+app.post('/api/discord/joined', requireAuth, (req, res) => {
+  db.prepare('UPDATE users SET discord_joined = 1 WHERE id = ?').run(req.userId);
+  res.json({ ok: true });
+});
+
 app.post('/api/scripts', requireAuth, async (req, res) => {
   const input = validateScriptInput(req.body || {});
   if (input.error) return res.status(400).json({ error: input.error });
+  if (!discordJoinDone(req.userId)) {
+    return res.status(403).json({ error: 'Para crear scripts debes estar en nuestro servidor de Discord.', code: 'DISCORD_REQUIRED', invite: DISCORD_JOIN_URL });
+  }
   if (!isPaidPlanId(req.userId) && input.hwidResetHours === 0) input.hwidResetHours = 24;
   const quotaMsg = quotaError(req.userId, { isNewScript: true, isFfa: input.isFfa });
   if (quotaMsg) return res.status(403).json({ error: quotaMsg });

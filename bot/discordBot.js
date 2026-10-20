@@ -136,9 +136,11 @@ export const commands = [
   new SlashCommandBuilder().setName('warn').setDescription('Advierte a un usuario')
     .addUserOption(o => userOpt(o, true))
     .addStringOption(o => o.setName('reason').setDescription('Razón').setRequired(true)),
-  new SlashCommandBuilder().setName('prices').setDescription('Publica la tabla de precios (dueño)')
+  new SlashCommandBuilder().setName('prices').setDescription('Publica tus precios (solo Premium y Premium Plus)')
     .addStringOption(o => o.setName('title').setDescription('Título').setRequired(true))
-    .addStringOption(o => o.setName('description').setDescription('Contenido (usa \\n para saltos de línea)').setRequired(true)),
+    .addStringOption(o => o.setName('description').setDescription('Contenido (usa \\n para saltos de línea)').setRequired(true))
+    .addChannelOption(o => o.setName('canal').setDescription('Canal donde se publica (se guarda para la próxima vez)').setRequired(false))
+    .addStringOption(o => o.setName('imagen').setDescription('URL https de imagen (se guarda; deja vacío para usar la guardada)').setRequired(false)),
   new SlashCommandBuilder().setName('updates').setDescription('Publica una actualización (dueño)')
     .addStringOption(o => o.setName('title').setDescription('Título').setRequired(true))
     .addStringOption(o => o.setName('description').setDescription('Contenido (usa \\n para saltos de línea)').setRequired(true)),
@@ -162,6 +164,8 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
     scriptsNamed: db.prepare('SELECT id FROM scripts WHERE lower(name) = lower(?)'),
     scriptsList: db.prepare('SELECT id, name, user_id FROM scripts ORDER BY id DESC LIMIT 100'),
     scriptsOfUser: db.prepare('SELECT 1 FROM scripts WHERE user_id = ? LIMIT 1'),
+    userPlan: db.prepare('SELECT plan FROM users WHERE id = ?'),
+    settingDel: db.prepare('DELETE FROM bot_settings WHERE owner = ? AND name = ?'),
     userById: db.prepare('SELECT id, username, avatar, custom_avatar FROM users WHERE id = ?'),
     keyByCode: db.prepare('SELECT * FROM keys WHERE key = ?'),
     keysByDiscord: db.prepare('SELECT * FROM keys WHERE discord_id = ?'),
@@ -204,6 +208,8 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
   };
 
   const owner = () => ownerId || null;
+  // Solo planes pagos pueden publicar precios con /prices
+  const hasPaidPlan = id => { const p = q.userPlan.get(id)?.plan; return p === 'premium' || p === 'plus'; };
   // Cada creador tiene su propio workspace: sus roles (comprador/gestor) y sus scripts
   const settingFor = (workspaceId, name) => (workspaceId ? q.setting.get(workspaceId, name)?.value ?? null : null);
   const isPlatformOwner = id => Boolean(id) && id === owner();
@@ -788,7 +794,40 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
         return reply(`⚠️ <@${target.id}> recibió una advertencia.\nRazón: ${reason}`);
       }
 
-      case 'prices':
+      case 'prices': {
+        if (!isPlatformOwner(actor) && !hasPaidPlan(actor)) return reply('⛔ /prices es solo para planes Premium y Premium Plus.');
+        const title = interaction.options.getString('title', true);
+        const description = interaction.options.getString('description', true).replace(/\\n/g, '\n');
+        const chosen = interaction.options.getChannel('canal');
+        const imageRaw = interaction.options.getString('imagen');
+        // Canal e imagen se guardan para las próximas veces
+        if (chosen) q.settingSet.run(actor, 'prices_channel', chosen.id);
+        if (imageRaw !== null) {
+          const trimmed = imageRaw.trim();
+          if (!trimmed) q.settingDel.run(actor, 'prices_image');
+          else {
+            let parsed;
+            try { parsed = new URL(trimmed); } catch { return reply('❌ La imagen debe ser una URL https válida.'); }
+            if (parsed.protocol !== 'https:' || parsed.href.length > 500) return reply('❌ La imagen debe ser una URL https (máx. 500 caracteres).');
+            q.settingSet.run(actor, 'prices_image', parsed.href);
+          }
+        }
+        const channelId = chosen?.id ?? settingFor(actor, 'prices_channel');
+        if (!channelId) return reply('❌ Elige un canal con la opción canal. Se guardará para la próxima vez.');
+        const channel = await interaction.client.channels.fetch(channelId).catch(() => null);
+        if (!channel?.isTextBased()) return reply('❌ No encuentro el canal guardado. Elige otro con la opción canal.');
+        const imageUrl = imageRaw !== null ? (imageRaw.trim() || null) : settingFor(actor, 'prices_image');
+        const embed = new EmbedBuilder()
+          .setColor(0x5865f2)
+          .setTitle(title)
+          .setDescription(description)
+          .setFooter({ text: `${interaction.user.username} · Vantarmor` })
+          .setTimestamp();
+        if (imageUrl) embed.setImage(imageUrl);
+        await channel.send({ embeds: [embed] });
+        return reply(`✅ Precios publicados en <#${channel.id}>.`);
+      }
+
       case 'updates': {
         if (!isPlatformOwner(actor) && !createdAnyScript(actor)) return reply('⛔ Solo creadores de scripts pueden publicar esto.');
         const title = interaction.options.getString('title', true);

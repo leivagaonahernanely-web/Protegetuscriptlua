@@ -791,6 +791,46 @@ app.post('/api/chat/mute', requireAuth, (req, res) => {
 });
 
 // Foto de perfil por URL (solo https). URL vacía = volver a la foto de Discord.
+// ---- Precios desde la web (solo Premium y Premium Plus): mismo canal e imagen guardados que /prices de Discord ----
+const settingGet = (owner, name) => db.prepare('SELECT value FROM bot_settings WHERE owner = ? AND name = ?').get(owner, name)?.value ?? null;
+const settingPut = (owner, name, value) => db.prepare('INSERT OR REPLACE INTO bot_settings (owner, name, value) VALUES (?, ?, ?)').run(owner, name, value);
+const settingDelete = (owner, name) => db.prepare('DELETE FROM bot_settings WHERE owner = ? AND name = ?').run(owner, name);
+
+app.get('/api/prices', requireAuth, requirePerkPlan, (req, res) => {
+  res.json({
+    channelId: settingGet(req.userId, 'prices_channel'),
+    imageUrl: settingGet(req.userId, 'prices_image'),
+    channels: discordBot?.listTextChannels ? discordBot.listTextChannels() : [],
+  });
+});
+
+app.post('/api/prices', requireAuth, requirePerkPlan, async (req, res) => {
+  const title = String(req.body?.title ?? '').trim();
+  const description = String(req.body?.description ?? '').trim();
+  const channelId = String(req.body?.channelId ?? '').trim();
+  const imageRaw = String(req.body?.imageUrl ?? '').trim();
+  if (!title || title.length > 256) return res.status(400).json({ error: 'Título requerido (máx. 256)' });
+  if (!description || description.length > 4000) return res.status(400).json({ error: 'Contenido requerido (máx. 4000)' });
+  if (!/^\d{17,20}$/.test(channelId)) return res.status(400).json({ error: 'Elige un canal' });
+  let image = null;
+  if (imageRaw) {
+    let parsed;
+    try { parsed = new URL(imageRaw); } catch { return res.status(400).json({ error: 'La imagen debe ser una URL https válida' }); }
+    if (parsed.protocol !== 'https:' || parsed.href.length > 500) return res.status(400).json({ error: 'La imagen debe ser una URL https (máx. 500 caracteres)' });
+    image = parsed.href;
+  }
+  if (!discordBot?.announce) return res.status(503).json({ error: 'El bot todavía no está conectado' });
+  try {
+    await discordBot.announce('prices', channelId, title, description, image);
+  } catch (err) {
+    return res.status(502).json({ error: `No se pudo publicar: ${err.message}` });
+  }
+  settingPut(req.userId, 'prices_channel', channelId);
+  if (image) settingPut(req.userId, 'prices_image', image);
+  else settingDelete(req.userId, 'prices_image');
+  res.json({ ok: true });
+});
+
 // Perfil (foto de perfil y foto del bot): solo Premium y Premium Plus
 function requirePerkPlan(req, res, next) {
   const plan = stmt.userById.get(req.userId)?.plan;

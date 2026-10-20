@@ -296,6 +296,10 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 3.6-7 8-7s8 3 8 7"/></svg>
           Perfil
         </button>
+        <button class="nav-item" data-nav="precios" data-plan-only style="display:none">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M20.6 13.4 13.4 20.6a2 2 0 0 1-2.8 0L2 12V2h10l8.6 8.6a2 2 0 0 1 0 2.8z"/><circle cx="7" cy="7" r="1.5"/></svg>
+          Precios
+        </button>
         <button class="nav-item" data-nav="planskeys" data-owner-only style="display:none">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="7.5" cy="15.5" r="4.5"/><path d="M10.7 12.3 21 2M17 6l3 3M14 9l2 2"/></svg>
           Plans keys
@@ -509,6 +513,32 @@
         </article>
       </section>
 
+      <section class="view" data-view="precios">
+        <article class="card" style="max-width:720px">
+          <h3>Publicar precios</h3>
+          <p style="margin:6px 0 14px;font-size:14px;color:var(--text-soft);">El canal y la imagen se guardan para la próxima vez, igual que /prices en Discord.</p>
+          <div class="input-group">
+            <label for="prCh">Canal</label>
+            <select id="prCh" class="field block"></select>
+          </div>
+          <div class="input-group">
+            <label for="prTitle">Título</label>
+            <input id="prTitle" class="field block" type="text" maxlength="256" placeholder="Precios">
+          </div>
+          <div class="input-group">
+            <label for="prBody">Contenido</label>
+            <textarea id="prBody" class="field block" rows="8" maxlength="4000" placeholder="Premium: $5 / mes&#10;Premium Plus: $10 / mes"></textarea>
+          </div>
+          <div class="input-group">
+            <label for="prImg">Imagen (URL https, opcional)</label>
+            <input id="prImg" class="field block" type="url" maxlength="500" placeholder="https://…/precios.png">
+          </div>
+          <div class="form-actions">
+            <button type="button" class="btn" id="prSend">Publicar precios</button>
+          </div>
+        </article>
+      </section>
+
       <section class="view" data-view="profile">
         <div class="grid-stats" style="grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));">
           <article class="card">
@@ -629,6 +659,7 @@
   const NAV = {
     dashboard: { title: 'Dashboard', sub: 'Resumen de tu cuenta' },
     profile:   { title: 'Perfil', sub: 'Foto de perfil y foto del bot en tu servidor' },
+    precios:   { title: 'Precios', sub: 'Publica tu tabla de precios en tu servidor (solo planes pagos)' },
     scripts:   { title: 'Scripts',   sub: 'Código, protección y loader de cada script' },
     keys:      { title: 'Keys',      sub: 'Licencias generadas' },
     chat:      { title: 'Chat',      sub: 'Chat de la comunidad de Vantarmor' },
@@ -749,11 +780,12 @@
     document.querySelectorAll('.view').forEach(v => v.classList.toggle('active', v.dataset.view === name));
     $('pageTitle').firstChild.textContent = NAV[name].title;
     $('pageSub').textContent = NAV[name].sub;
-    if (name === 'profile' && !hasPerkPlan()) {
-      toast('El perfil es solo para Premium y Premium Plus', 'error');
+    if ((name === 'profile' || name === 'precios') && !hasPerkPlan()) {
+      toast('Esta sección es solo para Premium y Premium Plus', 'error');
       return showView('plans');
     }
     if (name === 'profile') renderProfile();
+    if (name === 'precios') loadPricesForm();
     if (name === 'chat') startChatPolling(); else stopChatPolling();
     if (isMobile()) setSidebar(false);
   }
@@ -1544,6 +1576,38 @@
     execDays = Number(b.dataset.execDays);
     loadExecStats();
   }));
+
+  // ---------- PRECIOS DEL CREADOR (solo planes pagos) ----------
+  async function loadPricesForm() {
+    if (!hasPerkPlan()) return;
+    try {
+      const data = await api('/api/prices');
+      $('prCh').innerHTML = data.channels.length
+        ? data.channels.map(c => `<option value="${esc(c.id)}" ${c.id === data.channelId ? 'selected' : ''}>${esc(c.parent ? `${c.parent} / ` : '')}#${esc(c.name)}</option>`).join('')
+        : '<option value="">No encuentro canales (revisa que el bot esté en tu servidor)</option>';
+      $('prImg').value = data.imageUrl || '';
+    } catch (err) {
+      toast(err.message, 'error');
+    }
+  }
+  $('prSend').addEventListener('click', async () => {
+    const title = $('prTitle').value.trim() || 'Precios';
+    const description = $('prBody').value.trim();
+    const channelId = $('prCh').value;
+    if (!channelId) return toast('Elige un canal', 'error');
+    if (!description) return toast('Escribe el contenido', 'error');
+    if (!confirm(`¿Publicar "${title}" en el canal elegido?`)) return;
+    $('prSend').disabled = true;
+    try {
+      await api('/api/prices', { method: 'POST', body: JSON.stringify({ title, description, channelId, imageUrl: $('prImg').value.trim() }) });
+      toast('Precios publicados');
+      $('prBody').value = '';
+    } catch (err) {
+      toast(err.message, 'error');
+    } finally {
+      $('prSend').disabled = false;
+    }
+  });
 
   // ---------- BORRAR KEYS ----------
   async function deleteKeys(list) {

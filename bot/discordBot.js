@@ -118,6 +118,11 @@ export const commands = [
   new SlashCommandBuilder().setName('cookiegame').setDescription('Juego de la galleta: el primero que haga click gana la whitelist')
     .addStringOption(o => scriptOpt(o))
     .addStringOption(o => durationOpt(o)),
+  new SlashCommandBuilder().setName('welcome').setDescription('Mensaje de bienvenida para nuevos miembros (solo Premium Plus)')
+    .addChannelOption(o => o.setName('canal').setDescription('Canal donde se da la bienvenida (se guarda)').setRequired(false))
+    .addStringOption(o => o.setName('mensaje').setDescription('Texto. Usa {user} para mencionar y {server} para el nombre del servidor').setRequired(false))
+    .addStringOption(o => o.setName('imagen').setDescription('URL https de imagen (opcional, se guarda)').setRequired(false))
+    .addBooleanOption(o => o.setName('apagar').setDescription('Desactivar la bienvenida').setRequired(false)),
   new SlashCommandBuilder().setName('unwhitelist').setDescription('Quita un usuario o rol de la whitelist')
     .addStringOption(o => scriptOpt(o))
     .addUserOption(o => userOpt(o))
@@ -210,6 +215,7 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
   const owner = () => ownerId || null;
   // Solo planes pagos pueden publicar precios con /prices
   const hasPaidPlan = id => { const p = q.userPlan.get(id)?.plan; return p === 'premium' || p === 'plus'; };
+  const hasPlusPlan = id => q.userPlan.get(id)?.plan === 'plus';
   // Cada creador tiene su propio workspace: sus roles (comprador/gestor) y sus scripts
   const settingFor = (workspaceId, name) => (workspaceId ? q.setting.get(workspaceId, name)?.value ?? null : null);
   const isPlatformOwner = id => Boolean(id) && id === owner();
@@ -743,6 +749,39 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
         return reply(await startCookieGame(channel, script, secs, raw));
       }
 
+      case 'welcome': {
+        const guild = interaction.guild;
+        if (!guild) return reply('❌ Usa /welcome dentro de tu servidor.');
+        if (!isPlatformOwner(actor) && !hasPlusPlan(actor)) return reply('⛔ /welcome es solo para planes Premium Plus.');
+        if (!isPlatformOwner(actor) && !(await isStaffOf(guild, actor))) return reply(denied);
+        // La bienvenida es de un servidor: se guarda a qué servidor pertenece
+        if (interaction.options.getBoolean('apagar')) {
+          for (const n of ['welcome_guild', 'welcome_channel', 'welcome_text', 'welcome_image']) q.settingDel.run(actor, n);
+          return reply('✅ Bienvenida desactivada.');
+        }
+        const chosen = interaction.options.getChannel('canal');
+        const text = interaction.options.getString('mensaje');
+        const imageRaw = interaction.options.getString('imagen');
+        if (imageRaw !== null) {
+          const trimmed = imageRaw.trim();
+          if (!trimmed) q.settingDel.run(actor, 'welcome_image');
+          else {
+            let parsed;
+            try { parsed = new URL(trimmed); } catch { return reply('❌ La imagen debe ser una URL https válida.'); }
+            if (parsed.protocol !== 'https:' || parsed.href.length > 500) return reply('❌ La imagen debe ser una URL https (máx. 500 caracteres).');
+            q.settingSet.run(actor, 'welcome_image', parsed.href);
+          }
+        }
+        if (chosen) q.settingSet.run(actor, 'welcome_channel', chosen.id);
+        if (text !== null) {
+          if (!text.trim()) q.settingDel.run(actor, 'welcome_text');
+          else q.settingSet.run(actor, 'welcome_text', text.trim().slice(0, 1000));
+        }
+        if (!settingFor(actor, 'welcome_channel') && !chosen) return reply('❌ Elige un canal con la opción canal.');
+        q.settingSet.run(actor, 'welcome_guild', guild.id);
+        return reply(`✅ Bienvenida activada en <#${settingFor(actor, 'welcome_channel')}>. Se guardó el canal, el mensaje y la imagen para la próxima vez.`);
+      }
+
       case 'blacklist': {
         const script = findScript(interaction.options.getString('script'));
         if (script && !canUse(interaction, script.user_id)) return reply(denied);
@@ -1105,6 +1144,28 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
       console.log(`[Bot] Online como ${c.user.tag}. Comandos registrados${guildId ? ' en el servidor' : ' globalmente (puede tardar hasta 1 h)'}.`);
     } catch (err) {
       console.error('[Bot] No se pudieron registrar los comandos:', err.message);
+    }
+  });
+
+  // Bienvenida: a los nuevos miembros del servidor donde el creador (Premium Plus) la configuró con /welcome
+  client.on('guildMemberAdd', async member => {
+    try {
+      const row = db.prepare("SELECT owner FROM bot_settings WHERE name = 'welcome_guild' AND value = ? LIMIT 1").get(member.guild.id);
+      if (!row) return;
+      const owner = row.owner;
+      if (!isPlatformOwner(owner) && !hasPlusPlan(owner)) return;
+      const channelId = settingFor(owner, 'welcome_channel');
+      if (!channelId) return;
+      const channel = await member.guild.channels.fetch(channelId).catch(() => null);
+      if (!channel?.isTextBased()) return;
+      const template = settingFor(owner, 'welcome_text') || 'Bienvenido {user} a {server}!';
+      const description = template.replaceAll('{user}', `<@${member.id}>`).replaceAll('{server}', member.guild.name);
+      const embed = new EmbedBuilder().setColor(0x2ecc71).setTitle(`👋 Bienvenido a ${member.guild.name}`).setDescription(description);
+      const image = settingFor(owner, 'welcome_image');
+      if (image) embed.setImage(image);
+      await channel.send({ content: `<@${member.id}>`, embeds: [embed] });
+    } catch (err) {
+      console.warn('[Bot] No se pudo dar la bienvenida:', err.message);
     }
   });
 

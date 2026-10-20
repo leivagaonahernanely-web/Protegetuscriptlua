@@ -316,6 +316,11 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="9" cy="8" r="4"/><path d="M2 21c0-3.9 3.1-7 7-7s7 3.1 7 7M16 3.1a4 4 0 0 1 0 7.8M22 21c0-3.1-1.8-5.8-4.5-7"/></svg>
           Usuarios
         </button>
+        <div class="nav-label">Comunidad</div>
+        <a class="nav-item" href="https://discord.gg/ex9rNMqc" target="_blank" rel="noopener" style="text-decoration:none;color:inherit">
+          <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M20.317 4.3698a19.7913 19.7913 0 00-4.8851-1.5152.0741.0741 0 00-.0785.0371c-.211.3753-.4447.8648-.6083 1.2495-1.8447-.2762-3.68-.2762-5.4868 0-.1636-.3933-.4058-.8742-.6177-1.2495a.077.077 0 00-.0785-.037 19.7363 19.7363 0 00-4.8852 1.515.0699.0699 0 00-.0321.0277C.5334 9.0458-.319 13.5799.0992 18.0578a.0824.0824 0 00.0312.0561c2.0528 1.5076 4.0413 2.4228 5.9929 3.0294a.0777.0777 0 00.0842-.0276c.4616-.6304.8731-1.2952 1.226-1.9942a.076.076 0 00-.0416-.1057c-.6528-.2476-1.2743-.5495-1.8722-.8923a.077.077 0 01-.0076-.1277c.1258-.0943.2517-.1923.3718-.2914a.0743.0743 0 01.0776-.0105c3.9278 1.7933 8.18 1.7933 12.0614 0a.0739.0739 0 01.0785.0095c.1202.099.246.1981.3728.2924a.077.077 0 01-.0066.1276 12.2986 12.2986 0 01-1.873.8914.0766.0766 0 00-.0407.1067c.3604.698.7719 1.3628 1.225 1.9932a.076.076 0 00.0842.0286c1.961-.6067 3.9495-1.5219 6.0023-3.0294a.077.077 0 00.0313-.0552c.5004-5.177-.8382-9.6739-3.5485-13.6604a.061.061 0 00-.0312-.0286zM8.02 15.3312c-1.1825 0-2.1569-1.0857-2.1569-2.419 0-1.3332.9555-2.4189 2.157-2.4189 1.2108 0 2.1757 1.0952 2.1568 2.419 0 1.3332-.9555 2.4189-2.1569 2.4189zm7.9748 0c-1.1825 0-2.1569-1.0857-2.1569-2.419 0-1.3332.9554-2.4189 2.1569-2.4189 1.2108 0 2.1757 1.0952 2.1569 2.419 0 1.3332-.946 2.4189-2.1569 2.4189z"/></svg>
+          Discord
+        </a>
       </nav>
 
       <div class="user-widget">
@@ -632,9 +637,9 @@
             <h3>Free</h3>
             <div class="card-value">$0</div>
             <ul>
-              <li>✓ 5 scripts</li>
+              <li>✓ 2 scripts</li>
               <li>✓ 10 ofuscaciones</li>
-              <li>✓ 150 keys</li>
+              <li>✓ 100 keys</li>
             </ul>
             <button class="btn ghost block" data-plan-btn disabled>Plan actual</button>
           </article>
@@ -692,14 +697,13 @@
 
   // ---------- CONFIG ----------
   const PLAN_LIMITS = {
-    free:    { scripts: 5,        keys: 150, obf: 10 },
+    free:    { scripts: 2,        keys: 100, obf: 10 },
     premium: { scripts: 10,       keys: Infinity, obf: 30 },
     plus:    { scripts: Infinity, keys: Infinity, obf: Infinity },
   };
   const PLAN_LABELS = { free: 'Free', premium: 'Premium', plus: 'Premium Plus' };
   const OBFUSCATORS = {
     clyde:      'Ofuscador 1 (Clyde)',
-    clyde_max:  'Ofuscador 1 (Clyde) · Máximo',
     obscura:    'Ofuscador 2 (Obscura)',
     none:       'Sin ofuscar (solo key)',
   };
@@ -967,10 +971,7 @@
   // Selector de protección: FFA o Protegido, y si es Protegido, el ofuscador
   function protectionHtml(s = {}) {
     const current = s.ffa === undefined ? 'protected' : protectionOf(s);
-    const savedObf = s.id ? obfuscatorOf(s) : 'clyde';
-    // Clyde máximo se guarda como 'clyde_max'; en el formulario es Clyde + nivel Máximo
-    const currentObf = savedObf === 'clyde_max' ? 'clyde' : savedObf;
-    const currentLevel = savedObf === 'clyde_max' ? 'max' : 'normal';
+    const currentObf = s.id ? obfuscatorOf(s) : 'clyde';
     return `
       <div class="input-group">
         <span class="label">Protección</span>
@@ -988,19 +989,12 @@
       <div class="input-group" id="obfGroup">
         <label for="fObf">Ofuscador</label>
         <select id="fObf" name="obfuscator" class="field block">
-          ${Object.entries(OBFUSCATORS).filter(([val]) => val !== 'clyde_max').map(([val, label]) =>
+          ${Object.entries(OBFUSCATORS).map(([val, label]) =>
             `<option value="${val}" ${val === currentObf ? 'selected' : ''}>${label}</option>`).join('')}
         </select>
         <div class="hint">Se aplica en el servidor al guardar el script. Para Roblox (Luau) recomendamos el Ofuscador 1.</div>
       </div>
-      <div class="input-group" id="obfLevelGroup">
-        <label for="fObfLevel">Nivel de protección (Ofuscador 1)</label>
-        <select id="fObfLevel" name="obfLevel" class="field block">
-          <option value="normal" ${currentLevel === 'normal' ? 'selected' : ''}>Normal</option>
-          <option value="max" ${currentLevel === 'max' ? 'selected' : ''}>Máximo</option>
-        </select>
-        <div class="hint">Normal protege con máquina virtual. Máximo usa más capas de protección; tarda un poco más.</div>
-      </div>
+
       <div class="input-group" id="hwidGroup">
         <label for="fHwid">Reinicio de HWID</label>
         <select id="fHwid" name="hwidReset" class="field block">
@@ -1020,10 +1014,8 @@
       const isProtected = document.querySelector('input[name="protection"]:checked')?.value === 'protected';
       $('obfGroup').hidden = !isProtected;
       $('hwidGroup').hidden = !isProtected;
-      $('obfLevelGroup').hidden = !isProtected || $('fObf').value !== 'clyde';
     };
     document.querySelectorAll('input[name="protection"]').forEach(r => r.addEventListener('change', sync));
-    $('fObf').addEventListener('change', sync);
     sync();
   }
 
@@ -1128,8 +1120,7 @@
     const name = String(fd.get('name') || '').trim();
     const code = $('fCode').value;
     const protection = fd.get('protection') || 'protected';
-    let obfuscator = fd.get('obfuscator') || 'clyde';
-    if (obfuscator === 'clyde' && fd.get('obfLevel') === 'max') obfuscator = 'clyde_max';
+    const obfuscator = fd.get('obfuscator') || 'clyde';
 
     if (!name) { toast('Escribe un nombre', 'error'); return; }
     if (!editId && !code.trim()) { toast('Agrega el código del script', 'error'); return; }
@@ -1355,7 +1346,7 @@
         <td>${esc(script)}</td>
         <td><span class="badge ${st.cls}">${st.label}</span></td>
         <td>${fmtDate(k.expires_at)}</td>
-        <td style="text-align:right"><button class="btn ghost sm" data-copy="${esc(k.key)}" data-msg="Key copiada">Copiar</button> <button class="btn ghost sm" data-del-key="${esc(k.key)}">Eliminar</button></td>
+        <td style="text-align:right"><button class="btn ghost sm" data-copy="${esc(k.key)}" data-msg="Key copiada">Copiar</button> <button class="btn ghost sm" data-ban-key="${esc(k.key)}">Banear</button> <button class="btn ghost sm" data-del-key="${esc(k.key)}">Eliminar</button></td>
       </tr>`).join('');
     updateBulk();
   }
@@ -1790,7 +1781,45 @@
   $('keysTable').addEventListener('click', e => {
     const b = e.target.closest('[data-del-key]');
     if (b) deleteKeys([b.dataset.delKey]);
+    const ban = e.target.closest('[data-ban-key]');
+    if (ban) openBanModal(ban.dataset.banKey);
   });
+
+  // Baneos: HWID para todos los planes; IP y usuario solo Premium y Premium Plus
+  function openBanModal(keyStr) {
+    const k = keys.find(x => x.key === keyStr);
+    if (!k) return;
+    const paid = hasPerkPlan();
+    const item = (kind, title, value, needsPaid) => {
+      const locked = needsPaid && !paid;
+      const disabled = locked || !value;
+      const note = locked ? 'Solo Premium y Premium Plus' : !value ? 'Todavía no hay datos de esta key' : '';
+      return `
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:10px 0">
+          <div><b>${title}</b>${note ? `<small style="display:block;opacity:.7">${note}</small>` : ''}</div>
+          <div style="display:flex;gap:6px">
+            <button class="btn ghost sm" data-ban="${kind}" ${disabled ? 'disabled' : ''}>Banear</button>
+            <button class="btn ghost sm" data-unban="${kind}" ${disabled ? 'disabled' : ''}>Quitar</button>
+          </div>
+        </div>`;
+    };
+    openModal('Banear key', `
+      <p class="hint">Banear bloquea el acceso al script. Quitar el baneo lo desbloquea.</p>
+      ${item('hwid', 'HWID del equipo', k.hwid, false)}
+      ${item('ip', 'IP del usuario', k.last_ip, true)}
+      ${item('user', 'Usuario de Discord', k.discord_id, true)}`);
+    $('modalBody').querySelectorAll('[data-ban],[data-unban]').forEach(btn => btn.addEventListener('click', async () => {
+      const on = btn.hasAttribute('data-ban');
+      const kind = btn.dataset.ban || btn.dataset.unban;
+      setBusy(btn, true);
+      try {
+        await api(`/api/keys/${encodeURIComponent(keyStr)}/${on ? 'ban' : 'unban'}`, { method: 'POST', body: JSON.stringify({ kind }) });
+        toast(on ? 'Baneo aplicado' : 'Baneo quitado');
+        closeModal();
+        await loadData();
+      } catch (err) { toast(err.message, 'error'); setBusy(btn, false); }
+    }));
+  }
   $('bulkDelete').addEventListener('click', () => deleteKeys([...selected]));
 
   // ---------- DATA ----------

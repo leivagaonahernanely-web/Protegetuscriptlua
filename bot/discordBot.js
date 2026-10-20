@@ -210,6 +210,13 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
   const owner = () => ownerId || null;
   // Solo planes pagos pueden publicar precios con /prices
   const hasPaidPlan = id => { const p = q.userPlan.get(id)?.plan; return p === 'premium' || p === 'plus'; };
+  // Plan Free: máximo 100 keys en total (todos sus scripts)
+  const FREE_KEY_CAP = 100;
+  const keyCapOk = (ownerId, amount) => {
+    if (hasPaidPlan(ownerId)) return true;
+    const used = db.prepare('SELECT COUNT(*) AS n FROM keys k JOIN scripts s ON s.id = k.script_id WHERE s.user_id = ?').get(ownerId).n;
+    return used + amount <= FREE_KEY_CAP;
+  };
   const hasPlusPlan = id => q.userPlan.get(id)?.plan === 'plus';
   // Cada creador tiene su propio workspace: sus roles (comprador/gestor) y sus scripts
   const settingFor = (workspaceId, name) => (workspaceId ? q.setting.get(workspaceId, name)?.value ?? null : null);
@@ -542,6 +549,7 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
         if (!canUse(interaction, script.user_id)) return reply(denied);
         if (onCooldown(actor)) return reply('⏳ Espera unos segundos antes de otra acción.');
         const amount = interaction.options.getInteger('amount') ?? 1;
+        if (!keyCapOk(script.user_id, amount)) return reply(`❌ El plan Free permite ${FREE_KEY_CAP} keys en total. Pasa a Premium para más.`);
         const raw = interaction.options.getString('duration');
         let seconds = null;
         if (raw) {
@@ -604,6 +612,7 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
         if (!canUse(interaction, script.user_id)) return reply(denied);
         if (onCooldown(actor)) return reply('⏳ Espera unos segundos antes de otra acción.');
         const amount = interaction.options.getInteger('amount', true);
+        if (!keyCapOk(script.user_id, amount)) return reply(`❌ El plan Free permite ${FREE_KEY_CAP} keys en total. Pasa a Premium para más.`);
         const list = db.transaction(() => {
           const out = [];
           for (let i = 0; i < amount; i++) {
@@ -752,7 +761,10 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
         // Sin script: solo afecta a los scripts que el actor puede gestionar
         const targets = script ? [script] : q.scriptsList.all().filter(s => canUse(interaction, s.user_id));
         if (!targets.length) return reply(denied);
-        for (const s of targets) {
+        // Bloquear usuarios es solo para Premium y Premium Plus (Free solo banea por HWID)
+        const allowed = targets.filter(s => hasPaidPlan(s.user_id));
+        if (!allowed.length) return reply('⛔ Bloquear usuarios es solo para Premium y Premium Plus. Los planes Free solo pueden banear por HWID desde el dashboard.');
+        for (const s of allowed) {
           q.blacklistInsert.run(s.id, target.id, reason, now());
           q.banKeys.run(reason, s.id, target.id);
           logScriptEvent(s, `⛔ <@${target.id}> bloqueado por <@${actor}> · ${reason}`);

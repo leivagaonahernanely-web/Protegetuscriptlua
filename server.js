@@ -14,12 +14,13 @@ import 'dotenv/config';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
+app.set('trust proxy', 1); // Railway pone la IP real en X-Forwarded-For
 
 // ==========================================
 // 0. CONSTANTES Y CONFIGURACIÓN
 // ==========================================
 const MAX_CODE_BYTES = 2 * 1024 * 1024;           // 2 MB por script
-const OBFUSCATORS = ['clyde', 'clyde_max', 'obscura', 'none'];   // Ofuscador 1 normal/máximo (Clyde), Ofuscador 2 (Obscura); 'none' = sin ofuscar (solo key)
+const OBFUSCATORS = ['clyde', 'obscura', 'none'];   // Ofuscador 1 (Clyde), Ofuscador 2 (Obscura); 'none' = sin ofuscar (solo key)
 const KEY_ALPHABET = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
 // Un error suelto no debe tirar el servidor ni dejar al bot a medias: se registra y el proceso sigue
 process.on('unhandledRejection', err => console.error('[Proceso] Promesa sin manejar:', err));
@@ -85,6 +86,15 @@ db.exec(`
     avatar TEXT,
     plan TEXT DEFAULT 'free'
   );
+  CREATE TABLE IF NOT EXISTS script_bans (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    script_id INTEGER NOT NULL,
+    kind TEXT NOT NULL,
+    value TEXT NOT NULL,
+    reason TEXT,
+    created_at INTEGER,
+    UNIQUE (script_id, kind, value)
+  );
   CREATE TABLE IF NOT EXISTS scripts (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id TEXT,
@@ -134,6 +144,8 @@ db.exec(`
   // Rol de staff asignado desde el panel admin: 'admin' o 'owner' (NULL = ninguno). Owner real = DISCORD_OWNER_ID
   if (!db.prepare("SELECT 1 FROM pragma_table_info('users') WHERE name = 'staff_role'").get()) db.exec('ALTER TABLE users ADD COLUMN staff_role TEXT');
   if (!db.prepare("SELECT 1 FROM pragma_table_info('users') WHERE name = 'discord_joined'").get()) db.exec('ALTER TABLE users ADD COLUMN discord_joined INTEGER DEFAULT 0');
+  if (!db.prepare("SELECT 1 FROM pragma_table_info('keys') WHERE name = 'last_ip'").get()) db.exec('ALTER TABLE keys ADD COLUMN last_ip TEXT');
+  db.exec("UPDATE scripts SET obfuscator = 'clyde' WHERE obfuscator = 'clyde_max'");
   // source = código original (nunca se envía al cliente); content = lo que se sirve al loader
   if (!cols.includes('source')) db.exec('ALTER TABLE scripts ADD COLUMN source TEXT');
   if (!cols.includes('hwid_reset_hours')) db.exec('ALTER TABLE scripts ADD COLUMN hwid_reset_hours INTEGER DEFAULT 24');
@@ -164,11 +176,15 @@ const SESSION_SECRET = JWT_SECRET || (() => {
 
 // Cuotas por plan (las mismas que muestra el dashboard)
 const PLAN_QUOTAS = {
-  free:    { scripts: 5,        obfuscations: 10 },
-  premium: { scripts: 10,       obfuscations: 30 },
-  plus:    { scripts: Infinity, obfuscations: Infinity },
+  free:    { scripts: 2,        obfuscations: 10, keys: 100 },
+  premium: { scripts: 10,       obfuscations: 30, keys: Infinity },
+  plus:    { scripts: Infinity, obfuscations: Infinity, keys: Infinity },
 };
+const keyCapFor = userId => (isPaidPlanId(userId) ? Infinity : PLAN_QUOTAS.free.keys);
 const quotaFor = userId => PLAN_QUOTAS[stmt.userById.get(userId)?.plan] ?? PLAN_QUOTAS.free;
+
+const scriptBanStmt = db.prepare('SELECT 1 FROM script_bans WHERE script_id = ? AND kind = ? AND value = ?');
+const scriptBanned = (scriptId, kind, value) => Boolean(value) && Boolean(scriptBanStmt.get(scriptId, kind, String(value)));
 
 const stmt = {
   userById: db.prepare('SELECT id, username, avatar, custom_avatar, bot_avatar, plan, obf_used, staff_role, discord_joined FROM users WHERE id = ?'),
@@ -194,7 +210,7 @@ const stmt = {
     WHERE id = ? AND user_id = ?
   `),
   keysByUser: db.prepare(`
-    SELECT k.key, k.script_id, k.expires_at, k.banned FROM keys k
+    SELECT k.key, k.script_id, k.expires_at, k.banned, k.hwid, k.discord_id, k.last_ip FROM keys k
     JOIN scripts s ON s.id = k.script_id
     WHERE s.user_id = ?
   `),
@@ -310,17 +326,11 @@ function findEntryDir(root, entry, depth = 0) {
 }
 const OBF_CONFIG = {
   // Ofuscador 1 = Clyde (Node/TypeScript, MIT, Luau). CLI: node dist/cli/obfuscate.js <entrada> -o <salida>
-  // Nivel normal = VM (--vm); nivel máximo = VM con --max
+  // Modo VM (--vm). El nivel Máximo se quitó porque no funcionaba al ejecutarse
   clyde: {
     bin: process.execPath,
     dir: findEntryDir(path.join(OBF_DIR, 'clyde'), path.join('dist', 'cli', 'obfuscate.js')),
     args: (input, out) => [path.join('dist', 'cli', 'obfuscate.js'), input, '--vm', '-o', out],
-    output: (input, out) => out,
-  },
-  clyde_max: {
-    bin: process.execPath,
-    dir: findEntryDir(path.join(OBF_DIR, 'clyde'), path.join('dist', 'cli', 'obfuscate.js')),
-    args: (input, out) => [path.join('dist', 'cli', 'obfuscate.js'), input, '--vm', '--max', '-o', out],
     output: (input, out) => out,
   },
   // Ofuscador 2 = Obscura (Python, MIT). CLI: python main.py <entrada> -o <salida> --mode lightweight
@@ -685,6 +695,7 @@ app.get('/scripts/hosted/:slug/auth', (req, res) => {
   const key = String(req.query.key || '').trim().slice(0, 64);
   const hwid = String(req.query.hwid || '').slice(0, 128);
   if (!key) return reply('KEY_REQUIRED');
+  if (scriptBanned(script.id, 'ip', req.ip)) return reply('BLACKLISTED');
   const k = db.prepare('SELECT * FROM keys WHERE key = ? AND script_id = ?').get(key, script.id);
   if (!k) return reply('KEY_INVALID');
   if (k.banned) return reply('BLACKLISTED');
@@ -693,8 +704,10 @@ app.get('/scripts/hosted/:slug/auth', (req, res) => {
     return reply('BLACKLISTED');
   }
   if (!hwid) return reply('VERIFY_FAILED');
+  if (scriptBanned(script.id, 'hwid', hwid)) return reply('BLACKLISTED');
   if (!k.hwid) db.prepare('UPDATE keys SET hwid = ? WHERE key = ?').run(hwid, key);
   else if (k.hwid !== hwid) return reply('HWID_MISMATCH');
+  db.prepare('UPDATE keys SET last_ip = ? WHERE key = ?').run(req.ip || null, key);
 
   logUse(script.id, `🟢 Script ejecutado · key \`${k.key.slice(0, 6)}…\``);
   reply(`OK:${issuePayloadToken(script.id)}`);
@@ -1177,6 +1190,46 @@ app.get('/api/keys', requireAuth, (req, res) => {
   res.json(stmt.keysByUser.all(req.userId));
 });
 
+// ---------- Baneos del creador ----------
+// Free: solo por HWID. Premium y Premium Plus: también por IP y por usuario (solo en ese script)
+const ownedKey = db.prepare('SELECT k.* FROM keys k JOIN scripts s ON s.id = k.script_id WHERE k.key = ? AND s.user_id = ?');
+function applyBan(k, kind, reason, userId, on) {
+  const now = Math.floor(Date.now() / 1000);
+  if (kind === 'user') {
+    if (!k.discord_id) return { error: 'Esta key no está vinculada a un usuario de Discord', status: 400 };
+    db.transaction(() => {
+      if (on) {
+        db.prepare('INSERT OR REPLACE INTO bot_blacklist (script_id, discord_id, reason, created_at) VALUES (?, ?, ?, ?)').run(k.script_id, k.discord_id, reason, now);
+        db.prepare('UPDATE keys SET banned = 1, ban_reason = ? WHERE script_id = ? AND discord_id = ?').run(reason, k.script_id, k.discord_id);
+      } else {
+        db.prepare('DELETE FROM bot_blacklist WHERE script_id = ? AND discord_id = ?').run(k.script_id, k.discord_id);
+        db.prepare('UPDATE keys SET banned = 0, ban_reason = NULL WHERE script_id = ? AND discord_id = ?').run(k.script_id, k.discord_id);
+      }
+    })();
+    return { ok: true };
+  }
+  const value = kind === 'hwid' ? k.hwid : k.last_ip;
+  if (!value) return { error: kind === 'hwid' ? 'Esta key todavía no tiene HWID' : 'Todavía no sabemos la IP de esta key', status: 400 };
+  if (on) db.prepare('INSERT OR REPLACE INTO script_bans (script_id, kind, value, reason, created_at) VALUES (?, ?, ?, ?, ?)').run(k.script_id, kind, value, reason, now);
+  else db.prepare('DELETE FROM script_bans WHERE script_id = ? AND kind = ? AND value = ?').run(k.script_id, kind, value);
+  return { ok: true };
+}
+function banRoute(on) {
+  return (req, res) => {
+    const k = ownedKey.get(req.params.key, req.userId);
+    if (!k) return res.status(404).json({ error: 'Key no encontrada' });
+    const kind = String(req.body?.kind || '');
+    if (!['hwid', 'ip', 'user'].includes(kind)) return res.status(400).json({ error: 'Tipo de baneo inválido' });
+    if (on && kind !== 'hwid' && !isPaidPlanId(req.userId)) return res.status(403).json({ error: 'Banear por IP o usuario es solo para Premium y Premium Plus' });
+    const reason = String(req.body?.reason || 'Baneado por el creador').slice(0, 200);
+    const out = applyBan(k, kind, reason, req.userId, on);
+    if (out.error) return res.status(out.status).json({ error: out.error });
+    res.json({ ok: true });
+  };
+}
+app.post('/api/keys/:key/ban', requireAuth, banRoute(true));
+app.post('/api/keys/:key/unban', requireAuth, banRoute(false));
+
 app.post('/api/keys', requireAuth, (req, res) => {
   const scriptId = Number(req.body?.scriptId);
   const amount = req.body?.amount === undefined ? 1 : Number(req.body.amount);
@@ -1190,6 +1243,12 @@ app.post('/api/keys', requireAuth, (req, res) => {
   if (!script) return res.status(403).json({ error: 'No autorizado' });
 
   const expiresAt = days ? Math.floor(Date.now() / 1000) + days * 86400 : null;
+
+  const cap = keyCapFor(req.userId);
+  if (cap !== Infinity) {
+    const used = db.prepare('SELECT COUNT(*) AS n FROM keys k JOIN scripts s ON s.id = k.script_id WHERE s.user_id = ?').get(req.userId).n;
+    if (used + amount > cap) return res.status(403).json({ error: `Tu plan Free permite ${cap} keys en total. Te quedan ${Math.max(0, cap - used)}.` });
+  }
 
   try {
     const generated = db.transaction(() => {

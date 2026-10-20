@@ -176,7 +176,7 @@ const SESSION_SECRET = JWT_SECRET || (() => {
 
 // Cuotas por plan (las mismas que muestra el dashboard)
 const PLAN_QUOTAS = {
-  free:    { scripts: 2,        obfuscations: 10, keys: 100 },
+  free:    { scripts: 2,        obfuscations: 5,  keys: 100 },
   premium: { scripts: 10,       obfuscations: 30, keys: Infinity },
   plus:    { scripts: Infinity, obfuscations: Infinity, keys: Infinity },
 };
@@ -1191,7 +1191,7 @@ app.get('/api/keys', requireAuth, (req, res) => {
 });
 
 // ---------- Baneos del creador ----------
-// Free: solo por HWID. Premium y Premium Plus: también por IP y por usuario (solo en ese script)
+// Se puede banear por HWID, IP o usuario de Discord (solo en ese script)
 const ownedKey = db.prepare('SELECT k.* FROM keys k JOIN scripts s ON s.id = k.script_id WHERE k.key = ? AND s.user_id = ?');
 function applyBan(k, kind, reason, userId, on) {
   const now = Math.floor(Date.now() / 1000);
@@ -1220,7 +1220,6 @@ function banRoute(on) {
     if (!k) return res.status(404).json({ error: 'Key no encontrada' });
     const kind = String(req.body?.kind || '');
     if (!['hwid', 'ip', 'user'].includes(kind)) return res.status(400).json({ error: 'Tipo de baneo inválido' });
-    if (on && kind !== 'hwid' && !isPaidPlanId(req.userId)) return res.status(403).json({ error: 'Banear por IP o usuario es solo para Premium y Premium Plus' });
     const reason = String(req.body?.reason || 'Baneado por el creador').slice(0, 200);
     const out = applyBan(k, kind, reason, req.userId, on);
     if (out.error) return res.status(out.status).json({ error: out.error });
@@ -1231,7 +1230,7 @@ app.post('/api/keys/:key/ban', requireAuth, banRoute(true));
 app.post('/api/keys/:key/unban', requireAuth, banRoute(false));
 
 // ---------- Blacklist (web) ----------
-// Usuarios de Discord, IPs y HWID bloqueados en tus scripts. Free solo puede bloquear por HWID.
+// Usuarios de Discord, IPs y HWID bloqueados en tus scripts (todos los planes).
 const blScriptOwned = db.prepare('SELECT id, name FROM scripts WHERE id = ? AND user_id = ?');
 app.get('/api/blacklist', requireAuth, (req, res) => {
   const scripts = db.prepare('SELECT id, name FROM scripts WHERE user_id = ? ORDER BY id').all(req.userId);
@@ -1249,7 +1248,6 @@ function blacklistChange(req, res, on) {
   const reason = String(req.body?.reason || 'Bloqueado por el creador').slice(0, 200);
   if (!['hwid', 'ip', 'user'].includes(kind)) return res.status(400).json({ error: 'Tipo inválido' });
   if (!value) return res.status(400).json({ error: 'Escribe el valor a bloquear' });
-  if (on && kind !== 'hwid' && !isPaidPlanId(req.userId)) return res.status(403).json({ error: 'Bloquear por IP o usuario es solo para Premium y Premium Plus' });
   if (kind === 'user' && !/^\d{17,20}$/.test(value)) return res.status(400).json({ error: 'El ID de Discord debe tener entre 17 y 20 números' });
   if (kind === 'ip' && !/^[0-9a-fA-F:.]{3,45}$/.test(value)) return res.status(400).json({ error: 'IP inválida' });
   const now = Math.floor(Date.now() / 1000);

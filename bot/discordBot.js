@@ -761,10 +761,7 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
         // Sin script: solo afecta a los scripts que el actor puede gestionar
         const targets = script ? [script] : q.scriptsList.all().filter(s => canUse(interaction, s.user_id));
         if (!targets.length) return reply(denied);
-        // Bloquear usuarios es solo para Premium y Premium Plus (Free solo banea por HWID)
-        const allowed = targets.filter(s => hasPaidPlan(s.user_id));
-        if (!allowed.length) return reply('⛔ Bloquear usuarios es solo para Premium y Premium Plus. Los planes Free solo pueden banear por HWID desde el dashboard.');
-        for (const s of allowed) {
+        for (const s of targets) {
           q.blacklistInsert.run(s.id, target.id, reason, now());
           q.banKeys.run(reason, s.id, target.id);
           logScriptEvent(s, `⛔ <@${target.id}> bloqueado por <@${actor}> · ${reason}`);

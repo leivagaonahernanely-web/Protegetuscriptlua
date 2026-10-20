@@ -639,7 +639,7 @@
         <div class="section-head">
           <div>
             <h2>Blacklist</h2>
-            <p>Bloquea usuarios de Discord, IPs o HWID en uno de tus scripts. El plan Free solo puede bloquear por HWID.</p>
+            <p>Bloquea usuarios de Discord, IPs o HWID en uno de tus scripts.</p>
           </div>
         </div>
 
@@ -683,7 +683,7 @@
             <div class="card-value">$0</div>
             <ul>
               <li>✓ 2 scripts</li>
-              <li>✓ 10 ofuscaciones</li>
+              <li>✓ 5 ofuscaciones</li>
               <li>✓ 100 keys</li>
             </ul>
             <button class="btn ghost block" data-plan-btn disabled>Plan actual</button>
@@ -742,7 +742,7 @@
 
   // ---------- CONFIG ----------
   const PLAN_LIMITS = {
-    free:    { scripts: 2,        keys: 100, obf: 10 },
+    free:    { scripts: 2,        keys: 100, obf: 5 },
     premium: { scripts: 10,       keys: Infinity, obf: 30 },
     plus:    { scripts: Infinity, keys: Infinity, obf: Infinity },
   };
@@ -1836,15 +1836,11 @@
   async function loadBlacklist() {
     let data;
     try { data = await api('/api/blacklist'); } catch (err) { toast(err.message, 'error'); return; }
-    const paid = hasPerkPlan();
     const current = $('blScript').value;
     $('blScript').innerHTML = data.scripts.length
       ? data.scripts.map(s => `<option value="${s.id}" ${String(s.id) === current ? 'selected' : ''}>${esc(s.name)}</option>`).join('')
       : '<option value="">Sin scripts</option>';
     const opt = v => document.querySelector(`#blKind option[value="${v}"]`);
-    if (opt('ip')) { opt('ip').disabled = !paid; opt('ip').textContent = paid ? 'IP' : 'IP (solo Premium)'; }
-    if (opt('user')) { opt('user').disabled = !paid; opt('user').textContent = paid ? 'Usuario de Discord' : 'Usuario de Discord (solo Premium)'; }
-    if (!paid && $('blKind').value !== 'hwid') $('blKind').value = 'hwid';
     $('blUsers').innerHTML = data.users.length
       ? data.users.map(u => `<tr>
           <td>${esc(u.script)}</td><td>${esc(u.discord_id)}</td><td>${esc(u.reason || '')}</td><td>${fmtDate(u.created_at)}</td>
@@ -1886,7 +1882,7 @@
     } catch (err) { toast(err.message, 'error'); }
   });
 
-  // Baneos: HWID para todos los planes; IP y usuario solo Premium y Premium Plus
+  // Baneos desde la key: HWID, IP o usuario de Discord (todos los planes)
   function openBanModal(keyStr) {
     const k = keys.find(x => x.key === keyStr);
     if (!k) return;
@@ -1907,8 +1903,8 @@
     openModal('Banear key', `
       <p class="hint">Banear bloquea el acceso al script. Quitar el baneo lo desbloquea.</p>
       ${item('hwid', 'HWID del equipo', k.hwid, false)}
-      ${item('ip', 'IP del usuario', k.last_ip, true)}
-      ${item('user', 'Usuario de Discord', k.discord_id, true)}`);
+      ${item('ip', 'IP del usuario', k.last_ip, false)}
+      ${item('user', 'Usuario de Discord', k.discord_id, false)}`);
     $('modalBody').querySelectorAll('[data-ban],[data-unban]').forEach(btn => btn.addEventListener('click', async () => {
       const on = btn.hasAttribute('data-ban');
       const kind = btn.dataset.ban || btn.dataset.unban;

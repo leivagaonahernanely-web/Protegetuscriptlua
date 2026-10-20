@@ -77,7 +77,7 @@ pre{white-space:pre-wrap;word-break:break-all;background:#040407;border:1px soli
     </section>
 
     <section class="card hidden" data-panel="users">
-      <div class="row"><input class="field" id="userSearch" placeholder="Search username"></div>
+      <div class="row"><input class="field" id="userSearch" placeholder="Search username"><select class="field" id="userRoleFilter"><option value="">Todos los roles</option><option value="owner">Owner</option><option value="admin">Admin</option><option value="plus">Premium Plus</option><option value="premium">Premium</option><option value="free">Free</option></select></div>
       <table><thead><tr><th>User</th><th>Scripts</th><th>Obfuscations</th><th>Plan</th><th></th><th>Staff</th><th></th></tr></thead><tbody id="usersBody"></tbody></table>
     </section>
 
@@ -100,6 +100,7 @@ pre{white-space:pre-wrap;word-break:break-all;background:#040407;border:1px soli
       <p class="muted" style="margin-top:0">Posts an embed with the prices to the channel you choose. Start typing a channel name, or paste its ID.</p>
       <div class="row"><input class="field" id="pcChannel" list="chanList" placeholder="Channel (name or ID)" style="flex:1;min-width:220px"></div>
       <div class="row"><input class="field" id="pcTitle" value="Prices &amp; Plans" placeholder="Title" style="flex:1"></div>
+      <div class="row"><input class="field" id="pcImage" type="url" placeholder="Image URL (https, optional)" style="flex:1"></div>
       <textarea class="field" id="pcBody" rows="10" placeholder="One line per plan, for example:&#10;Premium: $5 / month&#10;Premium Plus: $10 / month" style="width:100%"></textarea>
       <div class="row" style="margin:14px 0 0"><button class="btn primary" id="pcSend">Publish to channel</button></div>
     </section>
@@ -186,22 +187,24 @@ async function loadChannels() {
     $('chanList').innerHTML = channels.map(c => `<option value="${esc(c.id)}">#${esc(c.name)}${c.parent ? ' · ' + esc(c.parent) : ''}</option>`).join('');
   } catch (err) { toast(err.message); }
 }
-async function publishAnnouncement(kind, channelField, titleField, bodyField) {
+async function publishAnnouncement(kind, channelField, titleField, bodyField, imageField = null) {
   const channelId = $(channelField).value.trim();
   const title = $(titleField).value.trim();
   const description = $(bodyField).value.trim();
+  const imageUrl = imageField ? $(imageField).value.trim() : '';
   if (!channelId) return toast('Pick a channel or paste its ID');
   if (!title) return toast('Write a title');
   if (!description) return toast('Write the content first');
   const ch = channels.find(c => c.id === channelId);
   if (!confirm(`Publish "${title}" to ${ch ? '#' + ch.name : 'channel ' + channelId}?`)) return;
   try {
-    await api('POST', '/admin/api/announce', { kind, channelId, title, description });
+    await api('POST', '/admin/api/announce', { kind, channelId, title, description, imageUrl });
     toast('Published');
     $(bodyField).value = '';
+    if (imageField) $(imageField).value = '';
   } catch (err) { toast(err.message); }
 }
-$('pcSend').addEventListener('click', () => publishAnnouncement('prices', 'pcChannel', 'pcTitle', 'pcBody'));
+$('pcSend').addEventListener('click', () => publishAnnouncement('prices', 'pcChannel', 'pcTitle', 'pcBody', 'pcImage'));
 $('cgSend').addEventListener('click', () => publishAnnouncement('changelog', 'cgChannel', 'cgTitle', 'cgBody'));
 // ---- Plan keys ----
 function renderKeys() {
@@ -223,12 +226,14 @@ document.querySelectorAll('[data-gen]').forEach(b => b.addEventListener('click',
 }));
 
 // ---- Users ----
+const ROLE_NAMES = { owner: 'Owner', admin: 'Admin', plus: 'Premium Plus', premium: 'Premium', free: 'Free' };
 function renderUsers() {
   const q = $('userSearch').value.trim().toLowerCase();
-  const rows = cache.users.filter(u => (u.username || u.id).toLowerCase().includes(q));
+  const roleF = $('userRoleFilter').value;
+  const rows = cache.users.filter(u => (u.username || u.id).toLowerCase().includes(q) && (!roleF || u.role === roleF));
   $('usersBody').innerHTML = rows.length ? rows.map(u => `
     <tr>
-      <td>${esc(u.username || u.id)}<div class="muted"><code>${esc(u.id)}</code></div></td>
+      <td>${esc(u.username || u.id)} <span class="muted">· ${esc(ROLE_NAMES[u.role] || 'Free')}</span><div class="muted"><code>${esc(u.id)}</code></div></td>
       <td>${u.scripts}</td>
       <td>${u.obf_used || 0}</td>
       <td>
@@ -248,6 +253,7 @@ function renderUsers() {
     </tr>`).join('') : '<tr><td colspan="7" class="muted">No users found.</td></tr>';
 }
 $('userSearch').addEventListener('input', renderUsers);
+$('userRoleFilter').addEventListener('change', renderUsers);
 $('usersBody').addEventListener('click', async e => {
   const st = e.target.closest('[data-save-staff]');
   if (st) {

@@ -117,6 +117,10 @@ db.exec(`
     created_at INTEGER NOT NULL
   );
   CREATE INDEX IF NOT EXISTS idx_web_chat_created ON web_chat(created_at);
+  CREATE TABLE IF NOT EXISTS web_chat_mutes (
+    user_id TEXT PRIMARY KEY,
+    until INTEGER NOT NULL
+  );
 `);
 
 // Migraciones: añade columnas nuevas si la base ya existía
@@ -166,7 +170,7 @@ const PLAN_QUOTAS = {
 const quotaFor = userId => PLAN_QUOTAS[stmt.userById.get(userId)?.plan] ?? PLAN_QUOTAS.free;
 
 const stmt = {
-  userById: db.prepare('SELECT id, username, avatar, custom_avatar, bot_avatar, plan, obf_used FROM users WHERE id = ?'),
+  userById: db.prepare('SELECT id, username, avatar, custom_avatar, bot_avatar, plan, obf_used, staff_role FROM users WHERE id = ?'),
   scriptCount: db.prepare('SELECT COUNT(*) AS n FROM scripts WHERE user_id = ?'),
   obfUsed: db.prepare('SELECT obf_used FROM users WHERE id = ?'),
   obfIncrement: db.prepare('UPDATE users SET obf_used = obf_used + 1 WHERE id = ?'),
@@ -693,6 +697,8 @@ app.get('/api/me', requireAuth, (req, res) => {
 // ---------- Chat de la comunidad ----------
 const CHAT_MAX_CHARS = 500;
 const CHAT_COOLDOWN_MS = 2000;               // un mensaje cada 2 s por usuario
+// Palabras que no se permiten en el chat (en minúsculas). Edita esta lista a tu gusto.
+const CHAT_BLOCKED_WORDS = [];
 const chatLastPost = new Map();
 const CHAT_SELECT = `SELECT c.id, c.user_id, c.text, c.created_at, u.username, u.avatar, u.custom_avatar, u.plan, u.staff_role
   FROM web_chat c LEFT JOIN users u ON u.id = c.user_id`;
@@ -721,16 +727,35 @@ const chatView = r => ({
 });
 
 // Mensajes nuevos (after = último id que ya tiene el cliente) o los últimos 60 si no hay after
+// Usuarios que leyeron el chat en los últimos 30 s (aprox. "en línea")
+const chatSeen = new Map();
+const canModerate = userId => {
+  if (isOwnerId(userId)) return true;
+  const staff = stmt.userById.get(userId)?.staff_role;
+  return staff === 'admin' || staff === 'owner';
+};
 app.get('/api/chat', requireAuth, (req, res) => {
   const after = Number(req.query.after) || 0;
   const rows = after > 0 ? chatStmt.newer.all(after) : chatStmt.latest.all().reverse();
-  res.json({ messages: rows.map(chatView) });
+  const nowMs = Date.now();
+  chatSeen.set(req.userId, nowMs);
+  for (const [id, t] of chatSeen) if (nowMs - t > 30_000) chatSeen.delete(id);
+  res.json({ messages: rows.map(chatView), online: chatSeen.size, canModerate: canModerate(req.userId) });
 });
 
 app.post('/api/chat', requireAuth, (req, res) => {
   const text = String(req.body?.text ?? '').replace(/\s+/g, ' ').trim();
   if (!text) return res.status(400).json({ error: 'Escribe un mensaje' });
   if (text.length > CHAT_MAX_CHARS) return res.status(400).json({ error: `Máximo ${CHAT_MAX_CHARS} caracteres` });
+  const mute = db.prepare('SELECT until FROM web_chat_mutes WHERE user_id = ?').get(req.userId);
+  if (mute && mute.until > Math.floor(Date.now() / 1000)) {
+    const when = new Date(mute.until * 1000).toLocaleString('es-EC', { timeZone: 'America/Guayaquil' });
+    return res.status(403).json({ error: `Estás silenciado en el chat hasta ${when}` });
+  }
+  const lowered = text.toLowerCase();
+  if (CHAT_BLOCKED_WORDS.some(w => new RegExp(`(^|\\W)${w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}($|\\W)`).test(lowered))) {
+    return res.status(400).json({ error: 'Tu mensaje contiene palabras no permitidas' });
+  }
   const last = chatLastPost.get(req.userId) ?? 0;
   if (Date.now() - last < CHAT_COOLDOWN_MS) return res.status(429).json({ error: 'Espera un momento antes de enviar otro mensaje' });
   chatLastPost.set(req.userId, Date.now());
@@ -745,6 +770,23 @@ app.delete('/api/chat/:id', requireAuth, (req, res) => {
   if (!row) return res.status(404).json({ error: 'Mensaje no encontrado' });
   if (row.user_id !== req.userId && !isOwnerId(req.userId)) return res.status(403).json({ error: 'Solo puedes borrar tus mensajes' });
   db.prepare('DELETE FROM web_chat WHERE id = ?').run(id);
+  res.json({ ok: true });
+});
+
+// Silenciar en el chat (dueño, admin u owner). minutes = 0 quita el silencio. Nunca se silencia al dueño.
+app.post('/api/chat/mute', requireAuth, (req, res) => {
+  if (!canModerate(req.userId)) return res.status(403).json({ error: 'Solo admin u owner pueden silenciar' });
+  const target = String(req.body?.userId ?? '');
+  const minutes = Number(req.body?.minutes);
+  if (!target || !Number.isInteger(minutes) || minutes < 0 || minutes > 10080) {
+    return res.status(400).json({ error: 'Usuario o minutos inválidos (0 a 10080)' });
+  }
+  if (isOwnerId(target)) return res.status(403).json({ error: 'No se puede silenciar al dueño' });
+  if (minutes === 0) {
+    db.prepare('DELETE FROM web_chat_mutes WHERE user_id = ?').run(target);
+  } else {
+    db.prepare('INSERT OR REPLACE INTO web_chat_mutes (user_id, until) VALUES (?, ?)').run(target, Math.floor(Date.now() / 1000) + minutes * 60);
+  }
   res.json({ ok: true });
 });
 
@@ -827,7 +869,7 @@ app.post('/api/owner/plan-keys', requireOwnerApi, (req, res) => {
 app.get('/api/owner/users', requireOwnerApi, (req, res) => {
   res.json(db.prepare(`SELECT u.id, u.username, u.avatar, u.plan, u.obf_used, u.staff_role,
       (SELECT COUNT(*) FROM scripts s WHERE s.user_id = u.id) AS scripts
-    FROM users u ORDER BY u.rowid DESC LIMIT 500`).all());
+    FROM users u ORDER BY u.rowid DESC LIMIT 500`).all().map(u => ({ ...u, role: roleOf(u.id, u.plan, u.staff_role) })));
 });
 app.post('/api/owner/users/:id/plan', requireOwnerApi, (req, res) => {
   const plan = ['free', 'premium', 'plus'].includes(req.body?.plan) ? req.body.plan : null;
@@ -864,14 +906,21 @@ app.get('/api/owner/channels', requireOwnerApi, (req, res) => {
 
 // Publica un changelog o la tabla de precios en un canal elegido en el panel admin
 app.post('/api/owner/announce', requireOwnerApi, async (req, res) => {
-  const { kind, channelId, title, description } = req.body || {};
+  const { kind, channelId, title, description, imageUrl } = req.body || {};
   if (!['prices', 'changelog'].includes(kind)) return res.status(400).json({ error: 'Tipo inválido' });
   if (!/^\d{17,20}$/.test(String(channelId ?? ''))) return res.status(400).json({ error: 'El ID del canal no es válido' });
   if (!String(title ?? '').trim() || String(title).length > 256) return res.status(400).json({ error: 'Título requerido (máx. 256)' });
   if (!String(description ?? '').trim() || String(description).length > 4000) return res.status(400).json({ error: 'Contenido requerido (máx. 4000)' });
+  let image = null;
+  if (String(imageUrl ?? '').trim()) {
+    let parsed;
+    try { parsed = new URL(String(imageUrl).trim()); } catch { return res.status(400).json({ error: 'La URL de la imagen no es válida' }); }
+    if (parsed.protocol !== 'https:' || parsed.href.length > 500) return res.status(400).json({ error: 'La imagen debe ser una URL https (máx. 500 caracteres)' });
+    image = parsed.href;
+  }
   if (!discordBot?.announce) return res.status(503).json({ error: 'El bot todavía no está conectado' });
   try {
-    await discordBot.announce(kind, String(channelId), String(title).trim(), String(description).trim());
+    await discordBot.announce(kind, String(channelId), String(title).trim(), String(description).trim(), image);
     res.json({ ok: true });
   } catch (err) {
     res.status(502).json({ error: `No se pudo publicar: ${err.message}` });
@@ -951,6 +1000,38 @@ app.put('/api/scripts/:id', requireAuth, async (req, res) => {
     console.error('Update script error:', err);
     res.status(err.status || 500).json({ error: err.status ? err.message : 'Error del servidor' });
   }
+});
+
+// Borrar keys propias (una o varias, máximo 100 por petición)
+const ownedKeyStmt = db.prepare('SELECT k.key FROM keys k JOIN scripts s ON s.id = k.script_id WHERE k.key = ? AND s.user_id = ?');
+const deleteKeyStmt = db.prepare('DELETE FROM keys WHERE key = ?');
+app.post('/api/keys/delete', requireAuth, (req, res) => {
+  const list = Array.isArray(req.body?.keys) ? req.body.keys.map(String).slice(0, 100) : [];
+  if (!list.length) return res.status(400).json({ error: 'No hay keys para borrar' });
+  let deleted = 0;
+  db.transaction(() => {
+    for (const k of list) {
+      if (ownedKeyStmt.get(k, req.userId)) { deleteKeyStmt.run(k); deleted++; }
+    }
+  })();
+  res.json({ deleted });
+});
+
+// Ejecuciones de tus scripts por día (hora de Ecuador) y por script
+app.get('/api/stats/executions', requireAuth, (req, res) => {
+  const days = Math.min(Math.max(Number(req.query.days) || 7, 1), 60);
+  const since = Math.floor(Date.now() / 1000) - days * 86400;
+  const byDay = db.prepare(`
+    SELECT strftime('%Y-%m-%d', l.created_at, 'unixepoch', '-5 hours') AS day, COUNT(*) AS n
+    FROM script_logs l JOIN scripts s ON s.id = l.script_id
+    WHERE s.user_id = ? AND l.created_at >= ? AND l.text LIKE '%Script ejecutado%'
+    GROUP BY day ORDER BY day`).all(req.userId, since);
+  const byScript = db.prepare(`
+    SELECT s.id, s.name, COUNT(*) AS n
+    FROM script_logs l JOIN scripts s ON s.id = l.script_id
+    WHERE s.user_id = ? AND l.created_at >= ? AND l.text LIKE '%Script ejecutado%'
+    GROUP BY s.id ORDER BY n DESC LIMIT 10`).all(req.userId, since);
+  res.json({ days, byDay, byScript });
 });
 
 app.get('/api/keys', requireAuth, (req, res) => {

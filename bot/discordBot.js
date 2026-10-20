@@ -67,6 +67,10 @@ export function ensureBotSchema(db) {
   // Migración: la whitelist puede ser por tiempo (expires_at NULL = permanente)
   const hasExp = db.prepare("SELECT 1 FROM pragma_table_info('bot_access_rules') WHERE name = 'expires_at'").get();
   if (!hasExp) db.exec('ALTER TABLE bot_access_rules ADD COLUMN expires_at INTEGER');
+  // Último vencimiento avisado por DM (si la key se renueva, vuelve a avisar)
+  if (!db.prepare("SELECT 1 FROM pragma_table_info('keys') WHERE name = 'expiry_notified_for'").get()) {
+    db.exec('ALTER TABLE keys ADD COLUMN expiry_notified_for INTEGER');
+  }
 }
 
 // ==========================================
@@ -927,6 +931,32 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
   // ---------- Cliente ----------
   const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers] });
 
+  // Aviso por DM cuando la key de un comprador vence en las próximas 24 h (una vez por vencimiento)
+  async function notifyExpiringKeys() {
+    const nowS = now();
+    const rows = db.prepare(`SELECT k.key, k.discord_id, k.expires_at, s.name AS script_name
+      FROM keys k JOIN scripts s ON s.id = k.script_id
+      WHERE k.discord_id IS NOT NULL AND k.banned = 0 AND k.expires_at IS NOT NULL
+        AND k.expires_at > ? AND k.expires_at <= ?
+        AND (k.expiry_notified_for IS NULL OR k.expiry_notified_for != k.expires_at)
+      LIMIT 50`).all(nowS, nowS + 86400);
+    for (const r of rows) {
+      // Se marca antes de enviar: si falla el DM, no se reintenta en bucle
+      db.prepare('UPDATE keys SET expiry_notified_for = ? WHERE key = ?').run(r.expires_at, r.key);
+      try {
+        const user = await client.users.fetch(r.discord_id);
+        const embed = new EmbedBuilder().setColor(0xf1c40f)
+          .setTitle(`⏳ Tu key de ${r.script_name} está por vencer`)
+          .setDescription(`Vence <t:${r.expires_at}:R> (<t:${r.expires_at}:f>).`);
+        const row = new ActionRowBuilder().addComponents(
+          new ButtonBuilder().setLabel('Ver mi cuenta').setStyle(ButtonStyle.Link).setURL(`${publicUrl}/dashboard.html`));
+        await user.send({ embeds: [embed], components: [row] });
+      } catch (err) {
+        console.warn('[Bot] No se pudo enviar el aviso de vencimiento:', err.message);
+      }
+    }
+  }
+
   // Canales de texto del servidor, para el selector del panel admin
   client.listTextChannels = () => {
     const guild = guildId ? client.guilds.cache.get(guildId) : client.guilds.cache.first();
@@ -962,7 +992,7 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
   };
 
   // Changelogs y tabla de precios: los publica el panel admin, no comandos de Discord
-  client.announce = async (kind, channelId, title, description) => {
+  client.announce = async (kind, channelId, title, description, imageUrl = null) => {
     const channel = await client.channels.fetch(channelId);
     if (!channel?.isTextBased()) throw new Error('Ese canal no es de texto');
     const isPrices = kind === 'prices';
@@ -972,6 +1002,7 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
       .setDescription(description)
       .setFooter({ text: `Vantarmor · ${new Date().getFullYear()}` })
       .setTimestamp();
+    if (imageUrl) embed.setImage(imageUrl);
     await channel.send({ embeds: [embed] });
   };
 
@@ -982,6 +1013,8 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
   };
 
   client.once('ready', async c => {
+    setTimeout(() => notifyExpiringKeys().catch(err => console.error('[Bot] Avisos de vencimiento:', err.message)), 30_000);
+    setInterval(() => notifyExpiringKeys().catch(err => console.error('[Bot] Avisos de vencimiento:', err.message)), 10 * 60_000);
     try {
       const rest = new REST({ version: '10' }).setToken(token);
       const route = guildId

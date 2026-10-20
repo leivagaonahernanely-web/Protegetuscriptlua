@@ -97,7 +97,9 @@
   .chat-head b { color: var(--text); }
   .chat-badge { font-size: 11px; font-weight: 700; padding: 1px 8px; border-radius: 999px; border: 1px solid currentColor; line-height: 16px; }
   .chat-text { font-size: 14px; white-space: pre-wrap; overflow-wrap: anywhere; margin-top: 2px; }
-  .chat-del { margin-left: auto; background: none; border: 0; color: var(--text-soft); cursor: pointer; font-size: 14px; padding: 0 4px; }
+  .chat-tools { margin-left: auto; display: flex; gap: 4px; }
+  .chat-del, .chat-mod { background: none; border: 0; color: var(--text-soft); cursor: pointer; font-size: 14px; padding: 0 4px; }
+  .chat-online { padding: 10px 16px 0; font-size: 12px; color: var(--text-soft); }
   .chat-form { display: flex; gap: 10px; padding: 12px; border-top: 1px solid rgba(127, 127, 127, .2); }
   .chat-form .field { flex: 1; min-width: 0; }
   .chat-empty { margin: auto; color: var(--text-soft); font-size: 14px; text-align: center; }
@@ -399,6 +401,18 @@
             <div id="dashExpiring"></div>
           </div>
         </div>
+
+        <div class="panel">
+          <div class="panel-head">
+            <h3>Ejecuciones de tus scripts</h3>
+            <div style="display:flex;gap:6px">
+              <button class="btn ghost sm" data-exec-days="7">7 días</button>
+              <button class="btn ghost sm" data-exec-days="30">30 días</button>
+            </div>
+          </div>
+          <div id="execChart" style="min-height:170px"></div>
+          <div id="execTop" class="muted" style="margin-top:10px;font-size:13px"></div>
+        </div>
       </section>
 
       <!-- SCRIPTS -->
@@ -439,6 +453,7 @@
           <span id="bulkCount">0 seleccionadas</span>
           <span class="spacer"></span>
           <button class="btn sm" id="bulkCopy">Copiar seleccionadas</button>
+          <button class="btn ghost sm" id="bulkDelete">Eliminar seleccionadas</button>
           <button class="btn ghost sm" id="bulkClear">Quitar selección</button>
         </div>
 
@@ -527,6 +542,7 @@
 
       <section class="view" data-view="chat">
         <article class="card chat-card">
+          <div class="chat-online" id="chatOnline"></div>
           <div class="chat-list" id="chatList" aria-live="polite"><div class="chat-empty">Cargando mensajes…</div></div>
           <form class="chat-form" id="chatForm" autocomplete="off">
             <input id="chatInput" class="field" type="text" maxlength="500" placeholder="Escribe un mensaje…" aria-label="Mensaje">
@@ -1216,7 +1232,7 @@
         <td>${esc(script)}</td>
         <td><span class="badge ${st.cls}">${st.label}</span></td>
         <td>${fmtDate(k.expires_at)}</td>
-        <td style="text-align:right"><button class="btn ghost sm" data-copy="${esc(k.key)}" data-msg="Key copiada">Copiar</button></td>
+        <td style="text-align:right"><button class="btn ghost sm" data-copy="${esc(k.key)}" data-msg="Key copiada">Copiar</button> <button class="btn ghost sm" data-del-key="${esc(k.key)}">Eliminar</button></td>
       </tr>`).join('');
     updateBulk();
   }
@@ -1385,6 +1401,7 @@
   // ---------- CHAT DE LA COMUNIDAD ----------
   let chatMessages = [];
   let chatTimer = null;
+  let canModerateChat = false;
   // Colores y nombre de cada rol en el chat
   const ROLE_STYLE = {
     owner:   { label: 'Owner',        color: '#ff5c7a' },
@@ -1407,12 +1424,13 @@
     list.innerHTML = chatMessages.map(m => {
       const mine = !!user && m.user_id === user.id;
       const canDelete = mine || !!(user && user.owner);
+      const canMute = canModerateChat && !mine;
       const rs = ROLE_STYLE[m.role] || ROLE_STYLE.free;
       const time = new Date(m.created_at * 1000).toLocaleTimeString('es-EC', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Guayaquil' });
       return `<div class="chat-msg${mine ? ' mine' : ''}">
         <div class="chat-av">${chatAvatar(m)}</div>
         <div class="chat-bubble" style="flex:1;min-width:0">
-          <div class="chat-head"><b style="color:${rs.color}">${esc(m.username)}</b><span class="chat-badge" style="color:${rs.color}">${rs.label}</span><span>${time}</span>${canDelete ? `<button class="chat-del" data-del="${m.id}" title="Borrar mensaje" aria-label="Borrar mensaje">✕</button>` : ''}</div>
+          <div class="chat-head"><b style="color:${rs.color}">${esc(m.username)}</b><span class="chat-badge" style="color:${rs.color}">${rs.label}</span><span>${time}</span><span class="chat-tools">${canMute ? `<button class="chat-mod" data-mute="${esc(m.user_id)}" data-name="${esc(m.username)}" title="Silenciar" aria-label="Silenciar">🔇</button>` : ''}${canDelete ? `<button class="chat-del" data-del="${m.id}" title="Borrar mensaje" aria-label="Borrar mensaje">✕</button>` : ''}</span></div>
           <div class="chat-text">${esc(m.text)}</div>
         </div>
       </div>`;
@@ -1425,6 +1443,8 @@
     try {
       const last = chatMessages.length ? chatMessages[chatMessages.length - 1].id : 0;
       const data = await api(`/api/chat${last ? `?after=${last}` : ''}`);
+      canModerateChat = !!data.canModerate;
+      $('chatOnline').textContent = `🟢 ${data.online} en línea`;
       if (!last) chatMessages = data.messages;
       else if (data.messages.length) chatMessages = chatMessages.concat(data.messages).slice(-200);
       else return;
@@ -1463,6 +1483,16 @@
   });
 
   $('chatList').addEventListener('click', async e => {
+    const mute = e.target.closest('[data-mute]');
+    if (mute) {
+      const minutes = prompt(`Minutos de silencio para ${mute.dataset.name} (0 para quitarlo)`, '10');
+      if (minutes === null) return;
+      try {
+        await api('/api/chat/mute', { method: 'POST', body: JSON.stringify({ userId: mute.dataset.mute, minutes: Number(minutes) }) });
+        toast('Listo');
+      } catch (err) { toast(err.message, 'error'); }
+      return;
+    }
     const btn = e.target.closest('[data-del]');
     if (!btn) return;
     if (!confirm('¿Borrar este mensaje?')) return;
@@ -1474,6 +1504,65 @@
       toast(err.message, 'error');
     }
   });
+
+  // ---------- ESTADÍSTICAS DE EJECUCIÓN ----------
+  let execDays = 7;
+  const dayKey = offset => new Date(Date.now() - offset * 86400000).toLocaleDateString('en-CA', { timeZone: 'America/Guayaquil' });
+  async function loadExecStats() {
+    try {
+      const data = await api(`/api/stats/executions?days=${execDays}`);
+      const counts = new Map(data.byDay.map(r => [r.day, r.n]));
+      const series = Array.from({ length: execDays }, (_, i) => {
+        const day = dayKey(execDays - 1 - i);
+        return { day, n: counts.get(day) || 0 };
+      });
+      renderExecChart(series);
+      $('execTop').innerHTML = data.byScript.length
+        ? 'Top scripts: ' + data.byScript.map(s => `<b>${esc(s.name)}</b> (${s.n})`).join(' · ')
+        : 'Sin ejecuciones en este período.';
+    } catch (err) {
+      $('execChart').innerHTML = '<div class="muted">No se pudieron cargar las estadísticas.</div>';
+    }
+  }
+  function renderExecChart(series) {
+    const W = 600, H = 160, pad = 22;
+    const max = Math.max(1, ...series.map(s => s.n));
+    const slot = W / series.length;
+    const bw = Math.max(4, slot * 0.6);
+    const bars = series.map((s, i) => {
+      const h = Math.round((s.n / max) * (H - pad - 14));
+      const x = i * slot + (slot - bw) / 2;
+      const y = H - pad - h;
+      const label = series.length <= 7 || i % 5 === 0 || i === series.length - 1 ? `${s.day.slice(8, 10)}/${s.day.slice(5, 7)}` : '';
+      return `<rect x="${x.toFixed(1)}" y="${y}" width="${bw.toFixed(1)}" height="${h}" rx="3" fill="#5865f2"><title>${s.day}: ${s.n}</title></rect>
+        <text x="${(x + bw / 2).toFixed(1)}" y="${Math.max(10, y - 4)}" text-anchor="middle" font-size="11" fill="currentColor">${s.n || ''}</text>
+        <text x="${(x + bw / 2).toFixed(1)}" y="${H - 6}" text-anchor="middle" font-size="10" fill="currentColor" opacity=".7">${label}</text>`;
+    }).join('');
+    $('execChart').innerHTML = `<svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="Ejecuciones por día">${bars}</svg>`;
+  }
+  document.querySelectorAll('[data-exec-days]').forEach(b => b.addEventListener('click', () => {
+    execDays = Number(b.dataset.execDays);
+    loadExecStats();
+  }));
+
+  // ---------- BORRAR KEYS ----------
+  async function deleteKeys(list) {
+    if (!list.length) return;
+    if (!confirm(`¿Eliminar ${list.length} key(s)? No se puede deshacer.`)) return;
+    try {
+      const data = await api('/api/keys/delete', { method: 'POST', body: JSON.stringify({ keys: list }) });
+      list.forEach(k => selected.delete(k));
+      toast(`${data.deleted} key(s) eliminada(s)`);
+      await loadData();
+    } catch (err) {
+      toast(err.message, 'error');
+    }
+  }
+  $('keysTable').addEventListener('click', e => {
+    const b = e.target.closest('[data-del-key]');
+    if (b) deleteKeys([b.dataset.delKey]);
+  });
+  $('bulkDelete').addEventListener('click', () => deleteKeys([...selected]));
 
   // ---------- DATA ----------
   async function loadData() {
@@ -1497,6 +1586,7 @@
 
     clearAuthLoop();
     setOwnerNav(!!user.owner);
+    loadExecStats();
     setPlanNav(hasPerkPlan());
     loadOwnerData();
 

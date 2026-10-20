@@ -259,7 +259,7 @@ function uniqueSlug(name) {
 // Cada cuántas horas puede reiniciarse el HWID (0 = desactivado; /resethwid del creador siempre funciona)
 const HWID_RESET_OPTIONS = [0, 6, 12, 24, 48, 72, 168];
 
-// Reinicio de HWID: solo planes pagos. En Free el selector se ve pero queda en Desactivado (0)
+// Reinicio de HWID: "Desactivado" (0) es solo para planes pagos; en Free se cambia a 24 h
 const isPaidPlanId = userId => { const p = stmt.userById.get(userId)?.plan; return p === 'premium' || p === 'plus'; };
 
 function validateScriptInput({ name, ffa, obfuscator, code, hwidResetHours }, current = null) {
@@ -897,7 +897,7 @@ function quotaError(userId, { isNewScript, isFfa }) {
 app.post('/api/scripts', requireAuth, async (req, res) => {
   const input = validateScriptInput(req.body || {});
   if (input.error) return res.status(400).json({ error: input.error });
-  if (!isPaidPlanId(req.userId)) input.hwidResetHours = 0;
+  if (!isPaidPlanId(req.userId) && input.hwidResetHours === 0) input.hwidResetHours = 24;
   const quotaMsg = quotaError(req.userId, { isNewScript: true, isFfa: input.isFfa });
   if (quotaMsg) return res.status(403).json({ error: quotaMsg });
 
@@ -935,7 +935,7 @@ app.put('/api/scripts/:id', requireAuth, async (req, res) => {
 
   const input = validateScriptInput(req.body || {}, script);
   if (input.error) return res.status(400).json({ error: input.error });
-  if (!isPaidPlanId(req.userId)) input.hwidResetHours = 0;
+  if (!isPaidPlanId(req.userId) && input.hwidResetHours === 0) input.hwidResetHours = 24;
   const quotaMsg = quotaError(req.userId, { isNewScript: false, isFfa: input.isFfa });
   if (quotaMsg) return res.status(403).json({ error: quotaMsg });
 

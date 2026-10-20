@@ -158,7 +158,6 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
     scriptsNamed: db.prepare('SELECT id FROM scripts WHERE lower(name) = lower(?)'),
     scriptsList: db.prepare('SELECT id, name, user_id FROM scripts ORDER BY id DESC LIMIT 100'),
     scriptsOfUser: db.prepare('SELECT 1 FROM scripts WHERE user_id = ? LIMIT 1'),
-    userPlan: db.prepare('SELECT plan FROM users WHERE id = ?'),
     userById: db.prepare('SELECT id, username, avatar, custom_avatar FROM users WHERE id = ?'),
     keyByCode: db.prepare('SELECT * FROM keys WHERE key = ?'),
     keysByDiscord: db.prepare('SELECT * FROM keys WHERE discord_id = ?'),
@@ -381,12 +380,9 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
 
   // Intervalo de reinicio de HWID del script (horas; 0 = desactivado)
   const hwidHours = script => script.hwid_reset_hours ?? 24;
-  // El reinicio de HWID es solo para planes pagos del creador (Premium y Premium Plus)
-  const paidUser = userId => { const p = q.userPlan.get(userId)?.plan; return p === 'premium' || p === 'plus'; };
 
   // bypass = creador del script: ignora el intervalo y el botón desactivado
   function resetHwid(script, targetId, actorId, bypass) {
-    if (!paidUser(script.user_id)) return '🔒 El reinicio de HWID es solo para planes pagos.';
     const k = q.activeKeyFor.get(script.id, targetId, now());
     if (!k) return '❌ No hay una key activa para ese usuario en este script.';
     if (!bypass) {

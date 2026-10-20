@@ -868,12 +868,15 @@
       </div>
       <div class="input-group" id="hwidGroup">
         <label for="fHwid">Reinicio de HWID</label>
-        <select id="fHwid" name="hwidReset" class="field block" ${hasPerkPlan() ? '' : 'disabled'}>
-          ${HWID_OPTIONS.map(([h, label]) => `<option value="${h}" ${h === (hasPerkPlan() ? (s.hwid_reset_hours ?? 24) : 0) ? 'selected' : ''}>${label}</option>`).join('')}
+        <select id="fHwid" name="hwidReset" class="field block">
+          ${HWID_OPTIONS.map(([h, label]) => {
+            const paid = hasPerkPlan();
+            const current = !paid && (s.hwid_reset_hours ?? 24) === 0 ? 24 : (s.hwid_reset_hours ?? 24);
+            const disabled = !paid && h === 0;
+            return `<option value="${h}" ${h === current ? 'selected' : ''} ${disabled ? 'disabled' : ''}>${disabled ? `${label} (solo planes pagos)` : label}</option>`;
+          }).join('')}
         </select>
-        <div class="hint">${hasPerkPlan()
-          ? 'Cada cuánto puede reiniciar su HWID un comprador. Si lo desactivas, el botón Reset HWID del panel queda gris. El creador siempre puede usar /resethwid.'
-          : 'Solo planes pagos (Premium y Premium Plus). En tu plan Free el reinicio de HWID está desactivado.'}</div>
+        <div class="hint">Cada cuánto puede reiniciar su HWID un comprador. Si lo desactivas, el botón Reset HWID del panel queda gris. El creador siempre puede usar /resethwid. "Desactivado" es solo para Premium y Premium Plus.</div>
       </div>`;
   }
 
@@ -1000,7 +1003,7 @@
       ffa: protection === 'ffa',
       // El ofuscador solo aplica a scripts protegidos
       obfuscator: protection === 'protected' ? obfuscator : null,
-      hwidResetHours: hasPerkPlan() ? Number(fd.get('hwidReset') ?? 24) : 0,
+      hwidResetHours: Number(fd.get('hwidReset') ?? 24),
     };
     if (code.trim()) body.code = code;
 

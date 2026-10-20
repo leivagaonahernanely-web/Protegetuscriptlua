@@ -1230,6 +1230,49 @@ function banRoute(on) {
 app.post('/api/keys/:key/ban', requireAuth, banRoute(true));
 app.post('/api/keys/:key/unban', requireAuth, banRoute(false));
 
+// ---------- Blacklist (web) ----------
+// Usuarios de Discord, IPs y HWID bloqueados en tus scripts. Free solo puede bloquear por HWID.
+const blScriptOwned = db.prepare('SELECT id, name FROM scripts WHERE id = ? AND user_id = ?');
+app.get('/api/blacklist', requireAuth, (req, res) => {
+  const scripts = db.prepare('SELECT id, name FROM scripts WHERE user_id = ? ORDER BY id').all(req.userId);
+  const users = db.prepare(`SELECT b.script_id, b.discord_id, b.reason, b.created_at, s.name AS script
+    FROM bot_blacklist b JOIN scripts s ON s.id = b.script_id WHERE s.user_id = ? ORDER BY b.created_at DESC`).all(req.userId);
+  const bans = db.prepare(`SELECT b.script_id, b.kind, b.value, b.reason, b.created_at, s.name AS script
+    FROM script_bans b JOIN scripts s ON s.id = b.script_id WHERE s.user_id = ? ORDER BY b.created_at DESC`).all(req.userId);
+  res.json({ scripts, users, bans });
+});
+function blacklistChange(req, res, on) {
+  const script = blScriptOwned.get(Number(req.body?.scriptId), req.userId);
+  if (!script) return res.status(404).json({ error: 'Script no encontrado' });
+  const kind = String(req.body?.kind || '');
+  const value = String(req.body?.value || '').trim().slice(0, 128);
+  const reason = String(req.body?.reason || 'Bloqueado por el creador').slice(0, 200);
+  if (!['hwid', 'ip', 'user'].includes(kind)) return res.status(400).json({ error: 'Tipo inválido' });
+  if (!value) return res.status(400).json({ error: 'Escribe el valor a bloquear' });
+  if (on && kind !== 'hwid' && !isPaidPlanId(req.userId)) return res.status(403).json({ error: 'Bloquear por IP o usuario es solo para Premium y Premium Plus' });
+  if (kind === 'user' && !/^\d{17,20}$/.test(value)) return res.status(400).json({ error: 'El ID de Discord debe tener entre 17 y 20 números' });
+  if (kind === 'ip' && !/^[0-9a-fA-F:.]{3,45}$/.test(value)) return res.status(400).json({ error: 'IP inválida' });
+  const now = Math.floor(Date.now() / 1000);
+  if (kind === 'user') {
+    db.transaction(() => {
+      if (on) {
+        db.prepare('INSERT OR REPLACE INTO bot_blacklist (script_id, discord_id, reason, created_at) VALUES (?, ?, ?, ?)').run(script.id, value, reason, now);
+        db.prepare('UPDATE keys SET banned = 1, ban_reason = ? WHERE script_id = ? AND discord_id = ?').run(reason, script.id, value);
+      } else {
+        db.prepare('DELETE FROM bot_blacklist WHERE script_id = ? AND discord_id = ?').run(script.id, value);
+        db.prepare('UPDATE keys SET banned = 0, ban_reason = NULL WHERE script_id = ? AND discord_id = ?').run(script.id, value);
+      }
+    })();
+  } else if (on) {
+    db.prepare('INSERT OR REPLACE INTO script_bans (script_id, kind, value, reason, created_at) VALUES (?, ?, ?, ?, ?)').run(script.id, kind, value, reason, now);
+  } else {
+    db.prepare('DELETE FROM script_bans WHERE script_id = ? AND kind = ? AND value = ?').run(script.id, kind, value);
+  }
+  res.json({ ok: true });
+}
+app.post('/api/blacklist', requireAuth, (req, res) => blacklistChange(req, res, true));
+app.post('/api/blacklist/remove', requireAuth, (req, res) => blacklistChange(req, res, false));
+
 app.post('/api/keys', requireAuth, (req, res) => {
   const scriptId = Number(req.body?.scriptId);
   const amount = req.body?.amount === undefined ? 1 : Number(req.body.amount);

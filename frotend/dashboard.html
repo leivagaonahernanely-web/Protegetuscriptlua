@@ -281,6 +281,10 @@
           Keys
           <span class="nav-count" id="navKeys">0</span>
         </button>
+        <button class="nav-item" data-nav="blacklist">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="9"/><line x1="5.6" y1="5.6" x2="18.4" y2="18.4"/></svg>
+          Blacklist
+        </button>
 
         <button class="nav-item" data-nav="chat">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
@@ -631,6 +635,47 @@
         </article>
       </section>
 
+      <section class="view" data-view="blacklist">
+        <div class="section-head">
+          <div>
+            <h2>Blacklist</h2>
+            <p>Bloquea usuarios de Discord, IPs o HWID en uno de tus scripts. El plan Free solo puede bloquear por HWID.</p>
+          </div>
+        </div>
+
+        <article class="card">
+          <form id="blForm" class="toolbar" autocomplete="off" style="flex-wrap:wrap">
+            <select class="field" id="blScript" aria-label="Script"></select>
+            <select class="field" id="blKind" aria-label="Tipo a bloquear">
+              <option value="hwid">HWID</option>
+              <option value="ip">IP</option>
+              <option value="user">Usuario de Discord</option>
+            </select>
+            <input class="field" id="blValue" type="text" maxlength="128" placeholder="HWID, IP o ID de Discord" aria-label="Valor a bloquear" required>
+            <input class="field" id="blReason" type="text" maxlength="200" placeholder="Razón (opcional)" aria-label="Razón">
+            <button class="btn" type="submit">Bloquear</button>
+          </form>
+        </article>
+
+        <div id="blLists">
+          <h3 style="margin:24px 0 8px">Usuarios de Discord</h3>
+          <div class="table-container">
+            <table>
+              <thead><tr><th>Script</th><th>ID de Discord</th><th>Razón</th><th>Fecha</th><th></th></tr></thead>
+              <tbody id="blUsers"></tbody>
+            </table>
+          </div>
+
+          <h3 style="margin:24px 0 8px">IPs y HWID</h3>
+          <div class="table-container">
+            <table>
+              <thead><tr><th>Script</th><th>Tipo</th><th>Valor</th><th>Razón</th><th>Fecha</th><th></th></tr></thead>
+              <tbody id="blBans"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
       <section class="view" data-view="plans">
         <div class="grid-stats" style="grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));">
           <article class="card plan-card" data-plan="free">
@@ -714,6 +759,7 @@
     bienvenida: { title: 'Bienvenida', sub: 'Mensaje para nuevos miembros de tu servidor (solo Premium Plus)' },
     scripts:   { title: 'Scripts',   sub: 'Código, protección y loader de cada script' },
     keys:      { title: 'Keys',      sub: 'Licencias generadas' },
+    blacklist: { title: 'Blacklist', sub: 'Bloquea usuarios de Discord, IPs o HWID en tus scripts' },
     chat:      { title: 'Chat',      sub: 'Chat de la comunidad de Vantarmor' },
     plans:     { title: 'Planes',    sub: 'Elige el plan que necesitas' },
     planskeys: { title: 'Plans keys', sub: 'Keys de Premium y Premium Plus (solo dueño)' },
@@ -846,6 +892,7 @@
     if (name === 'precios') loadPricesForm();
     if (name === 'bienvenida') loadWelcomeForm();
     if (name === 'chat') startChatPolling(); else stopChatPolling();
+    if (name === 'blacklist') loadBlacklist();
     if (isMobile()) setSidebar(false);
   }
 
@@ -1783,6 +1830,60 @@
     if (b) deleteKeys([b.dataset.delKey]);
     const ban = e.target.closest('[data-ban-key]');
     if (ban) openBanModal(ban.dataset.banKey);
+  });
+
+  // ---------- BLACKLIST (web) ----------
+  async function loadBlacklist() {
+    let data;
+    try { data = await api('/api/blacklist'); } catch (err) { toast(err.message, 'error'); return; }
+    const paid = hasPerkPlan();
+    const current = $('blScript').value;
+    $('blScript').innerHTML = data.scripts.length
+      ? data.scripts.map(s => `<option value="${s.id}" ${String(s.id) === current ? 'selected' : ''}>${esc(s.name)}</option>`).join('')
+      : '<option value="">Sin scripts</option>';
+    const opt = v => document.querySelector(`#blKind option[value="${v}"]`);
+    if (opt('ip')) { opt('ip').disabled = !paid; opt('ip').textContent = paid ? 'IP' : 'IP (solo Premium)'; }
+    if (opt('user')) { opt('user').disabled = !paid; opt('user').textContent = paid ? 'Usuario de Discord' : 'Usuario de Discord (solo Premium)'; }
+    if (!paid && $('blKind').value !== 'hwid') $('blKind').value = 'hwid';
+    $('blUsers').innerHTML = data.users.length
+      ? data.users.map(u => `<tr>
+          <td>${esc(u.script)}</td><td>${esc(u.discord_id)}</td><td>${esc(u.reason || '')}</td><td>${fmtDate(u.created_at)}</td>
+          <td style="text-align:right"><button class="btn ghost sm" data-bl-remove="user" data-bl-script="${esc(u.script_id)}" data-bl-value="${esc(u.discord_id)}">Quitar</button></td>
+        </tr>`).join('')
+      : '<tr><td colspan="5" class="center">Ningún usuario de Discord bloqueado.</td></tr>';
+    const kindName = { hwid: 'HWID', ip: 'IP', user: 'Usuario' };
+    $('blBans').innerHTML = data.bans.length
+      ? data.bans.map(b => `<tr>
+          <td>${esc(b.script)}</td><td>${kindName[b.kind] || esc(b.kind)}</td><td class="key-cell">${esc(b.value)}</td><td>${esc(b.reason || '')}</td><td>${fmtDate(b.created_at)}</td>
+          <td style="text-align:right"><button class="btn ghost sm" data-bl-remove="${esc(b.kind)}" data-bl-script="${esc(b.script_id)}" data-bl-value="${esc(b.value)}">Quitar</button></td>
+        </tr>`).join('')
+      : '<tr><td colspan="6" class="center">Ninguna IP ni HWID bloqueado.</td></tr>';
+  }
+  $('blForm').addEventListener('submit', async e => {
+    e.preventDefault();
+    const body = {
+      scriptId: Number($('blScript').value),
+      kind: $('blKind').value,
+      value: $('blValue').value.trim(),
+      reason: $('blReason').value.trim(),
+    };
+    if (!body.scriptId) { toast('Elige un script', 'error'); return; }
+    try {
+      await api('/api/blacklist', { method: 'POST', body: JSON.stringify(body) });
+      toast('Bloqueado');
+      $('blValue').value = '';
+      $('blReason').value = '';
+      await loadBlacklist();
+    } catch (err) { toast(err.message, 'error'); }
+  });
+  $('blLists').addEventListener('click', async e => {
+    const b = e.target.closest('[data-bl-remove]');
+    if (!b) return;
+    try {
+      await api('/api/blacklist/remove', { method: 'POST', body: JSON.stringify({ scriptId: Number(b.dataset.blScript), kind: b.dataset.blRemove, value: b.dataset.blValue }) });
+      toast('Quitado de la blacklist');
+      await loadBlacklist();
+    } catch (err) { toast(err.message, 'error'); }
   });
 
   // Baneos: HWID para todos los planes; IP y usuario solo Premium y Premium Plus

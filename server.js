@@ -746,7 +746,15 @@ app.delete('/api/chat/:id', requireAuth, (req, res) => {
 });
 
 // Foto de perfil por URL (solo https). URL vacía = volver a la foto de Discord.
-app.post('/api/me/avatar', requireAuth, (req, res) => {
+// Perfil (foto de perfil y foto del bot): solo Premium y Premium Plus
+function requirePerkPlan(req, res, next) {
+  const plan = stmt.userById.get(req.userId)?.plan;
+  if (plan !== 'premium' && plan !== 'plus') {
+    return res.status(403).json({ error: 'Esta función es solo para Premium y Premium Plus' });
+  }
+  next();
+}
+app.post('/api/me/avatar', requireAuth, requirePerkPlan, (req, res) => {
   const raw = String(req.body?.url ?? '').trim();
   if (!raw) {
     db.prepare('UPDATE users SET custom_avatar = NULL WHERE id = ?').run(req.userId);
@@ -763,7 +771,7 @@ app.post('/api/me/avatar', requireAuth, (req, res) => {
 });
 
 // Foto del bot solo en los servidores donde el creador tiene su panel. Vacío = quitarla.
-app.post('/api/me/bot-avatar', requireAuth, async (req, res) => {
+app.post('/api/me/bot-avatar', requireAuth, requirePerkPlan, async (req, res) => {
   const raw = String(req.body?.url ?? '').trim();
   if (!raw) {
     db.prepare('UPDATE users SET bot_avatar = NULL WHERE id = ?').run(req.userId);

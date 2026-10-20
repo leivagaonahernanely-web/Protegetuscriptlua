@@ -21,6 +21,9 @@ import crypto from 'crypto';
 
 const KEY_ALPHABET = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
 const HWID_RESET_COOLDOWN_S = 24 * 3600;
+// Reinicio de HWID para compradores: desactivado en todos los scripts (sin botón en el panel).
+// El creador conserva /resethwid para sus compradores.
+const BUYER_HWID_RESET = false;
 const ACTION_COOLDOWN_MS = 5_000;
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 const UNIT_SECONDS = { h: 3600, d: 86400, w: 604800, mo: 2592000, y: 31536000 };
@@ -415,7 +418,7 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
       lines.push(`Key: \`${maskKey(k.key)}\` · ${keyState(k)}`);
       lines.push(`Vence: ${k.expires_at ? `<t:${k.expires_at}:R>` : 'nunca'}`);
       lines.push(`HWID: ${k.hwid ? 'vinculado' : 'sin vincular'}`);
-      lines.push(`Reinicio HWID: ${hwidHours(script) === 0 ? 'desactivado' : cooldownEnds > now() ? `<t:${cooldownEnds}:R>` : 'disponible'}`);
+      lines.push(`Reinicio HWID: ${!BUYER_HWID_RESET || hwidHours(script) === 0 ? 'desactivado' : cooldownEnds > now() ? `<t:${cooldownEnds}:R>` : 'disponible'}`);
     }
     return lines.join('\n');
   }
@@ -475,11 +478,13 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
       new ButtonBuilder().setCustomId(`vanta:script:${script.id}`).setLabel('📜 Get Script').setStyle(ButtonStyle.Primary),
       new ButtonBuilder().setCustomId(`vanta:role:${script.id}`).setLabel('👤 Get Role').setStyle(ButtonStyle.Primary),
     );
-    const row2 = new ActionRowBuilder().addComponents(
-      new ButtonBuilder().setCustomId(`vanta:hwid:${script.id}`).setLabel('⚙️ Reset HWID').setStyle(ButtonStyle.Secondary)
-        .setDisabled(hwidHours(script) === 0),
-      new ButtonBuilder().setCustomId(`vanta:stats:${script.id}`).setLabel('📊 Get Stats').setStyle(ButtonStyle.Secondary),
-    );
+    const row2Buttons = [];
+    if (BUYER_HWID_RESET) {
+      row2Buttons.push(new ButtonBuilder().setCustomId(`vanta:hwid:${script.id}`).setLabel('⚙️ Reset HWID').setStyle(ButtonStyle.Secondary)
+        .setDisabled(hwidHours(script) === 0));
+    }
+    row2Buttons.push(new ButtonBuilder().setCustomId(`vanta:stats:${script.id}`).setLabel('📊 Get Stats').setStyle(ButtonStyle.Secondary));
+    const row2 = new ActionRowBuilder().addComponents(...row2Buttons);
     return { embeds: [embed], components: [row1, row2] };
   }
 
@@ -672,6 +677,7 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
         if (!script) return reply('❌ Script no encontrado.');
         const target = interaction.options.getUser('user');
         const isManager = canUse(interaction, script.user_id);
+        if (!isManager && !BUYER_HWID_RESET) return reply('🔒 El reinicio de HWID está desactivado.');
         if (target && target.id !== actor && !isManager) return reply('⛔ Solo el creador del script puede reiniciar el HWID de otros.');
         const who = target?.id ?? actor;
         // El creador reinicia sin esperar el intervalo ni el botón desactivado
@@ -909,6 +915,7 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
       return reply(await giveBuyerRole(interaction, script));
     }
     if (action === 'hwid') {
+      if (!BUYER_HWID_RESET) return reply('🔒 El reinicio de HWID está desactivado.');
       const access = resolveAccess(script, actor, memberRoleIds(interaction));
       if (access.status !== 'ok') return reply(NO_ACCESS_MSG);
       return reply(resetHwid(script, actor, actor, false));

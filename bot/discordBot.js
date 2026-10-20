@@ -89,8 +89,6 @@ export const commands = [
   new SlashCommandBuilder().setName('stats').setDescription('Muestra tus keys'),
   new SlashCommandBuilder().setName('redeem').setDescription('Canjea una key')
     .addStringOption(o => o.setName('key').setDescription('Tu key').setRequired(true).setMinLength(32).setMaxLength(64)),
-  new SlashCommandBuilder().setName('getscript').setDescription('Obtiene el loader de un script')
-    .addStringOption(o => scriptOpt(o)),
   new SlashCommandBuilder().setName('generatekey').setDescription('Genera keys para un script (dueño o gestor)')
     .addStringOption(o => scriptOpt(o))
     .addIntegerOption(o => o.setName('amount').setDescription('Cantidad (1-50)').setMinValue(1).setMaxValue(50))
@@ -268,11 +266,9 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
 
   // Scripts que aparecen al elegir uno en un comando:
   // - /panel: solo los propios del usuario.
-  // - /getscript: todos (los compradores lo usan así).
   // - el resto: los propios y los de creadores que le dieron rol gestor.
   function scriptsForAutocomplete(interaction) {
     const actor = interaction.user.id;
-    if (interaction.commandName === 'getscript') return q.scriptsList.all();
     const creators = new Set([actor]);
     if (interaction.commandName !== 'panel') {
       const roleIds = memberRoleIds(interaction);
@@ -536,12 +532,6 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
 
       case 'redeem':
         return reply(redeemKey(interaction.options.getString('key', true).trim(), actor));
-
-      case 'getscript': {
-        const script = findScript(interaction.options.getString('script', true));
-        if (!script) return reply('❌ Script no encontrado.');
-        return reply(getScriptReply(script, actor, memberRoleIds(interaction)));
-      }
 
       case 'generatekey': {
         const script = findScript(interaction.options.getString('script', true));

@@ -495,13 +495,9 @@
       </section>
 
       <section class="view" data-view="profile">
-        <div id="profileLock" hidden style="padding:12px 14px;border-radius:12px;background:rgba(241,196,15,.12);font-size:14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
-          <span>🔒 Esta función es solo para planes pagos (Premium y Premium Plus).</span>
-          <button type="button" class="btn ghost sm" data-nav="plans">Ver planes</button>
-        </div>
         <div class="grid-stats" style="grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));">
           <article class="card">
-            <h3>Foto de perfil</h3>
+            <h3>Foto de perfil <span style="font-size:13px;font-weight:500;color:var(--text-soft);">(solo planes pagos)</span></h3>
             <p style="margin:6px 0 14px;font-size:14px;color:var(--text-soft);">Sale en el panel de tus scripts cuando los compradores abren tu panel en Discord.</p>
             <div id="pvProfile" style="width:72px;height:72px;border-radius:14px;overflow:hidden;display:grid;place-items:center;margin-bottom:14px;background:#fff;color:#000;font-weight:900;font-size:24px"></div>
             <div class="input-group">
@@ -514,7 +510,7 @@
             </div>
           </article>
           <article class="card">
-            <h3>Foto del bot en tu servidor</h3>
+            <h3>Foto del bot en tu servidor <span style="font-size:13px;font-weight:500;color:var(--text-soft);">(solo planes pagos)</span></h3>
             <p style="margin:6px 0 14px;font-size:14px;color:var(--text-soft);">Cambia la foto del bot solo en tu servidor de Discord. Necesitas tener un panel publicado con /panel.</p>
             <div id="pvBot" style="width:72px;height:72px;border-radius:14px;overflow:hidden;display:grid;place-items:center;margin-bottom:14px;background:#fff;color:#000;font-weight:900;font-size:14px"></div>
             <div class="input-group">
@@ -769,9 +765,6 @@
 
   function renderProfile() {
     if (!user) return;
-    const locked = !hasPerkPlan();
-    $('profileLock').hidden = !locked;
-    ['pfProfile', 'pfProfileSave', 'pfProfileClear', 'pfBot', 'pfBotSave', 'pfBotClear'].forEach(id => { $(id).disabled = locked; });
     $('pfProfile').value = user.custom_avatar || '';
     $('pfBot').value = user.bot_avatar || '';
     const discordAv = user.avatar && user.id

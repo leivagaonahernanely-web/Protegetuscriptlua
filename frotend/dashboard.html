@@ -518,8 +518,17 @@
           <h3>Publicar precios</h3>
           <p style="margin:6px 0 14px;font-size:14px;color:var(--text-soft);">El canal y la imagen se guardan para la próxima vez, igual que /prices en Discord.</p>
           <div class="input-group">
+            <label for="prGuild">Servidor (donde eres dueño o mod)</label>
+            <select id="prGuild" class="field block"></select>
+          </div>
+          <div class="input-group">
             <label for="prCh">Canal</label>
             <select id="prCh" class="field block"></select>
+          </div>
+          <div class="input-group">
+            <label for="prChId">…o pega el ID del canal</label>
+            <input id="prChId" class="field block" type="text" inputmode="numeric" maxlength="20" placeholder="Ej: 123456789012345678">
+            <div class="hint">Si pegas un ID, se usa ese canal. Solo funciona si eres dueño o mod de ese servidor y el bot está en él.</div>
           </div>
           <div class="input-group">
             <label for="prTitle">Título</label>
@@ -1578,23 +1587,37 @@
   }));
 
   // ---------- PRECIOS DEL CREADOR (solo planes pagos) ----------
+  let pricesGuilds = [];
+  function fillPriceChannels() {
+    const guild = pricesGuilds.find(g => g.id === $('prGuild').value);
+    const channels = guild ? guild.channels : [];
+    $('prCh').innerHTML = channels.length
+      ? channels.map(c => `<option value="${esc(c.id)}">${esc(c.parent ? `${c.parent} / ` : '')}#${esc(c.name)}</option>`).join('')
+      : '<option value="">Sin canales</option>';
+  }
   async function loadPricesForm() {
     if (!hasPerkPlan()) return;
     try {
       const data = await api('/api/prices');
-      $('prCh').innerHTML = data.channels.length
-        ? data.channels.map(c => `<option value="${esc(c.id)}" ${c.id === data.channelId ? 'selected' : ''}>${esc(c.parent ? `${c.parent} / ` : '')}#${esc(c.name)}</option>`).join('')
-        : '<option value="">No encuentro canales (revisa que el bot esté en tu servidor)</option>';
+      pricesGuilds = data.guilds || [];
+      const saved = pricesGuilds.find(g => g.channels.some(c => c.id === data.channelId));
+      $('prGuild').innerHTML = pricesGuilds.length
+        ? pricesGuilds.map(g => `<option value="${esc(g.id)}" ${saved && g.id === saved.id ? 'selected' : ''}>${esc(g.name)}</option>`).join('')
+        : '<option value="">No eres dueño ni mod de ningún servidor donde esté el bot</option>';
+      fillPriceChannels();
+      if (saved) $('prCh').value = data.channelId;
+      $('prChId').value = '';
       $('prImg').value = data.imageUrl || '';
     } catch (err) {
       toast(err.message, 'error');
     }
   }
+  $('prGuild').addEventListener('change', fillPriceChannels);
   $('prSend').addEventListener('click', async () => {
     const title = $('prTitle').value.trim() || 'Precios';
     const description = $('prBody').value.trim();
-    const channelId = $('prCh').value;
-    if (!channelId) return toast('Elige un canal', 'error');
+    const channelId = $('prChId').value.trim() || $('prCh').value;
+    if (!channelId) return toast('Elige un canal o pega su ID', 'error');
     if (!description) return toast('Escribe el contenido', 'error');
     if (!confirm(`¿Publicar "${title}" en el canal elegido?`)) return;
     $('prSend').disabled = true;

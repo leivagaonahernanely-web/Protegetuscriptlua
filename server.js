@@ -796,11 +796,15 @@ const settingGet = (owner, name) => db.prepare('SELECT value FROM bot_settings W
 const settingPut = (owner, name, value) => db.prepare('INSERT OR REPLACE INTO bot_settings (owner, name, value) VALUES (?, ?, ?)').run(owner, name, value);
 const settingDelete = (owner, name) => db.prepare('DELETE FROM bot_settings WHERE owner = ? AND name = ?').run(owner, name);
 
-app.get('/api/prices', requireAuth, requirePerkPlan, (req, res) => {
+app.get('/api/prices', requireAuth, requirePerkPlan, async (req, res) => {
+  let guilds = [];
+  if (discordBot?.guildsForUser) {
+    try { guilds = await discordBot.guildsForUser(req.userId); } catch (err) { console.warn('[Precios] No se pudieron listar servidores:', err.message); }
+  }
   res.json({
     channelId: settingGet(req.userId, 'prices_channel'),
     imageUrl: settingGet(req.userId, 'prices_image'),
-    channels: discordBot?.listTextChannels ? discordBot.listTextChannels() : [],
+    guilds,
   });
 });
 
@@ -819,8 +823,9 @@ app.post('/api/prices', requireAuth, requirePerkPlan, async (req, res) => {
     if (parsed.protocol !== 'https:' || parsed.href.length > 500) return res.status(400).json({ error: 'La imagen debe ser una URL https (máx. 500 caracteres)' });
     image = parsed.href;
   }
-  if (!discordBot?.announce) return res.status(503).json({ error: 'El bot todavía no está conectado' });
+  if (!discordBot?.announce || !discordBot?.channelForStaff) return res.status(503).json({ error: 'El bot todavía no está conectado' });
   try {
+    await discordBot.channelForStaff(req.userId, channelId);
     await discordBot.announce('prices', channelId, title, description, image);
   } catch (err) {
     return res.status(502).json({ error: `No se pudo publicar: ${err.message}` });

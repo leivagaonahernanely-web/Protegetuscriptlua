@@ -997,6 +997,42 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
   }
 
   // Canales de texto del servidor, para el selector del panel admin
+  // Servidores donde el usuario es dueño o mod (y el bot está), con todos sus canales de texto y anuncios
+  const STAFF_PERMS = [PermissionFlagsBits.Administrator, PermissionFlagsBits.ManageGuild, PermissionFlagsBits.ManageMessages, PermissionFlagsBits.ModerateMembers];
+  const guildChannelsCache = new Map();
+  async function textChannelsOf(guild) {
+    const hit = guildChannelsCache.get(guild.id);
+    if (hit && Date.now() - hit.at < 60_000) return hit.list;
+    const all = await guild.channels.fetch();
+    const list = [...all.values()]
+      .filter(c => c && (c.type === ChannelType.GuildText || c.type === ChannelType.GuildAnnouncement))
+      .map(c => ({ id: c.id, name: c.name, parent: c.parent?.name || '' }))
+      .sort((a, b) => a.parent.localeCompare(b.parent) || a.name.localeCompare(b.name));
+    guildChannelsCache.set(guild.id, { at: Date.now(), list });
+    return list;
+  }
+  async function isStaffOf(guild, userId) {
+    if (guild.ownerId === userId) return true;
+    const member = await guild.members.fetch(userId).catch(() => null);
+    return Boolean(member && STAFF_PERMS.some(p => member.permissions.has(p)));
+  }
+  client.guildsForUser = async userId => {
+    const out = [];
+    for (const guild of client.guilds.cache.values()) {
+      if (!(await isStaffOf(guild, userId))) continue;
+      out.push({ id: guild.id, name: guild.name, channels: await textChannelsOf(guild) });
+    }
+    return out;
+  };
+  // Canal donde el usuario puede publicar: debe ser dueño o mod del servidor de ese canal
+  client.channelForStaff = async (userId, channelId) => {
+    const channel = await client.channels.fetch(channelId).catch(() => null);
+    if (!channel?.guild) throw new Error('No encuentro ese canal. Revisa el ID y que el bot esté en ese servidor.');
+    if (!channel.isTextBased()) throw new Error('Ese canal no es de texto.');
+    if (!(await isStaffOf(channel.guild, userId))) throw new Error('Solo puedes publicar en servidores donde eres dueño o mod.');
+    return channel;
+  };
+
   client.listTextChannels = () => {
     const guild = guildId ? client.guilds.cache.get(guildId) : client.guilds.cache.first();
     if (!guild) return [];

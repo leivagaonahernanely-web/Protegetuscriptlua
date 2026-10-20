@@ -290,7 +290,7 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 2 3 7v6c0 5 4 9 9 9s9-4 9-9V7l-9-5z"/></svg>
           Planes
         </button>
-        <button class="nav-item" data-nav="profile" data-plan-only style="display:none">
+        <button class="nav-item" data-nav="profile">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 3.6-7 8-7s8 3 8 7"/></svg>
           Perfil
         </button>
@@ -495,6 +495,10 @@
       </section>
 
       <section class="view" data-view="profile">
+        <div id="profileLock" hidden style="padding:12px 14px;border-radius:12px;background:rgba(241,196,15,.12);font-size:14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+          <span>🔒 Esta función es solo para planes pagos (Premium y Premium Plus).</span>
+          <button type="button" class="btn ghost sm" data-nav="plans">Ver planes</button>
+        </div>
         <div class="grid-stats" style="grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));">
           <article class="card">
             <h3>Foto de perfil</h3>
@@ -733,10 +737,6 @@
     document.querySelectorAll('.view').forEach(v => v.classList.toggle('active', v.dataset.view === name));
     $('pageTitle').firstChild.textContent = NAV[name].title;
     $('pageSub').textContent = NAV[name].sub;
-    if (name === 'profile' && !hasPerkPlan()) {
-      toast('El perfil es solo para Premium y Premium Plus', 'error');
-      return showView('plans');
-    }
     if (name === 'profile') renderProfile();
     if (name === 'chat') startChatPolling(); else stopChatPolling();
     if (isMobile()) setSidebar(false);
@@ -769,6 +769,9 @@
 
   function renderProfile() {
     if (!user) return;
+    const locked = !hasPerkPlan();
+    $('profileLock').hidden = !locked;
+    ['pfProfile', 'pfProfileSave', 'pfProfileClear', 'pfBot', 'pfBotSave', 'pfBotClear'].forEach(id => { $(id).disabled = locked; });
     $('pfProfile').value = user.custom_avatar || '';
     $('pfBot').value = user.bot_avatar || '';
     const discordAv = user.avatar && user.id
@@ -1241,9 +1244,6 @@
   let ownerData = { planKeys: [], publisher: [], users: [] };
   const PLAN_OPTIONS = [['free', 'Free'], ['premium', 'Premium'], ['plus', 'Premium Plus']];
   const hasPerkPlan = () => !!user && (user.plan === 'premium' || user.plan === 'plus');
-  function setPlanNav(allowed) {
-    document.querySelectorAll('[data-plan-only]').forEach(b => { b.style.display = allowed ? '' : 'none'; });
-  }
   function setOwnerNav(isOwner) {
     document.querySelectorAll('[data-owner-only]').forEach(b => { b.style.display = isOwner ? '' : 'none'; });
   }
@@ -1492,7 +1492,6 @@
 
     clearAuthLoop();
     setOwnerNav(!!user.owner);
-    setPlanNav(hasPerkPlan());
     loadOwnerData();
 
     const [s, k] = await Promise.allSettled([api('/api/scripts'), api('/api/keys')]);

@@ -382,7 +382,7 @@ async function luauPost(body, auth) {
   for (let attempt = 1; ; attempt++) {
     while (luauRunning >= LUAU_MAX_RUNNING) await delay(500);
     luauRunning++;
-    let res;
+    let res, text;
     try {
       res = await fetch(`${LUAU_API_BASE}/api/v1/obfuscate`, {
         method: 'POST',
@@ -390,10 +390,16 @@ async function luauPost(body, auth) {
         body: JSON.stringify(body),
         signal: AbortSignal.timeout(OBF_TIMEOUT_MS),
       });
+      text = await res.text();
     } finally {
       luauRunning--;
     }
-    if (res.status !== 429 || attempt >= 4) return res;
+    let data = {};
+    try { data = JSON.parse(text); } catch { /* no es JSON */ }
+    const out = { ok: res.ok, status: res.status, data };
+    // Sin créditos no tiene sentido reintentar; solo reintenta la saturación (429 sin "tokens")
+    const noTokens = /token/i.test(String(data.error || data.message || text));
+    if (res.status !== 429 || noTokens || attempt >= 4) return out;
     await delay(2000 * attempt);
   }
 }
@@ -402,22 +408,22 @@ async function obfuscateLuau(source) {
   if (!key) throw Object.assign(new Error('El Ofuscador 3 no está configurado en el servidor.'), { status: 501 });
   const auth = { Authorization: `Bearer ${key}` };
 
-  let res;
+  let r;
   try {
-    res = await luauPost({ source, version: 'sun', protection: 'strong', runtime_trace: true }, auth);
+    r = await luauPost({ source, version: 'sun', protection: 'strong', runtime_trace: true }, auth);
   } catch (err) {
     console.warn('[Luau] No se pudo conectar:', err.message);
     throw Object.assign(new Error('No pudimos conectar con el Ofuscador 3. Inténtalo de nuevo.'), { status: 502 });
   }
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok || !data.ok || !data.file?.download_url) {
-    const detail = String(data.error || data.message || res.status).slice(0, 300);
-    console.warn('[Luau] Error de la API:', res.status, detail);
-    if (res.status === 422 || /syntax|compiler|source/i.test(detail)) {
+  const data = r.data;
+  if (!r.ok || !data.ok || !data.file?.download_url) {
+    const detail = String(data.error || data.message || r.status).slice(0, 300);
+    console.warn('[Luau] Error de la API:', r.status, detail);
+    if (/token|credit|quota/i.test(detail)) throw Object.assign(new Error('El Ofuscador 3 se quedó sin créditos. Avisa al dueño para que recargue la cuenta.'), { status: 503 });
+    if (r.status === 422 || /syntax|compiler|source/i.test(detail)) {
       throw Object.assign(new Error('Tu script tiene sintaxis que el Ofuscador 3 no entiende. Revisa que sea Luau válido.'), { status: 422 });
     }
-    if (res.status === 429) throw Object.assign(new Error('El Ofuscador 3 está ocupado. Espera un momento y vuelve a intentar.'), { status: 503 });
-    if (/token|credit|quota|limit/i.test(detail)) throw Object.assign(new Error('El Ofuscador 3 se quedó sin créditos. Avisa al dueño.'), { status: 503 });
+    if (r.status === 429) throw Object.assign(new Error('El Ofuscador 3 está ocupado. Espera un momento y vuelve a intentar.'), { status: 503 });
     throw Object.assign(new Error('El Ofuscador 3 falló. Inténtalo de nuevo.'), { status: 502 });
   }
 

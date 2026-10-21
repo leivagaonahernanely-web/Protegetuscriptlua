@@ -522,7 +522,10 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
         // Solo el creador publica el panel de sus scripts (ni gestores ni admins)
         if (script.user_id !== actor) return reply('⛔ Solo el creador de este script puede publicar su panel.');
         const customDescription = interaction.options.getString('descripcion')?.replace(/\\n/g, '\n');
-        const sent = await interaction.channel.send(panelPayload(script, customDescription));
+        // interaction.channel puede venir vacío si el bot no tiene acceso al canal: lo buscamos directamente
+        const channel = interaction.channel ?? await interaction.client.channels.fetch(interaction.channelId).catch(() => null);
+        if (!channel?.send) return reply('❌ No puedo publicar el panel en este canal. Revisa que el bot tenga permisos para Ver canal y Enviar mensajes.');
+        const sent = await channel.send(panelPayload(script, customDescription));
         q.panelInsert.run(script.id, interaction.channelId, sent.id, now());
         logScriptEvent(script, `📌 Panel publicado por <@${actor}> en <#${interaction.channelId}>`);
         return reply(`✅ Panel de **${script.name}** publicado.`);

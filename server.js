@@ -1187,7 +1187,7 @@ app.post('/api/scripts', requireAuth, async (req, res) => {
   const quotaMsg = quotaError(req.userId, { isNewScript: true, isFfa: input.isFfa });
   if (quotaMsg) return res.status(403).json({ error: quotaMsg });
   if (input.obfuscator === 'luau' && luauUsedToday(req.userId) >= LUAU_DAILY_LIMIT) {
-    return res.status(403).json({ error: `Ya creaste ${LUAU_DAILY_LIMIT} scripts hoy con el Ofuscador 3. Vuelve mañana.` });
+    return res.status(403).json({ error: `Ya usaste tus ${LUAU_DAILY_LIMIT} compilaciones de hoy con el Ofuscador 3. Vuelve mañana.` });
   }
 
   try {
@@ -1229,6 +1229,9 @@ app.put('/api/scripts/:id', requireAuth, async (req, res) => {
   if (!isPaidPlanId(req.userId) && input.hwidResetHours === 0) input.hwidResetHours = 24;
   const quotaMsg = quotaError(req.userId, { isNewScript: false, isFfa: input.isFfa });
   if (quotaMsg) return res.status(403).json({ error: quotaMsg });
+  if (input.obfuscator === 'luau' && !input.isFfa && luauUsedToday(req.userId) >= LUAU_DAILY_LIMIT) {
+    return res.status(403).json({ error: `Ya usaste tus ${LUAU_DAILY_LIMIT} compilaciones de hoy con el Ofuscador 3. Vuelve mañana.` });
+  }
 
   try {
     const content = (input.isFfa || input.obfuscator === 'none') ? input.source : await obfuscate(input.source, input.obfuscator);
@@ -1237,6 +1240,7 @@ app.put('/api/scripts/:id', requireAuth, async (req, res) => {
       script.id, req.userId,
     );
     if (!input.isFfa) stmt.obfIncrement.run(req.userId);
+    if (input.obfuscator === 'luau' && !input.isFfa) luauBumpStmt.run(req.userId, luauDay());
     res.json({ ok: true });
   } catch (err) {
     console.error('Update script error:', err);

@@ -1043,6 +1043,7 @@
             `<option value="${val}" ${val === currentObf ? 'selected' : ''} ${val === 'luau' && !hasPlusPlan() ? 'disabled' : ''}>${label}</option>`).join('')}
         </select>
         <div class="hint">Se aplica en el servidor al guardar el script. Para Roblox (Luau) recomendamos el Ofuscador 1.</div>
+        <button type="button" class="btn ghost sm" id="macroBtn" hidden style="margin-top:8px">Macros de rendimiento (Ofuscador 3)</button>
       </div>
 
       <div class="input-group" id="hwidGroup">
@@ -1064,8 +1065,10 @@
       const isProtected = document.querySelector('input[name="protection"]:checked')?.value === 'protected';
       $('obfGroup').hidden = !isProtected;
       $('hwidGroup').hidden = !isProtected;
+      $('macroBtn').hidden = !isProtected || $('fObf').value !== 'luau';
     };
     document.querySelectorAll('input[name="protection"]').forEach(r => r.addEventListener('change', sync));
+    $('fObf').addEventListener('change', sync);
     sync();
   }
 
@@ -1868,6 +1871,65 @@
       } catch (err) { toast(err.message, 'error'); }
     }
   });
+
+  // ---------- MACROS DE RENDIMIENTO (Ofuscador 3) ----------
+  // Busca funciones en el código (por texto). Las macros van justo encima de la función.
+  function findLuauFunctions(code) {
+    const lines = code.split('\n');
+    const re = /^(\s*)(?:local\s+)?function\s+([\w.:]+)\s*\(|^(\s*)(?:local\s+)?([\w.]+)\s*=\s*function\s*\(/;
+    const out = [];
+    lines.forEach((ln, i) => {
+      const m = ln.match(re);
+      if (!m) return;
+      if (i > 0 && /LUO_/.test(lines[i - 1])) return; // ya tiene una macro
+      const indent = m[1] ?? m[3] ?? '';
+      const name = m[2] ?? m[4];
+      let end = i;
+      // Función en una sola línea (termina en la misma línea)
+      if (!/\bend\b/.test(ln)) end = lines.length - 1;
+      for (let j = i + 1; j < lines.length && end === lines.length - 1; j++) {
+        const e = lines[j].match(/^(\s*)end\b/);
+        if (e && e[1] === indent) { end = j; break; }
+      }
+      out.push({ line: i, indent, name, count: end - i + 1 });
+    });
+    return out;
+  }
+  function openMacroPicker() {
+    const fns = findLuauFunctions($('fCode').value);
+    if (!fns.length) { toast('No encontré funciones en el código', 'error'); return; }
+    const wrap = document.createElement('div');
+    wrap.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;z-index:1000;padding:16px';
+    wrap.innerHTML = `
+      <div class="modal" role="dialog" aria-modal="true" style="max-width:520px;width:100%">
+        <h3>Macros de rendimiento</h3>
+        <p class="hint">Las funciones marcadas salen de la VM: corren más rápido, pero quedan menos protegidas. Marca las grandes que se ejecutan seguido.</p>
+        <div style="max-height:340px;overflow:auto;margin-top:10px">
+          ${fns.map((f, i) => `
+            <label style="display:flex;gap:8px;align-items:center;padding:6px 0">
+              <input type="checkbox" data-mc="${i}" ${f.count >= 30 ? 'checked' : ''}>
+              <span><code>${esc(f.name)}</code> · línea ${f.line + 1} · ${f.count} líneas</span>
+            </label>`).join('')}
+        </div>
+        <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px">
+          <button class="btn ghost" type="button" data-mc-cancel>Cancelar</button>
+          <button class="btn" type="button" data-mc-apply>Aplicar al código</button>
+        </div>
+      </div>`;
+    document.body.appendChild(wrap);
+    wrap.querySelector('[data-mc-cancel]').addEventListener('click', () => wrap.remove());
+    wrap.querySelector('[data-mc-apply]').addEventListener('click', () => {
+      const chosen = [...wrap.querySelectorAll('[data-mc]:checked')].map(c => fns[Number(c.dataset.mc)]);
+      if (!chosen.length) { toast('Marca al menos una función', 'error'); return; }
+      const lines = $('fCode').value.split('\n');
+      // De abajo hacia arriba para que no se muevan los números de línea
+      for (const f of [...chosen].sort((a, b) => b.line - a.line)) lines.splice(f.line, 0, `${f.indent}LUO_NO_VIRTUALIZE()`);
+      $('fCode').value = lines.join('\n');
+      wrap.remove();
+      toast(`Macro agregada a ${chosen.length} función(es). Guarda el script para aplicarla`);
+    });
+  }
+  document.addEventListener('click', e => { if (e.target.closest('#macroBtn')) openMacroPicker(); });
 
   // ---------- BLACKLIST (web) ----------
   async function loadBlacklist() {

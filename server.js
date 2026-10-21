@@ -371,7 +371,7 @@ function runObfuscatorCli(bin, args, cwd, luaPath) {
 }
 
 // Ofuscador 3 = LuaUObfuscator (servicio externo, API v1). Solo Premium Plus.
-// La key va en LUAU_OBF_API_KEY (variable de entorno, nunca en el código).
+// La key va en LUO_API_KEY (variable de entorno, nunca en el código).
 const LUAU_API_BASE = 'https://luauobfuscator.win';
 // La API acepta pocas compilaciones a la vez con una misma key: hacemos cola (máx. 2 a la vez)
 // y reintentamos si responde 429 (demasiadas solicitudes)
@@ -398,7 +398,7 @@ async function luauPost(body, auth) {
   }
 }
 async function obfuscateLuau(source) {
-  const key = process.env.LUAU_OBF_API_KEY;
+  const key = process.env.LUO_API_KEY;
   if (!key) throw Object.assign(new Error('El Ofuscador 3 no está configurado en el servidor.'), { status: 501 });
   const auth = { Authorization: `Bearer ${key}` };
 

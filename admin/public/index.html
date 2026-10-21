@@ -70,6 +70,7 @@ pre{white-space:pre-wrap;word-break:break-all;background:#040407;border:1px soli
 
     <section class="card" data-panel="keys">
       <div class="row">
+        <input class="field" id="pkDaysAdmin" type="number" min="1" max="3650" value="30" style="width:100px" aria-label="Days">
         <button class="btn primary" data-gen="premium">Generate Premium key</button>
         <button class="btn primary" data-gen="plus">Generate Premium Plus key</button>
       </div>
@@ -219,7 +220,7 @@ function renderKeys() {
 }
 document.querySelectorAll('[data-gen]').forEach(b => b.addEventListener('click', async () => {
   try {
-    await api('POST', '/admin/api/plan-keys', { plan: b.dataset.gen });
+    await api('POST', '/admin/api/plan-keys', { plan: b.dataset.gen, days: Number(document.getElementById('pkDaysAdmin').value) || 30 });
     toast('Key generated');
     await loadKeys();
   } catch (err) { toast(err.message); }
@@ -240,6 +241,8 @@ function renderUsers() {
         <select class="field" data-plan-for="${esc(u.id)}">
           ${Object.entries(PLAN_NAMES).map(([v, l]) => `<option value="${v}" ${v === (u.plan || 'free') ? 'selected' : ''}>${l}</option>`).join('')}
         </select>
+        <input class="field" type="number" min="1" max="3650" value="30" data-days-for="${esc(u.id)}" style="width:80px" aria-label="Days">
+        <small class="muted">${u.plan_expires_at ? 'vence ' + when(u.plan_expires_at) : ''}</small>
       </td>
       <td><button class="btn" data-save-plan="${esc(u.id)}">Save</button></td>
       <td>
@@ -270,8 +273,9 @@ $('usersBody').addEventListener('click', async e => {
   if (!b) return;
   const id = b.dataset.savePlan;
   const sel = document.querySelector(`[data-plan-for="${CSS.escape(id)}"]`);
+  const days = document.querySelector(`[data-days-for="${CSS.escape(id)}"]`);
   try {
-    await api('POST', `/admin/api/users/${encodeURIComponent(id)}/plan`, { plan: sel.value });
+    await api('POST', `/admin/api/users/${encodeURIComponent(id)}/plan`, { plan: sel.value, days: Number(days?.value) || 30 });
     toast('Plan updated');
     await loadUsers();
   } catch (err) { toast(err.message); }

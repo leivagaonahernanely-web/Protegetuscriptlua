@@ -378,6 +378,7 @@
 
       <!-- DASHBOARD -->
       <section class="view active" data-view="dashboard">
+        <div id="planAlert" class="card" hidden style="margin-bottom:16px;"></div>
         <div class="grid-stats">
           <div class="card">
             <div class="card-label">Scripts</div>
@@ -499,6 +500,7 @@
           <p style="margin:6px 0 14px;font-size:14px;color:var(--text-soft);">Cada key se usa una sola vez. Entrégala al comprador para que la canjee en Planes.</p>
           <div style="display:flex;gap:10px;flex-wrap:wrap;">
             <select id="pkPlan" class="field" style="min-width:180px;"><option value="premium">Premium</option><option value="plus">Premium Plus</option></select>
+            <input id="pkDays" class="field" type="number" min="1" max="3650" value="30" style="width:110px;" aria-label="Días de duración">
             <button class="btn" id="pkGen" type="button">Generar key</button>
           </div>
         </article>
@@ -1493,7 +1495,7 @@
     const btn = e.currentTarget;
     setBusy(btn, true);
     try {
-      await api('/api/owner/plan-keys', { method: 'POST', body: JSON.stringify({ plan: $('pkPlan').value }) });
+      await api('/api/owner/plan-keys', { method: 'POST', body: JSON.stringify({ plan: $('pkPlan').value, days: Number($('pkDays').value) || 30 }) });
       toast('Key generada');
       await loadOwnerData();
     } catch (err) {
@@ -1833,6 +1835,40 @@
     if (ban) openBanModal(ban.dataset.banKey);
   });
 
+  // ---------- AVISO DE VENCIMIENTO DEL PLAN ----------
+  function renderPlanAlert() {
+    const box = $('planAlert');
+    if (!box || !user) return;
+    const now = Date.now() / 1000;
+    const paid = user.plan === 'premium' || user.plan === 'plus';
+    const name = user.plan === 'plus' ? 'Premium Plus' : 'Premium';
+    let html = '';
+    if (!paid && user.plan_expired_at) {
+      html = '<b>Tu plan se acabó.</b> Renueva con una key nueva o sigue con el plan Free.';
+    } else if (paid && user.plan_expires_at && user.plan_expires_at - now < 3 * 86400) {
+      const dias = Math.max(1, Math.ceil((user.plan_expires_at - now) / 86400));
+      html = `<b>Tu plan ${name} está a punto de acabarse</b> (quedan ${dias} día${dias === 1 ? '' : 's'}). Renueva o sigue con el plan Free.`;
+    }
+    if (!html) { box.hidden = true; box.innerHTML = ''; return; }
+    box.hidden = false;
+    box.innerHTML = `<div style="display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;align-items:center">
+      <div>${html}</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn" type="button" data-plan-renew>Renovar</button>
+        <button class="btn ghost" type="button" data-plan-stay>Seguir con Free</button>
+      </div></div>`;
+  }
+  $('planAlert').addEventListener('click', async e => {
+    if (e.target.closest('[data-plan-renew]')) { showView('plans'); return; }
+    if (e.target.closest('[data-plan-stay]')) {
+      try {
+        await api('/api/plan/stay-free', { method: 'POST' });
+        toast('Ahora tienes el plan Free');
+        await loadData();
+      } catch (err) { toast(err.message, 'error'); }
+    }
+  });
+
   // ---------- BLACKLIST (web) ----------
   async function loadBlacklist() {
     let data;
@@ -1924,6 +1960,7 @@
   async function loadData() {
     try {
       user = await api('/api/me');
+      renderPlanAlert();
     } catch (err) {
       if (err.status === 401 || err.status === 403) {
         if (authLoopCount() >= 2) {

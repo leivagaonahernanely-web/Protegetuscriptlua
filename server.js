@@ -168,6 +168,22 @@ db.exec(`
   if (!userCols.includes('obf_used')) db.exec('ALTER TABLE users ADD COLUMN obf_used INTEGER DEFAULT 0');
 }
 ensureBotSchema(db);
+// Planes con vencimiento: días de cada key y fecha de vencimiento del plan del usuario
+for (const sql of [
+  "ALTER TABLE plan_keys ADD COLUMN days INTEGER",
+  "ALTER TABLE users ADD COLUMN plan_expires_at INTEGER",
+  "ALTER TABLE users ADD COLUMN plan_expired_at INTEGER",
+]) { try { db.exec(sql); } catch { /* ya existe */ } }
+const PLAN_DAYS_DEFAULT = 30;
+// Un plan pagado cuyo vencimiento ya pasó vuelve a Free y queda marcado para avisar al usuario
+const expireAllStmt = db.prepare("UPDATE users SET plan = 'free', plan_expires_at = NULL, plan_expired_at = ? WHERE plan IN ('premium','plus') AND plan_expires_at IS NOT NULL AND plan_expires_at <= ?");
+const expireOneStmt = db.prepare("UPDATE users SET plan = 'free', plan_expires_at = NULL, plan_expired_at = ? WHERE id = ? AND plan IN ('premium','plus') AND plan_expires_at IS NOT NULL AND plan_expires_at <= ?");
+function expirePlans(userId) {
+  const now = Math.floor(Date.now() / 1000);
+  if (userId) expireOneStmt.run(now, userId, now); else expireAllStmt.run(now, now);
+}
+expirePlans();
+setInterval(() => expirePlans(), 10 * 60_000);
 
 // Clave de sesión: JWT_SECRET si está definida; si no, una clave generada y guardada en la base de datos.
 // Así el login no se rompe en cada deploy mientras la base de datos esté en el volumen.
@@ -193,7 +209,7 @@ const scriptBanStmt = db.prepare('SELECT 1 FROM script_bans WHERE script_id = ? 
 const scriptBanned = (scriptId, kind, value) => Boolean(value) && Boolean(scriptBanStmt.get(scriptId, kind, String(value)));
 
 const stmt = {
-  userById: db.prepare('SELECT id, username, avatar, custom_avatar, bot_avatar, plan, obf_used, staff_role, discord_joined FROM users WHERE id = ?'),
+  userById: db.prepare('SELECT id, username, avatar, custom_avatar, bot_avatar, plan, obf_used, staff_role, discord_joined, plan_expires_at, plan_expired_at FROM users WHERE id = ?'),
   scriptCount: db.prepare('SELECT COUNT(*) AS n FROM scripts WHERE user_id = ?'),
   obfUsed: db.prepare('SELECT obf_used FROM users WHERE id = ?'),
   obfIncrement: db.prepare('UPDATE users SET obf_used = obf_used + 1 WHERE id = ?'),
@@ -261,6 +277,7 @@ function getSession(req) {
 
 function requireAuth(req, res, next) {
   const session = getSession(req);
+  if (session) expirePlans(session.id);
   if (!session) {
     const reason = !req.cookies[SESSION_COOKIE]
       ? 'No hay cookie de sesión en este navegador (¿estás en el mismo dominio que el login?)'
@@ -564,16 +581,28 @@ app.post('/api/plan/redeem', requireAuth, (req, res) => {
   if (!row) return res.status(404).json({ error: 'Key de plan inválida' });
   if (row.used_by) return res.status(409).json({ error: 'Esta key ya fue usada' });
 
+  const days = Number(row.days) > 0 ? Number(row.days) : PLAN_DAYS_DEFAULT;
+  let expiresAt = null;
   const ok = db.transaction(() => {
+    const now = Math.floor(Date.now() / 1000);
     const claimed = db.prepare('UPDATE plan_keys SET used_by = ?, used_at = ? WHERE key = ? AND used_by IS NULL')
-      .run(req.userId, Math.floor(Date.now() / 1000), key);
+      .run(req.userId, now, key);
     if (!claimed.changes) return false;
-    db.prepare('UPDATE users SET plan = ? WHERE id = ?').run(row.plan, req.userId);
+    const me = stmt.userById.get(req.userId);
+    const base = me && me.plan === row.plan && me.plan_expires_at > now ? me.plan_expires_at : now;
+    expiresAt = base + days * 86400;
+    db.prepare('UPDATE users SET plan = ?, plan_expires_at = ?, plan_expired_at = NULL WHERE id = ?').run(row.plan, expiresAt, req.userId);
     return true;
   })();
   if (!ok) return res.status(409).json({ error: 'Esta key ya fue usada' });
 
-  res.json({ ok: true, plan: row.plan });
+  res.json({ ok: true, plan: row.plan, expires_at: expiresAt });
+});
+
+// "Seguir con Free": el usuario decide quedarse en Free y se quita el aviso de vencimiento
+app.post('/api/plan/stay-free', requireAuth, (req, res) => {
+  db.prepare("UPDATE users SET plan = 'free', plan_expires_at = NULL, plan_expired_at = NULL WHERE id = ?").run(req.userId);
+  res.json({ ok: true });
 });
 
 // Loader: sirve el código si la key es válida y el HWID coincide (o se vincula la primera vez)
@@ -1079,14 +1108,16 @@ function requireOwner(req, res, next) {
   next();
 }
 app.get('/api/owner/plan-keys', requireOwnerApi, (req, res) => {
-  res.json(db.prepare('SELECT key, plan, used_by, used_at, created_at FROM plan_keys ORDER BY created_at DESC LIMIT 200').all());
+  res.json(db.prepare('SELECT key, plan, days, used_by, used_at, created_at FROM plan_keys ORDER BY created_at DESC LIMIT 200').all());
 });
 app.post('/api/owner/plan-keys', requireOwnerApi, (req, res) => {
   const plan = req.body?.plan === 'plus' ? 'plus' : (req.body?.plan === 'premium' ? 'premium' : null);
   if (!plan) return res.status(400).json({ error: 'Plan inválido' });
   const key = crypto.randomBytes(24).toString('base64url'); // 32 caracteres, uso único
-  db.prepare('INSERT INTO plan_keys (key, plan, created_at) VALUES (?, ?, ?)').run(key, plan, Math.floor(Date.now() / 1000));
-  res.json({ key, plan });
+  const days = req.body?.days === undefined || req.body.days === null ? PLAN_DAYS_DEFAULT : Number(req.body.days);
+  if (!Number.isInteger(days) || days < 1 || days > 3650) return res.status(400).json({ error: 'Días inválidos (1 a 3650)' });
+  db.prepare('INSERT INTO plan_keys (key, plan, days, created_at) VALUES (?, ?, ?, ?)').run(key, plan, days, Math.floor(Date.now() / 1000));
+  res.json({ key, plan, days });
 });
 // ---- Usuarios (solo dueño): ver planes y cambiarlos ----
 app.get('/api/owner/obfuscators', requireOwnerApi, (req, res) => {
@@ -1094,16 +1125,19 @@ app.get('/api/owner/obfuscators', requireOwnerApi, (req, res) => {
 });
 
 app.get('/api/owner/users', requireOwnerApi, (req, res) => {
-  res.json(db.prepare(`SELECT u.id, u.username, u.avatar, u.plan, u.obf_used, u.staff_role,
+  res.json(db.prepare(`SELECT u.id, u.username, u.avatar, u.plan, u.obf_used, u.staff_role, u.plan_expires_at,
       (SELECT COUNT(*) FROM scripts s WHERE s.user_id = u.id) AS scripts
     FROM users u ORDER BY u.rowid DESC LIMIT 500`).all().map(u => ({ ...u, role: roleOf(u.id, u.plan, u.staff_role) })));
 });
 app.post('/api/owner/users/:id/plan', requireOwnerApi, (req, res) => {
   const plan = ['free', 'premium', 'plus'].includes(req.body?.plan) ? req.body.plan : null;
   if (!plan) return res.status(400).json({ error: 'Plan inválido' });
-  const info = db.prepare('UPDATE users SET plan = ? WHERE id = ?').run(plan, req.params.id);
+  const days = req.body?.days === undefined || req.body.days === null || req.body.days === '' ? PLAN_DAYS_DEFAULT : Number(req.body.days);
+  if (plan !== 'free' && (!Number.isInteger(days) || days < 1 || days > 3650)) return res.status(400).json({ error: 'Días inválidos (1 a 3650)' });
+  const expiresAt = plan === 'free' ? null : Math.floor(Date.now() / 1000) + days * 86400;
+  const info = db.prepare('UPDATE users SET plan = ?, plan_expires_at = ?, plan_expired_at = NULL WHERE id = ?').run(plan, expiresAt, req.params.id);
   if (!info.changes) return res.status(404).json({ error: 'Usuario no encontrado' });
-  res.json({ ok: true, plan });
+  res.json({ ok: true, plan, expires_at: expiresAt });
 });
 
 // Asignar rol de staff (solo desde el panel admin / dueño). Vacío = quitarlo

@@ -86,6 +86,12 @@ db.exec(`
     avatar TEXT,
     plan TEXT DEFAULT 'free'
   );
+  CREATE TABLE IF NOT EXISTS luau_usage (
+    user_id TEXT NOT NULL,
+    day TEXT NOT NULL,
+    n INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (user_id, day)
+  );
   CREATE TABLE IF NOT EXISTS script_bans (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     script_id INTEGER NOT NULL,
@@ -283,6 +289,12 @@ const HWID_RESET_OPTIONS = [0, 6, 12, 24, 48, 72, 168];
 // Reinicio de HWID: "Desactivado" (0) es solo para planes pagos; en Free se cambia a 24 h
 const isPaidPlanId = userId => { const p = stmt.userById.get(userId)?.plan; return p === 'premium' || p === 'plus'; };
 const isPlusPlanId = userId => stmt.userById.get(userId)?.plan === 'plus';
+// Ofuscador 3: máximo 2 scripts creados por día (hora de Guayaquil) y por usuario
+const LUAU_DAILY_LIMIT = 2;
+const luauDay = () => new Date().toLocaleDateString('en-CA', { timeZone: 'America/Guayaquil' });
+const luauUsedStmt = db.prepare('SELECT n FROM luau_usage WHERE user_id = ? AND day = ?');
+const luauBumpStmt = db.prepare('INSERT INTO luau_usage (user_id, day, n) VALUES (?, ?, 1) ON CONFLICT(user_id, day) DO UPDATE SET n = n + 1');
+const luauUsedToday = userId => luauUsedStmt.get(userId, luauDay())?.n ?? 0;
 
 function validateScriptInput({ name, ffa, obfuscator, code, hwidResetHours }, current = null) {
   const cleanName = name === undefined ? current?.name : String(name).trim();
@@ -1174,6 +1186,9 @@ app.post('/api/scripts', requireAuth, async (req, res) => {
   if (!isPaidPlanId(req.userId) && input.hwidResetHours === 0) input.hwidResetHours = 24;
   const quotaMsg = quotaError(req.userId, { isNewScript: true, isFfa: input.isFfa });
   if (quotaMsg) return res.status(403).json({ error: quotaMsg });
+  if (input.obfuscator === 'luau' && luauUsedToday(req.userId) >= LUAU_DAILY_LIMIT) {
+    return res.status(403).json({ error: `Ya creaste ${LUAU_DAILY_LIMIT} scripts hoy con el Ofuscador 3. Vuelve mañana.` });
+  }
 
   try {
     const content = (input.isFfa || input.obfuscator === 'none') ? input.source : await obfuscate(input.source, input.obfuscator);
@@ -1182,6 +1197,7 @@ app.post('/api/scripts', requireAuth, async (req, res) => {
       input.obfuscator, input.source, content, input.hwidResetHours,
     );
     if (!input.isFfa) stmt.obfIncrement.run(req.userId);
+    if (input.obfuscator === 'luau') luauBumpStmt.run(req.userId, luauDay());
     res.status(201).json({ ok: true, id: info.lastInsertRowid });
   } catch (err) {
     console.error('Create script error:', err);

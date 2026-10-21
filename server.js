@@ -373,6 +373,30 @@ function runObfuscatorCli(bin, args, cwd, luaPath) {
 // Ofuscador 3 = LuaUObfuscator (servicio externo, API v1). Solo Premium Plus.
 // La key va en LUAU_OBF_API_KEY (variable de entorno, nunca en el código).
 const LUAU_API_BASE = 'https://luauobfuscator.win';
+// La API acepta pocas compilaciones a la vez con una misma key: hacemos cola (máx. 2 a la vez)
+// y reintentamos si responde 429 (demasiadas solicitudes)
+let luauRunning = 0;
+const LUAU_MAX_RUNNING = 2;
+const delay = ms => new Promise(r => setTimeout(r, ms));
+async function luauPost(body, auth) {
+  for (let attempt = 1; ; attempt++) {
+    while (luauRunning >= LUAU_MAX_RUNNING) await delay(500);
+    luauRunning++;
+    let res;
+    try {
+      res = await fetch(`${LUAU_API_BASE}/api/v1/obfuscate`, {
+        method: 'POST',
+        headers: { ...auth, 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(OBF_TIMEOUT_MS),
+      });
+    } finally {
+      luauRunning--;
+    }
+    if (res.status !== 429 || attempt >= 4) return res;
+    await delay(2000 * attempt);
+  }
+}
 async function obfuscateLuau(source) {
   const key = process.env.LUAU_OBF_API_KEY;
   if (!key) throw Object.assign(new Error('El Ofuscador 3 no está configurado en el servidor.'), { status: 501 });
@@ -380,12 +404,7 @@ async function obfuscateLuau(source) {
 
   let res;
   try {
-    res = await fetch(`${LUAU_API_BASE}/api/v1/obfuscate`, {
-      method: 'POST',
-      headers: { ...auth, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ source, protection: 'strong', runtime_trace: true }),
-      signal: AbortSignal.timeout(OBF_TIMEOUT_MS),
-    });
+    res = await luauPost({ source, protection: 'strong', runtime_trace: true }, auth);
   } catch (err) {
     console.warn('[Luau] No se pudo conectar:', err.message);
     throw Object.assign(new Error('No pudimos conectar con el Ofuscador 3. Inténtalo de nuevo.'), { status: 502 });

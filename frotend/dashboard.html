@@ -750,6 +750,7 @@
   const OBFUSCATORS = {
     clyde:      'Ofuscador 1 (Clyde)',
     obscura:    'Ofuscador 2 (Obscura)',
+    luau:       'Ofuscador 3 (LuaUObfuscator) · Premium Plus',
     none:       'Sin ofuscar (solo key)',
   };
   const NAV = {
@@ -1037,7 +1038,7 @@
         <label for="fObf">Ofuscador</label>
         <select id="fObf" name="obfuscator" class="field block">
           ${Object.entries(OBFUSCATORS).map(([val, label]) =>
-            `<option value="${val}" ${val === currentObf ? 'selected' : ''}>${label}</option>`).join('')}
+            `<option value="${val}" ${val === currentObf ? 'selected' : ''} ${val === 'luau' && !hasPlusPlan() ? 'disabled' : ''}>${label}</option>`).join('')}
         </select>
         <div class="hint">Se aplica en el servidor al guardar el script. Para Roblox (Luau) recomendamos el Ofuscador 1.</div>
       </div>

@@ -20,7 +20,7 @@ app.set('trust proxy', 1); // Railway pone la IP real en X-Forwarded-For
 // 0. CONSTANTES Y CONFIGURACIÓN
 // ==========================================
 const MAX_CODE_BYTES = 2 * 1024 * 1024;           // 2 MB por script
-const OBFUSCATORS = ['clyde', 'obscura', 'none'];   // Ofuscador 1 (Clyde), Ofuscador 2 (Obscura); 'none' = sin ofuscar (solo key)
+const OBFUSCATORS = ['clyde', 'obscura', 'luau', 'none'];   // Ofuscador 1 (Clyde), Ofuscador 2 (Obscura), Ofuscador 3 (LuaUObfuscator, solo Premium Plus); 'none' = sin ofuscar (solo key)
 const KEY_ALPHABET = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
 // Un error suelto no debe tirar el servidor ni dejar al bot a medias: se registra y el proceso sigue
 process.on('unhandledRejection', err => console.error('[Proceso] Promesa sin manejar:', err));
@@ -282,6 +282,7 @@ const HWID_RESET_OPTIONS = [0, 6, 12, 24, 48, 72, 168];
 
 // Reinicio de HWID: "Desactivado" (0) es solo para planes pagos; en Free se cambia a 24 h
 const isPaidPlanId = userId => { const p = stmt.userById.get(userId)?.plan; return p === 'premium' || p === 'plus'; };
+const isPlusPlanId = userId => stmt.userById.get(userId)?.plan === 'plus';
 
 function validateScriptInput({ name, ffa, obfuscator, code, hwidResetHours }, current = null) {
   const cleanName = name === undefined ? current?.name : String(name).trim();
@@ -369,7 +370,53 @@ function runObfuscatorCli(bin, args, cwd, luaPath) {
   });
 }
 
+// Ofuscador 3 = LuaUObfuscator (servicio externo, API v1). Solo Premium Plus.
+// La key va en LUAU_OBF_API_KEY (variable de entorno, nunca en el código).
+const LUAU_API_BASE = 'https://luauobfuscator.win';
+async function obfuscateLuau(source) {
+  const key = process.env.LUAU_OBF_API_KEY;
+  if (!key) throw Object.assign(new Error('El Ofuscador 3 no está configurado en el servidor.'), { status: 501 });
+  const auth = { Authorization: `Bearer ${key}` };
+
+  let res;
+  try {
+    res = await fetch(`${LUAU_API_BASE}/api/v1/obfuscate`, {
+      method: 'POST',
+      headers: { ...auth, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ source, protection: 'strong', runtime_trace: true }),
+      signal: AbortSignal.timeout(OBF_TIMEOUT_MS),
+    });
+  } catch (err) {
+    console.warn('[Luau] No se pudo conectar:', err.message);
+    throw Object.assign(new Error('No pudimos conectar con el Ofuscador 3. Inténtalo de nuevo.'), { status: 502 });
+  }
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || !data.ok || !data.file?.download_url) {
+    const detail = String(data.error || data.message || res.status).slice(0, 300);
+    console.warn('[Luau] Error de la API:', res.status, detail);
+    if (res.status === 422 || /syntax|compiler|source/i.test(detail)) {
+      throw Object.assign(new Error('Tu script tiene sintaxis que el Ofuscador 3 no entiende. Revisa que sea Luau válido.'), { status: 422 });
+    }
+    if (res.status === 429) throw Object.assign(new Error('El Ofuscador 3 está ocupado. Espera un momento y vuelve a intentar.'), { status: 503 });
+    if (/token|credit|quota|limit/i.test(detail)) throw Object.assign(new Error('El Ofuscador 3 se quedó sin créditos. Avisa al dueño.'), { status: 503 });
+    throw Object.assign(new Error('El Ofuscador 3 falló. Inténtalo de nuevo.'), { status: 502 });
+  }
+
+  let out;
+  try {
+    const dl = await fetch(new URL(data.file.download_url, LUAU_API_BASE), { headers: auth, signal: AbortSignal.timeout(OBF_TIMEOUT_MS) });
+    if (!dl.ok) throw new Error(`HTTP ${dl.status}`);
+    out = await dl.text();
+  } catch (err) {
+    console.warn('[Luau] No se pudo descargar el resultado:', err.message);
+    throw Object.assign(new Error('El Ofuscador 3 no entregó el resultado. Inténtalo de nuevo.'), { status: 502 });
+  }
+  if (!out.trim()) throw Object.assign(new Error('El Ofuscador 3 no generó salida. Inténtalo de nuevo.'), { status: 502 });
+  return out;
+}
+
 async function obfuscate(source, obfuscator) {
+  if (obfuscator === 'luau') return obfuscateLuau(source);
   const cfg = OBF_CONFIG[obfuscator];
   if (!cfg) throw Object.assign(new Error('Elige un ofuscador válido'), { status: 400 });
   if (!cfg.dir) {
@@ -1095,6 +1142,7 @@ app.post('/api/discord/joined', requireAuth, (req, res) => {
 app.post('/api/scripts', requireAuth, async (req, res) => {
   const input = validateScriptInput(req.body || {});
   if (input.error) return res.status(400).json({ error: input.error });
+  if (input.obfuscator === 'luau' && !isPlusPlanId(req.userId)) return res.status(403).json({ error: 'El Ofuscador 3 es solo para Premium Plus' });
   if (!discordJoinDone(req.userId)) {
     return res.status(403).json({ error: 'Para crear scripts debes estar en nuestro servidor de Discord.', code: 'DISCORD_REQUIRED', invite: DISCORD_JOIN_URL });
   }
@@ -1136,6 +1184,7 @@ app.put('/api/scripts/:id', requireAuth, async (req, res) => {
 
   const input = validateScriptInput(req.body || {}, script);
   if (input.error) return res.status(400).json({ error: input.error });
+  if (input.obfuscator === 'luau' && !isPlusPlanId(req.userId)) return res.status(403).json({ error: 'El Ofuscador 3 es solo para Premium Plus' });
   if (!isPaidPlanId(req.userId) && input.hwidResetHours === 0) input.hwidResetHours = 24;
   const quotaMsg = quotaError(req.userId, { isNewScript: false, isFfa: input.isFfa });
   if (quotaMsg) return res.status(403).json({ error: quotaMsg });

@@ -404,7 +404,7 @@ async function obfuscateLuau(source) {
 
   let res;
   try {
-    res = await luauPost({ source, protection: 'strong', runtime_trace: true }, auth);
+    res = await luauPost({ source, version: 'sun', protection: 'strong', runtime_trace: true }, auth);
   } catch (err) {
     console.warn('[Luau] No se pudo conectar:', err.message);
     throw Object.assign(new Error('No pudimos conectar con el Ofuscador 3. Inténtalo de nuevo.'), { status: 502 });

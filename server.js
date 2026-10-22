@@ -178,14 +178,16 @@ for (const sql of [
 // Todos los planes duran un mes, y los contadores (ofuscaciones) se reinician cada mes
 const PLAN_DAYS_DEFAULT = 30;
 const MONTH_SECONDS = PLAN_DAYS_DEFAULT * 86400;
-const quotaDueStmt = db.prepare('SELECT quota_reset_at FROM users WHERE id = ?');
+// El contador Free se reinicia cada 15 días; los planes pagos cada mes
+const FREE_RESET_SECONDS = 15 * 86400;
+const quotaDueStmt = db.prepare('SELECT plan, quota_reset_at FROM users WHERE id = ?');
 const quotaResetStmt = db.prepare('UPDATE users SET obf_used = 0, quota_reset_at = ? WHERE id = ?');
 function resetQuotaIfDue(userId) {
   const row = quotaDueStmt.get(userId);
   if (!row) return;
   const now = Math.floor(Date.now() / 1000);
-  if (!row.quota_reset_at) quotaResetStmt.run(now + MONTH_SECONDS, userId);
-  else if (row.quota_reset_at <= now) quotaResetStmt.run(now + MONTH_SECONDS, userId);
+  const every = row.plan === 'free' ? FREE_RESET_SECONDS : MONTH_SECONDS;
+  if (!row.quota_reset_at || row.quota_reset_at <= now) quotaResetStmt.run(now + every, userId);
 }
 // Un plan pagado cuyo vencimiento ya pasó vuelve a Free y queda marcado para avisar al usuario
 const expireAllStmt = db.prepare("UPDATE users SET plan = 'free', plan_expires_at = NULL, plan_expired_at = ? WHERE plan IN ('premium','plus') AND plan_expires_at IS NOT NULL AND plan_expires_at <= ?");

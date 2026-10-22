@@ -521,6 +521,10 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
         if (!script) return reply('❌ Script no encontrado.');
         // Solo el creador publica el panel de sus scripts (ni gestores ni admins)
         if (script.user_id !== actor) return reply('⛔ Solo el creador de este script puede publicar su panel.');
+        // Además, debe tener permisos de administración en el servidor donde se publica
+        if (!interaction.inGuild() || !(await isStaffOf(interaction.guild, actor))) {
+          return reply('⛔ Necesitas permisos de administración (Administrador, Gestionar servidor, Gestionar mensajes o Moderar miembros) en este servidor para publicar el panel.');
+        }
         const customDescription = interaction.options.getString('descripcion')?.replace(/\\n/g, '\n');
         // interaction.channel puede venir vacío si el bot no tiene acceso al canal: lo buscamos directamente
         const channel = interaction.channel ?? await interaction.client.channels.fetch(interaction.channelId).catch(() => null);

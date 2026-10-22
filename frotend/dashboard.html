@@ -500,7 +500,6 @@
           <p style="margin:6px 0 14px;font-size:14px;color:var(--text-soft);">Cada key se usa una sola vez. Entrégala al comprador para que la canjee en Planes.</p>
           <div style="display:flex;gap:10px;flex-wrap:wrap;">
             <select id="pkPlan" class="field" style="min-width:180px;"><option value="premium">Premium</option><option value="plus">Premium Plus</option></select>
-            <input id="pkDays" class="field" type="number" min="1" max="3650" value="30" style="width:110px;" aria-label="Días de duración">
             <button class="btn" id="pkGen" type="button">Generar key</button>
           </div>
         </article>
@@ -1498,7 +1497,7 @@
     const btn = e.currentTarget;
     setBusy(btn, true);
     try {
-      await api('/api/owner/plan-keys', { method: 'POST', body: JSON.stringify({ plan: $('pkPlan').value, days: Number($('pkDays').value) || 30 }) });
+      await api('/api/owner/plan-keys', { method: 'POST', body: JSON.stringify({ plan: $('pkPlan').value }) });
       toast('Key generada');
       await loadOwnerData();
     } catch (err) {
@@ -1845,12 +1844,14 @@
     const now = Date.now() / 1000;
     const paid = user.plan === 'premium' || user.plan === 'plus';
     const name = user.plan === 'plus' ? 'Premium Plus' : 'Premium';
+    const discord = '<a href="https://discord.gg/ex9rNMqc" target="_blank" rel="noopener">nuestro Discord</a>';
     let html = '';
-    if (!paid && user.plan_expired_at) {
-      html = '<b>Tu plan se acabó.</b> Renueva con una key nueva o sigue con el plan Free.';
-    } else if (paid && user.plan_expires_at && user.plan_expires_at - now < 3 * 86400) {
+    if (paid && user.plan_expires_at && user.plan_expires_at - now < 3 * 86400) {
       const dias = Math.max(1, Math.ceil((user.plan_expires_at - now) / 86400));
-      html = `<b>Tu plan ${name} está a punto de acabarse</b> (quedan ${dias} día${dias === 1 ? '' : 's'}). Renueva o sigue con el plan Free.`;
+      html = `<b>En ${dias} día${dias === 1 ? '' : 's'} tu plan ${name} pasará a Free.</b> Para seguir, canjea una key nueva en Planes (se compra en ${discord}).`;
+    } else if (!paid && user.plan_expired_at && now - user.plan_expired_at < 300) {
+      // El aviso de redirección a Free solo se muestra 5 minutos
+      html = `<b>Tu plan se acabó y se redirigió al plan Free.</b> Para volver a Premium, canjea una key nueva en Planes (se compra en ${discord}).`;
     }
     if (!html) { box.hidden = true; box.innerHTML = ''; return; }
     box.hidden = false;
@@ -1858,9 +1859,10 @@
       <div>${html}</div>
       <div style="display:flex;gap:8px;flex-wrap:wrap">
         <button class="btn" type="button" data-plan-renew>Renovar</button>
-        <button class="btn ghost" type="button" data-plan-stay>Seguir con Free</button>
+        ${paid ? '<button class="btn ghost" type="button" data-plan-stay>Seguir con Free</button>' : ''}
       </div></div>`;
   }
+  setInterval(renderPlanAlert, 30_000);
   $('planAlert').addEventListener('click', async e => {
     if (e.target.closest('[data-plan-renew]')) { showView('plans'); return; }
     if (e.target.closest('[data-plan-stay]')) {

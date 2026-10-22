@@ -173,8 +173,20 @@ for (const sql of [
   "ALTER TABLE plan_keys ADD COLUMN days INTEGER",
   "ALTER TABLE users ADD COLUMN plan_expires_at INTEGER",
   "ALTER TABLE users ADD COLUMN plan_expired_at INTEGER",
+  "ALTER TABLE users ADD COLUMN quota_reset_at INTEGER",
 ]) { try { db.exec(sql); } catch { /* ya existe */ } }
+// Todos los planes duran un mes, y los contadores (ofuscaciones) se reinician cada mes
 const PLAN_DAYS_DEFAULT = 30;
+const MONTH_SECONDS = PLAN_DAYS_DEFAULT * 86400;
+const quotaDueStmt = db.prepare('SELECT quota_reset_at FROM users WHERE id = ?');
+const quotaResetStmt = db.prepare('UPDATE users SET obf_used = 0, quota_reset_at = ? WHERE id = ?');
+function resetQuotaIfDue(userId) {
+  const row = quotaDueStmt.get(userId);
+  if (!row) return;
+  const now = Math.floor(Date.now() / 1000);
+  if (!row.quota_reset_at) quotaResetStmt.run(now + MONTH_SECONDS, userId);
+  else if (row.quota_reset_at <= now) quotaResetStmt.run(now + MONTH_SECONDS, userId);
+}
 // Un plan pagado cuyo vencimiento ya pasó vuelve a Free y queda marcado para avisar al usuario
 const expireAllStmt = db.prepare("UPDATE users SET plan = 'free', plan_expires_at = NULL, plan_expired_at = ? WHERE plan IN ('premium','plus') AND plan_expires_at IS NOT NULL AND plan_expires_at <= ?");
 const expireOneStmt = db.prepare("UPDATE users SET plan = 'free', plan_expires_at = NULL, plan_expired_at = ? WHERE id = ? AND plan IN ('premium','plus') AND plan_expires_at IS NOT NULL AND plan_expires_at <= ?");
@@ -277,7 +289,7 @@ function getSession(req) {
 
 function requireAuth(req, res, next) {
   const session = getSession(req);
-  if (session) expirePlans(session.id);
+  if (session) { expirePlans(session.id); resetQuotaIfDue(session.id); }
   if (!session) {
     const reason = !req.cookies[SESSION_COOKIE]
       ? 'No hay cookie de sesión en este navegador (¿estás en el mismo dominio que el login?)'
@@ -581,7 +593,7 @@ app.post('/api/plan/redeem', requireAuth, (req, res) => {
   if (!row) return res.status(404).json({ error: 'Key de plan inválida' });
   if (row.used_by) return res.status(409).json({ error: 'Esta key ya fue usada' });
 
-  const days = Number(row.days) > 0 ? Number(row.days) : PLAN_DAYS_DEFAULT;
+  const days = PLAN_DAYS_DEFAULT;
   let expiresAt = null;
   const ok = db.transaction(() => {
     const now = Math.floor(Date.now() / 1000);
@@ -1114,10 +1126,8 @@ app.post('/api/owner/plan-keys', requireOwnerApi, (req, res) => {
   const plan = req.body?.plan === 'plus' ? 'plus' : (req.body?.plan === 'premium' ? 'premium' : null);
   if (!plan) return res.status(400).json({ error: 'Plan inválido' });
   const key = crypto.randomBytes(24).toString('base64url'); // 32 caracteres, uso único
-  const days = req.body?.days === undefined || req.body.days === null ? PLAN_DAYS_DEFAULT : Number(req.body.days);
-  if (!Number.isInteger(days) || days < 1 || days > 3650) return res.status(400).json({ error: 'Días inválidos (1 a 3650)' });
-  db.prepare('INSERT INTO plan_keys (key, plan, days, created_at) VALUES (?, ?, ?, ?)').run(key, plan, days, Math.floor(Date.now() / 1000));
-  res.json({ key, plan, days });
+  db.prepare('INSERT INTO plan_keys (key, plan, days, created_at) VALUES (?, ?, ?, ?)').run(key, plan, PLAN_DAYS_DEFAULT, Math.floor(Date.now() / 1000));
+  res.json({ key, plan, days: PLAN_DAYS_DEFAULT });
 });
 // ---- Usuarios (solo dueño): ver planes y cambiarlos ----
 app.get('/api/owner/obfuscators', requireOwnerApi, (req, res) => {
@@ -1132,9 +1142,7 @@ app.get('/api/owner/users', requireOwnerApi, (req, res) => {
 app.post('/api/owner/users/:id/plan', requireOwnerApi, (req, res) => {
   const plan = ['free', 'premium', 'plus'].includes(req.body?.plan) ? req.body.plan : null;
   if (!plan) return res.status(400).json({ error: 'Plan inválido' });
-  const days = req.body?.days === undefined || req.body.days === null || req.body.days === '' ? PLAN_DAYS_DEFAULT : Number(req.body.days);
-  if (plan !== 'free' && (!Number.isInteger(days) || days < 1 || days > 3650)) return res.status(400).json({ error: 'Días inválidos (1 a 3650)' });
-  const expiresAt = plan === 'free' ? null : Math.floor(Date.now() / 1000) + days * 86400;
+  const expiresAt = plan === 'free' ? null : Math.floor(Date.now() / 1000) + MONTH_SECONDS;
   const info = db.prepare('UPDATE users SET plan = ?, plan_expires_at = ?, plan_expired_at = NULL WHERE id = ?').run(plan, expiresAt, req.params.id);
   if (!info.changes) return res.status(404).json({ error: 'Usuario no encontrado' });
   res.json({ ok: true, plan, expires_at: expiresAt });

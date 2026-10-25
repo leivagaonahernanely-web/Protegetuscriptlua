@@ -14,7 +14,55 @@ import 'dotenv/config';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
-app.set('trust proxy', 1); // Railway pone la IP real en X-Forwarded-For
+app.set('trust proxy', 1);
+app.disable('x-powered-by');
+
+// Cabeceras de seguridad básicas en todas las respuestas
+app.use((req, res, next) => {
+  res.set({
+    'X-Content-Type-Options': 'nosniff',
+    'X-Frame-Options': 'DENY',
+    'Referrer-Policy': 'strict-origin-when-cross-origin',
+    'Permissions-Policy': 'camera=(), microphone=(), geolocation=()',
+    'Cross-Origin-Opener-Policy': 'same-origin',
+  });
+  if (cookieSecure) res.set('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+  next();
+});
+
+// Límite de peticiones por IP en memoria: frena la fuerza bruta de keys, logins y canjes
+function rateLimit({ windowMs, max, onLimit }) {
+  const hits = new Map();
+  setInterval(() => {
+    const now = Date.now();
+    for (const [ip, entry] of hits) if (entry.reset < now) hits.delete(ip);
+  }, windowMs).unref();
+  return (req, res, next) => {
+    const ip = req.ip || 'unknown';
+    const now = Date.now();
+    let entry = hits.get(ip);
+    if (!entry || entry.reset < now) {
+      entry = { count: 0, reset: now + windowMs };
+      hits.set(ip, entry);
+    }
+    entry.count++;
+    if (entry.count > max) {
+      res.set('Retry-After', String(Math.ceil((entry.reset - now) / 1000)));
+      return onLimit(req, res);
+    }
+    next();
+  };
+}
+const loaderLimit = rateLimit({
+  windowMs: 60_000,
+  max: 120,
+  onLimit: (req, res) => res.type('text/plain').status(429).send('!VANTARMOR:RATE_LIMITED'),
+});
+const jsonLimit = rateLimit({
+  windowMs: 60_000,
+  max: 30,
+  onLimit: (req, res) => res.status(429).json({ error: 'Demasiadas peticiones. Espera un minuto.' }),
+}); // Railway pone la IP real en X-Forwarded-For
 
 // ==========================================
 // 0. CONSTANTES Y CONFIGURACIÓN
@@ -534,7 +582,7 @@ app.get('/auth/discord', (req, res) => {
   res.redirect(`https://discord.com/oauth2/authorize?${params}`);
 });
 
-app.get('/auth/discord/callback', async (req, res) => {
+app.get('/auth/discord/callback', jsonLimit, async (req, res) => {
   const { code, state } = req.query;
   const expectedState = req.cookies[STATE_COOKIE];
   res.clearCookie(STATE_COOKIE);
@@ -590,7 +638,7 @@ app.get('/api/config', (req, res) => {
 });
 
 // Canje de key de plan (Premium / Premium Plus); cada key se usa una sola vez
-app.post('/api/plan/redeem', requireAuth, (req, res) => {
+app.post('/api/plan/redeem', requireAuth, jsonLimit, (req, res) => {
   const key = String(req.body?.key || '').trim();
   if (key.length < 32 || key.length > 64) return res.status(400).json({ error: 'Key inválida' });
 
@@ -797,7 +845,7 @@ function issuePayloadToken(scriptId) {
 }
 
 // Entrega el código con un token válido. El token se gasta aunque falle.
-app.get('/scripts/hosted/:slug/payload', (req, res) => {
+app.get('/scripts/hosted/:slug/payload', loaderLimit, (req, res) => {
   if (/text\/html/.test(req.get('accept') || '')) return res.status(403).type('text/plain').send('!VANTARMOR:FORBIDDEN');
   const token = String(req.query.token || '');
   const entry = payloadTokens.get(token);
@@ -810,7 +858,7 @@ app.get('/scripts/hosted/:slug/payload', (req, res) => {
 });
 
 // Endpoint de verificación: lo llama el bootstrap. Responde el código del script o "!VANTARMOR:CODIGO".
-app.get('/scripts/hosted/:slug/auth', (req, res) => {
+app.get('/scripts/hosted/:slug/auth', loaderLimit, (req, res) => {
   // Los navegadores no reciben nunca el código
   if (/text\/html/.test(req.get('accept') || '')) return res.status(403).type('text/plain').send('!VANTARMOR:FORBIDDEN');
   const reply = code => res.type('text/plain').send(`!VANTARMOR:${code}`);

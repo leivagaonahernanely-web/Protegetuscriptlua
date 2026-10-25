@@ -1211,13 +1211,13 @@
     if (!name) { toast('Escribe un nombre', 'error'); return; }
     if (!editId && !code.trim()) { toast('Agrega el código del script', 'error'); return; }
     if (code && byteLen(code) > MAX_CODE_BYTES) { toast('El código supera 2 MB', 'error'); return; }
-    if (protection === 'protected' && !OBFUSCATORS[obfuscator]) { toast('Elige un ofuscador', 'error'); return; }
+    if (!OBFUSCATORS[obfuscator]) { toast('Elige un ofuscador', 'error'); return; }
 
     const body = {
       name,
       ffa: protection === 'ffa',
-      // El ofuscador solo aplica a scripts protegidos
-      obfuscator: protection === 'protected' ? obfuscator : null,
+      // El ofuscador se elige en FFA y en protegido
+      obfuscator,
       hwidResetHours: Number(fd.get('hwidReset') ?? 24),
       shareDetection: fd.get('shareDetection') === 'on',
     };

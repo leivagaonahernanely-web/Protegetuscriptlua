@@ -143,6 +143,8 @@ db.exec(`
 {
   const cols = db.prepare('PRAGMA table_info(scripts)').all().map(c => c.name);
   if (!cols.includes('obfuscator')) db.exec('ALTER TABLE scripts ADD COLUMN obfuscator TEXT');
+  // Contador de ejecuciones por key (cada key pertenece a un solo script)
+  if (!db.prepare("SELECT 1 FROM pragma_table_info('keys') WHERE name = 'exec_count'").get()) db.exec('ALTER TABLE keys ADD COLUMN exec_count INTEGER DEFAULT 0');
   // Foto de perfil personalizada (URL). Si es NULL se usa la de Discord.
   if (!db.prepare("SELECT 1 FROM pragma_table_info('users') WHERE name = 'custom_avatar'").get()) db.exec('ALTER TABLE users ADD COLUMN custom_avatar TEXT');
   // Foto del bot solo en los servidores del creador (se aplica desde sus paneles)
@@ -834,9 +836,16 @@ app.get('/scripts/hosted/:slug/auth', (req, res) => {
   if (scriptBanned(script.id, 'hwid', hwid)) return reply('BLACKLISTED');
   if (!k.hwid) db.prepare('UPDATE keys SET hwid = ? WHERE key = ?').run(hwid, key);
   else if (k.hwid !== hwid) return reply('HWID_MISMATCH');
-  db.prepare('UPDATE keys SET last_ip = ? WHERE key = ?').run(req.ip || null, key);
-
-  logUse(script.id, `🟢 Script ejecutado · key \`${k.key.slice(0, 6)}…\``);
+  const run = db.prepare('UPDATE keys SET last_ip = ?, exec_count = COALESCE(exec_count, 0) + 1 WHERE key = ? RETURNING exec_count')
+    .get(req.ip || null, key);
+  logUse(script.id, [
+    '🟢 Script ejecutado',
+    `• Key: \`${key}\``,
+    `• HWID: \`${hwid}\``,
+    `• Discord ID: ${k.discord_id ? `\`${k.discord_id}\`` : 'sin vincular'}`,
+    `• ID del script: \`${script.id}\``,
+    `• Veces que esta key ejecutó este script: ${run?.exec_count ?? 1}`,
+  ].join('\n'));
   reply(`OK:${issuePayloadToken(script.id)}`);
 });
 

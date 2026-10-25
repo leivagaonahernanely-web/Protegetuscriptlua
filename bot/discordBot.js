@@ -59,6 +59,14 @@ export function ensureBotSchema(db) {
       key TEXT PRIMARY KEY, plan TEXT NOT NULL,
       used_by TEXT, used_at INTEGER, created_at INTEGER
     );
+    CREATE TABLE IF NOT EXISTS bot_ticket_settings (
+      guild_id TEXT PRIMARY KEY, category_id TEXT, staff_roles TEXT
+    );
+    CREATE TABLE IF NOT EXISTS bot_tickets (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      guild_id TEXT, channel_id TEXT UNIQUE, user_id TEXT,
+      status TEXT DEFAULT 'open', created_at INTEGER, closed_at INTEGER
+    );
     CREATE TABLE IF NOT EXISTS bot_warnings (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       discord_id TEXT, reason TEXT, created_at INTEGER
@@ -142,6 +150,18 @@ export const commands = [
   new SlashCommandBuilder().setName('updates').setDescription('Publica una actualización (dueño)')
     .addStringOption(o => o.setName('title').setDescription('Título').setRequired(true))
     .addStringOption(o => o.setName('description').setDescription('Contenido (usa \\n para saltos de línea)').setRequired(true)),
+  new SlashCommandBuilder().setName('ticketpanel').setDescription('Publica el botón para abrir tickets (staff del servidor)')
+    .addChannelOption(o => o.setName('canal').setDescription('Canal donde se publica (opcional: este canal)').addChannelTypes([ChannelType.GuildText]).setRequired(false))
+    .addStringOption(o => o.setName('mensaje').setDescription('Texto del panel (opcional; usa \\n para saltos de línea)').setMaxLength(1000).setRequired(false)),
+  new SlashCommandBuilder().setName('ticketperm').setDescription('Configura los tickets del servidor (administradores)')
+    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
+    .addSubcommand(s => s.setName('agregar-rol').setDescription('Añade un rol de staff que ve y atiende los tickets')
+      .addRoleOption(o => o.setName('rol').setDescription('Rol de staff').setRequired(true)))
+    .addSubcommand(s => s.setName('quitar-rol').setDescription('Quita un rol de staff de los tickets')
+      .addRoleOption(o => o.setName('rol').setDescription('Rol a quitar').setRequired(true)))
+    .addSubcommand(s => s.setName('categoria').setDescription('Elige la categoría donde se crean los tickets')
+      .addChannelOption(o => o.setName('categoria').setDescription('Categoría').addChannelTypes([ChannelType.GuildCategory]).setRequired(true)))
+    .addSubcommand(s => s.setName('ver').setDescription('Muestra la configuración de tickets')),
 ].map(c => c.toJSON());
 
 // Comandos que responden en público
@@ -853,6 +873,65 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
         return reply('✅ Publicado.');
       }
 
+      case 'ticketpanel': {
+        if (!interaction.inGuild()) return reply('❌ Usa este comando dentro de tu servidor.');
+        if (!(await isStaffOf(interaction.guild, actor))) return reply('⛔ Necesitas permisos de administración en este servidor para publicar el panel de tickets.');
+        if (!ticketConfig(interaction.guildId).categoryId) return reply('❌ Primero elige la categoría de tickets con /ticketperm categoria.');
+        const channel = interaction.options.getChannel('canal') ?? interaction.channel ?? await interaction.client.channels.fetch(interaction.channelId).catch(() => null);
+        if (!channel?.isTextBased()) return reply('❌ No pude acceder a ese canal.');
+        const text = interaction.options.getString('mensaje')?.replace(/\\n/g, '\n') || TICKET_DEFAULT_TEXT;
+        const row = new ActionRowBuilder().addComponents(
+          new ButtonBuilder().setCustomId(`vanta:ticket-open:${interaction.guildId}`).setLabel('Abrir ticket').setEmoji('🎟️').setStyle(ButtonStyle.Primary),
+        );
+        try {
+          await channel.send({ embeds: [new EmbedBuilder().setColor(0x5865f2).setTitle('Soporte').setDescription(text)], components: [row] });
+        } catch (err) {
+          if (err?.code === 50013) return reply(BOT_PERMS_HELP);
+          throw err;
+        }
+        return reply(`✅ Panel de tickets publicado en <#${channel.id}>.`);
+      }
+
+      case 'ticketperm': {
+        if (!interaction.inGuild()) return reply('❌ Usa este comando dentro de tu servidor.');
+        if (interaction.guild.ownerId !== actor && !interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)) {
+          return reply('⛔ Solo un administrador del servidor puede configurar los tickets.');
+        }
+        const guildId = interaction.guildId;
+        const cfg = ticketConfig(guildId);
+        const sub = interaction.options.getSubcommand();
+        if (sub === 'agregar-rol') {
+          const role = interaction.options.getRole('rol', true);
+          if (cfg.staffRoles.includes(role.id)) return reply(`ℹ️ ${role} ya es parte del staff de tickets.`);
+          if (cfg.staffRoles.length >= 10) return reply('❌ Solo puedes tener hasta 10 roles de staff. Quita uno antes.');
+          ticketSaveConfig(guildId, { staffRoles: [...cfg.staffRoles, role.id] });
+          return reply(`✅ ${role} ahora ve y atiende los tickets.`);
+        }
+        if (sub === 'quitar-rol') {
+          const role = interaction.options.getRole('rol', true);
+          if (!cfg.staffRoles.includes(role.id)) return reply(`ℹ️ ${role} no estaba en el staff de tickets.`);
+          ticketSaveConfig(guildId, { staffRoles: cfg.staffRoles.filter(id => id !== role.id) });
+          return reply(`✅ ${role} ya no ve los tickets.`);
+        }
+        if (sub === 'categoria') {
+          const category = interaction.options.getChannel('categoria', true);
+          if (category.type !== ChannelType.GuildCategory) return reply('❌ Elige una categoría (no un canal de texto).');
+          if (!category.permissionsFor(interaction.client.user)?.has(PermissionFlagsBits.ManageChannels)) {
+            return reply(`❌ El bot no puede crear canales en la categoría **${category.name}**. Dale el permiso "Gestionar canales" en esa categoría.`);
+          }
+          ticketSaveConfig(guildId, { categoryId: category.id });
+          return reply(`✅ Los tickets se crearán en la categoría **${category.name}**.`);
+        }
+        // ver
+        const roles = cfg.staffRoles.map(id => `<@&${id}>`).join(' ') || 'ninguno (solo administradores)';
+        const category = cfg.categoryId ? interaction.guild.channels.cache.get(cfg.categoryId) : null;
+        return reply([
+          '🎟️ **Configuración de tickets**',
+          `• Categoría: ${category ? `**${category.name}**` : cfg.categoryId ? 'eliminada (elige otra con /ticketperm categoria)' : 'sin elegir'}`,
+          `• Staff: ${roles}`,
+        ].join('\n'));
+      }
+
       default:
         return reply('❌ Comando no disponible.');
     }
@@ -925,10 +1004,103 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
     await endCookieGame(game, userId);
   }
 
+  // ---------- Tickets (gratis en todos los planes) ----------
+  const TICKET_DEFAULT_TEXT = 'Click below to create a new support ticket 🎟️';
+  const TICKET_COOLDOWN_MS = 30_000;
+  const ticketLastOpen = new Map(); // `${guild}:${user}` -> timestamp
+  const tq = {
+    settings: db.prepare('SELECT * FROM bot_ticket_settings WHERE guild_id = ?'),
+    upsertSettings: db.prepare(`INSERT INTO bot_ticket_settings (guild_id, category_id, staff_roles) VALUES (?, ?, ?)
+      ON CONFLICT(guild_id) DO UPDATE SET category_id = excluded.category_id, staff_roles = excluded.staff_roles`),
+    openByUser: db.prepare("SELECT * FROM bot_tickets WHERE guild_id = ? AND user_id = ? AND status = 'open'"),
+    byChannel: db.prepare('SELECT * FROM bot_tickets WHERE channel_id = ?'),
+    insert: db.prepare("INSERT INTO bot_tickets (guild_id, channel_id, user_id, status, created_at) VALUES (?, ?, ?, 'open', ?)"),
+    close: db.prepare("UPDATE bot_tickets SET status = 'closed', closed_at = ? WHERE channel_id = ?"),
+  };
+  function ticketConfig(guildId) {
+    const row = tq.settings.get(guildId);
+    let staffRoles = [];
+    try { staffRoles = JSON.parse(row?.staff_roles || '[]'); } catch { staffRoles = []; }
+    return { categoryId: row?.category_id || null, staffRoles };
+  }
+  function ticketSaveConfig(guildId, patch) {
+    const next = { ...ticketConfig(guildId), ...patch };
+    tq.upsertSettings.run(guildId, next.categoryId, JSON.stringify(next.staffRoles));
+  }
+
+  async function handleTicketButton(interaction, action, rawId) {
+    const actor = interaction.user.id;
+    const ephemeral = { flags: MessageFlags.Ephemeral };
+    if (!interaction.inGuild()) return interaction.reply({ content: '❌ Los tickets solo funcionan dentro de un servidor.', ...ephemeral });
+    const guild = interaction.guild;
+
+    if (action === 'ticket-open') {
+      const cfg = ticketConfig(guild.id);
+      if (!cfg.categoryId) return interaction.reply({ content: '❌ El staff todavía no configuró la categoría de tickets.', ...ephemeral });
+      const existing = tq.openByUser.get(guild.id, actor);
+      if (existing) return interaction.reply({ content: `🎟️ Ya tienes un ticket abierto: <#${existing.channel_id}>`, ...ephemeral });
+      const cooldownKey = `${guild.id}:${actor}`;
+      const wait = TICKET_COOLDOWN_MS - (Date.now() - (ticketLastOpen.get(cooldownKey) ?? 0));
+      if (wait > 0) return interaction.reply({ content: `⏳ Espera ${Math.ceil(wait / 1000)} s antes de abrir otro ticket.`, ...ephemeral });
+
+      await interaction.deferReply(ephemeral);
+      await guild.roles.fetch();
+      const category = guild.channels.cache.get(cfg.categoryId) ?? await guild.channels.fetch(cfg.categoryId).catch(() => null);
+      if (!category || category.type !== ChannelType.GuildCategory) {
+        return interaction.editReply({ content: '❌ La categoría de tickets ya no existe. Pide al administrador que elija otra con /ticketperm categoria.' });
+      }
+      const staffRoleIds = cfg.staffRoles.filter(id => guild.roles.cache.has(id));
+      const base = (interaction.user.username || 'usuario').toLowerCase().replace(/[^a-z0-9-]/g, '').slice(0, 20) || 'usuario';
+      const channel = await guild.channels.create({
+        name: `ticket-${base}`,
+        type: ChannelType.GuildText,
+        parent: category.id,
+        topic: `Ticket de ${interaction.user.tag}`,
+        permissionOverwrites: [
+          { id: guild.roles.everyone.id, deny: [PermissionFlagsBits.ViewChannel] },
+          { id: actor, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.AttachFiles, PermissionFlagsBits.EmbedLinks] },
+          { id: interaction.client.user.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ManageChannels, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.EmbedLinks] },
+          ...staffRoleIds.map(id => ({ id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory, PermissionFlagsBits.AttachFiles] })),
+        ],
+        reason: `Ticket abierto por ${interaction.user.tag}`,
+      });
+      tq.insert.run(guild.id, channel.id, actor, now());
+      ticketLastOpen.set(cooldownKey, Date.now());
+
+      const closeRow = new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId(`vanta:ticket-close:${channel.id}`).setLabel('Cerrar ticket').setEmoji('🔒').setStyle(ButtonStyle.Danger),
+      );
+      const staffMentions = staffRoleIds.map(id => `<@&${id}>`).join(' ');
+      await channel.send({
+        content: [`<@${actor}>`, staffMentions].filter(Boolean).join(' '),
+        allowedMentions: { users: [actor], roles: staffRoleIds },
+        embeds: [new EmbedBuilder().setColor(0x5865f2).setTitle('Ticket abierto')
+          .setDescription('Explica tu problema con detalle. El staff te atenderá aquí.\nPara cerrarlo usa el botón de abajo.')],
+        components: [closeRow],
+      }).catch(err => console.warn('[Bot] No se pudo enviar el mensaje del ticket:', err.message));
+      return interaction.editReply({ content: `✅ Ticket creado: <#${channel.id}>` });
+    }
+
+    if (action === 'ticket-close') {
+      const ticket = tq.byChannel.get(rawId);
+      if (!ticket || ticket.status !== 'open') return interaction.reply({ content: 'Este ticket ya está cerrado.', ...ephemeral });
+      const cfg = ticketConfig(guild.id);
+      const isStaff = await isStaffOf(guild, actor) || cfg.staffRoles.some(id => interaction.member?.roles?.cache?.has(id));
+      if (ticket.user_id !== actor && !isStaff) return interaction.reply({ content: '⛔ Solo quien abrió el ticket o el staff puede cerrarlo.', ...ephemeral });
+      tq.close.run(now(), ticket.channel_id);
+      await interaction.reply({ content: `🔒 Ticket cerrado por <@${actor}>. El canal se borrará en 5 segundos.` });
+      setTimeout(() => {
+        const channel = interaction.channel;
+        channel?.delete(`Ticket cerrado por ${interaction.user.tag}`).catch(err => console.warn('[Bot] No se pudo borrar el ticket:', err.message));
+      }, 5000);
+    }
+  }
+
   async function handleButton(interaction) {
     const [ns, action, rawId] = interaction.customId.split(':');
     if (ns !== 'vanta') return;
     if (action === 'cookie') return handleCookieClick(interaction, rawId);
+    if (action === 'ticket-open' || action === 'ticket-close') return handleTicketButton(interaction, action, rawId);
     const script = findScript(rawId);
     if (!script) return interaction.reply({ content: NO_ACCESS_MSG, flags: MessageFlags.Ephemeral });
 

@@ -334,8 +334,9 @@ function validateScriptInput({ name, ffa, obfuscator, code, hwidResetHours }, cu
   if (!cleanName || cleanName.length > 60) return { error: 'Nombre inválido (1 a 60 caracteres)' };
 
   const isFfa = ffa === undefined ? !!current?.ffa : !!ffa;
-  const obf = isFfa ? null : (obfuscator === undefined ? current?.obfuscator : obfuscator);
-  if (!isFfa && !OBFUSCATORS.includes(obf)) return { error: 'Elige un ofuscador válido' };
+  // FFA también se ofusca: el ofuscador se elige igual que en modo protegido
+  const obf = obfuscator === undefined ? current?.obfuscator : obfuscator;
+  if (!OBFUSCATORS.includes(obf)) return { error: 'Elige un ofuscador válido' };
 
   const source = code === undefined ? current?.source : code;
   if (typeof source !== 'string' || !source.trim()) return { error: 'Falta el código del script' };
@@ -1244,7 +1245,7 @@ app.post('/api/scripts', requireAuth, async (req, res) => {
   }
 
   try {
-    const content = (input.isFfa || input.obfuscator === 'none') ? input.source : await obfuscate(input.source, input.obfuscator);
+    const content = input.obfuscator === 'none' ? input.source : await obfuscate(input.source, input.obfuscator);
     const info = stmt.scriptInsert.run(
       req.userId, input.name, uniqueSlug(input.name), input.isFfa ? 1 : 0,
       input.obfuscator, input.source, content, input.hwidResetHours,
@@ -1287,7 +1288,7 @@ app.put('/api/scripts/:id', requireAuth, async (req, res) => {
   }
 
   try {
-    const content = (input.isFfa || input.obfuscator === 'none') ? input.source : await obfuscate(input.source, input.obfuscator);
+    const content = input.obfuscator === 'none' ? input.source : await obfuscate(input.source, input.obfuscator);
     stmt.scriptUpdate.run(
       input.name, input.isFfa ? 1 : 0, input.obfuscator, input.source, content, input.hwidResetHours,
       script.id, req.userId,

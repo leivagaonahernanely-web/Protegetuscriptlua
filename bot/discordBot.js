@@ -73,6 +73,9 @@ export function ensureBotSchema(db) {
     );
   `);
   // Migración: la whitelist puede ser por tiempo (expires_at NULL = permanente)
+  if (!db.prepare("SELECT 1 FROM pragma_table_info('bot_ticket_settings') WHERE name = 'log_channel_id'").get()) {
+    db.exec('ALTER TABLE bot_ticket_settings ADD COLUMN log_channel_id TEXT');
+  }
   const hasExp = db.prepare("SELECT 1 FROM pragma_table_info('bot_access_rules') WHERE name = 'expires_at'").get();
   if (!hasExp) db.exec('ALTER TABLE bot_access_rules ADD COLUMN expires_at INTEGER');
   // Último vencimiento avisado por DM (si la key se renueva, vuelve a avisar)
@@ -161,6 +164,8 @@ export const commands = [
       .addRoleOption(o => o.setName('rol').setDescription('Rol a quitar').setRequired(true)))
     .addSubcommand(s => s.setName('categoria').setDescription('Elige la categoría donde se crean los tickets')
       .addChannelOption(o => o.setName('categoria').setDescription('Categoría').addChannelTypes([ChannelType.GuildCategory]).setRequired(true)))
+    .addSubcommand(s => s.setName('logs').setDescription('Elige o crea el canal donde se registran los tickets')
+      .addChannelOption(o => o.setName('canal').setDescription('Canal de logs (opcional: si no eliges, uso o creo #logs-tickets)').addChannelTypes([ChannelType.GuildText]).setRequired(false)))
     .addSubcommand(s => s.setName('ver').setDescription('Muestra la configuración de tickets')),
   new SlashCommandBuilder().setName('lock').setDescription('Bloquea un canal: nadie puede escribir, ni en hilos (staff)')
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageChannels)
@@ -929,6 +934,38 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
           ticketSaveConfig(guildId, { categoryId: category.id });
           return reply(`✅ Los tickets se crearán en la categoría **${category.name}**.`);
         }
+        if (sub === 'logs') {
+          let channel = interaction.options.getChannel('canal');
+          let created = false;
+          if (!channel) {
+            // Sin canal: uso #logs-tickets si ya existe, o lo creo (visible solo para el staff y el bot)
+            await interaction.guild.channels.fetch();
+            channel = interaction.guild.channels.cache.find(c => c.name === 'logs-tickets' && c.type === ChannelType.GuildText) || null;
+            if (!channel) {
+              try {
+                channel = await interaction.guild.channels.create({
+                  name: 'logs-tickets',
+                  type: ChannelType.GuildText,
+                  topic: 'Registro de tickets de Vantarmor',
+                  permissionOverwrites: [
+                    { id: interaction.guild.roles.everyone.id, deny: [PermissionFlagsBits.ViewChannel] },
+                    { id: interaction.client.user.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.EmbedLinks] },
+                    { id: actor, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory] },
+                    ...cfg.staffRoles.map(id => ({ id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory] })),
+                  ],
+                  reason: `/ticketperm logs por ${interaction.user.tag}`,
+                });
+                created = true;
+              } catch (err) {
+                console.error('[Bot] No se pudo crear #logs-tickets:', err.message);
+                return reply('❌ No pude crear #logs-tickets. Dale al bot el permiso "Gestionar canales" o elige un canal con la opción canal.');
+              }
+            }
+          }
+          ticketSaveConfig(guildId, { logChannelId: channel.id });
+          return reply(created ? '✅ Creé **#logs-tickets** y los tickets se registrarán ahí.' : `✅ Los tickets se registrarán en <#${channel.id}>.`);
+        }
+
         // ver
         const roles = cfg.staffRoles.map(id => `<@&${id}>`).join(' ') || 'ninguno (solo administradores)';
         const category = cfg.categoryId ? interaction.guild.channels.cache.get(cfg.categoryId) : null;
@@ -936,6 +973,7 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
           '🎟️ **Configuración de tickets**',
           `• Categoría: ${category ? `**${category.name}**` : cfg.categoryId ? 'eliminada (elige otra con /ticketperm categoria)' : 'sin elegir'}`,
           `• Staff: ${roles}`,
+          `• Logs: ${cfg.logChannelId ? `<#${cfg.logChannelId}>` : 'sin elegir'}`,
         ].join('\n'));
       }
 
@@ -1053,8 +1091,8 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
   const ticketLastOpen = new Map(); // `${guild}:${user}` -> timestamp
   const tq = {
     settings: db.prepare('SELECT * FROM bot_ticket_settings WHERE guild_id = ?'),
-    upsertSettings: db.prepare(`INSERT INTO bot_ticket_settings (guild_id, category_id, staff_roles) VALUES (?, ?, ?)
-      ON CONFLICT(guild_id) DO UPDATE SET category_id = excluded.category_id, staff_roles = excluded.staff_roles`),
+    upsertSettings: db.prepare(`INSERT INTO bot_ticket_settings (guild_id, category_id, staff_roles, log_channel_id) VALUES (?, ?, ?, ?)
+      ON CONFLICT(guild_id) DO UPDATE SET category_id = excluded.category_id, staff_roles = excluded.staff_roles, log_channel_id = excluded.log_channel_id`),
     openByUser: db.prepare("SELECT * FROM bot_tickets WHERE guild_id = ? AND user_id = ? AND status = 'open'"),
     byChannel: db.prepare('SELECT * FROM bot_tickets WHERE channel_id = ?'),
     insert: db.prepare("INSERT INTO bot_tickets (guild_id, channel_id, user_id, status, created_at) VALUES (?, ?, ?, 'open', ?)"),
@@ -1064,11 +1102,34 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
     const row = tq.settings.get(guildId);
     let staffRoles = [];
     try { staffRoles = JSON.parse(row?.staff_roles || '[]'); } catch { staffRoles = []; }
-    return { categoryId: row?.category_id || null, staffRoles };
+    return { categoryId: row?.category_id || null, staffRoles, logChannelId: row?.log_channel_id || null };
   }
   function ticketSaveConfig(guildId, patch) {
     const next = { ...ticketConfig(guildId), ...patch };
-    tq.upsertSettings.run(guildId, next.categoryId, JSON.stringify(next.staffRoles));
+    tq.upsertSettings.run(guildId, next.categoryId, JSON.stringify(next.staffRoles), next.logChannelId);
+  }
+
+  // Registro de tickets: nombre, ID y foto del usuario; pie "logs by Vantarmor" con el avatar del bot
+  async function logTicketEvent(guild, { userId, title, color, fields = [] }) {
+    const cfg = ticketConfig(guild.id);
+    if (!cfg.logChannelId) return;
+    try {
+      const channel = await guild.channels.fetch(cfg.logChannelId).catch(() => null);
+      if (!channel?.isTextBased()) return;
+      const user = await client.users.fetch(userId);
+      const embed = new EmbedBuilder()
+        .setColor(color)
+        .setTitle(title)
+        .setAuthor({ name: user.username, iconURL: user.displayAvatarURL() })
+        .setThumbnail(user.displayAvatarURL())
+        .setDescription(`**Usuario:** <@${user.id}>\n**ID:** \`${user.id}\``)
+        .setFooter({ text: 'logs by Vantarmor', iconURL: client.user.displayAvatarURL() })
+        .setTimestamp();
+      if (fields.length) embed.addFields(fields);
+      await channel.send({ embeds: [embed], allowedMentions: { users: [] } });
+    } catch (err) {
+      console.warn('[Bot] No se pudo registrar el ticket en logs:', err.message);
+    }
   }
 
   async function handleTicketButton(interaction, action, rawId) {
@@ -1109,6 +1170,7 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
       });
       tq.insert.run(guild.id, channel.id, actor, now());
       ticketLastOpen.set(cooldownKey, Date.now());
+      logTicketEvent(guild, { userId: actor, title: '🎟️ Ticket abierto', color: 0x57f287, fields: [{ name: 'Canal', value: `<#${channel.id}>`, inline: true }] });
 
       const closeRow = new ActionRowBuilder().addComponents(
         new ButtonBuilder().setCustomId(`vanta:ticket-close:${channel.id}`).setLabel('Cerrar ticket').setEmoji('🔒').setStyle(ButtonStyle.Danger),
@@ -1131,6 +1193,12 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
       const isStaff = await isStaffOf(guild, actor) || cfg.staffRoles.some(id => interaction.member?.roles?.cache?.has(id));
       if (ticket.user_id !== actor && !isStaff) return interaction.reply({ content: '⛔ Solo quien abrió el ticket o el staff puede cerrarlo.', ...ephemeral });
       tq.close.run(now(), ticket.channel_id);
+      const mins = Math.max(1, Math.round((now() - ticket.created_at) / 60));
+      logTicketEvent(guild, { userId: ticket.user_id, title: '🔒 Ticket cerrado', color: 0xed4245, fields: [
+        { name: 'Canal', value: `#${interaction.channel?.name ?? ticket.channel_id}`, inline: true },
+        { name: 'Cerrado por', value: `<@${actor}>`, inline: true },
+        { name: 'Duración', value: `${mins} min`, inline: true },
+      ] });
       await interaction.reply({ content: `🔒 Ticket cerrado por <@${actor}>. El canal se borrará en 5 segundos.` });
       setTimeout(() => {
         const channel = interaction.channel;
@@ -1316,6 +1384,30 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
     if (script) logScriptEvent(script, text);
   };
 
+  // Permisos que el bot necesita en cada servidor. Si faltan, avisa en consola y le escribe al dueño (una vez al arrancar).
+  const BOT_NEEDED_PERMS = [
+    ['Gestionar canales', PermissionFlagsBits.ManageChannels, 'tickets, logs y bloqueo de canales'],
+    ['Gestionar hilos', PermissionFlagsBits.ManageThreads, 'bloquear hilos'],
+    ['Gestionar roles', PermissionFlagsBits.ManageRoles, 'dar roles de acceso'],
+    ['Enviar mensajes', PermissionFlagsBits.SendMessages, 'publicar paneles y avisos'],
+    ['Insertar enlaces', PermissionFlagsBits.EmbedLinks, 'mostrar los embeds'],
+  ];
+  async function checkGuildPermissions(c) {
+    for (const guild of c.guilds.cache.values()) {
+      try {
+        const me = guild.members.me ?? await guild.members.fetchMe();
+        const missing = BOT_NEEDED_PERMS.filter(([, flag]) => !me.permissions.has(flag));
+        if (!missing.length) continue;
+        const list = missing.map(([name, , para]) => `• ${name} (${para})`).join('\n');
+        console.warn(`[Bot] Permisos que faltan en "${guild.name}":\n${list}`);
+        const owner = await guild.fetchOwner().catch(() => null);
+        await owner?.send(`⚠️ Vantarmor necesita más permisos en **${guild.name}** para funcionar completo:\n${list}`).catch(() => {});
+      } catch (err) {
+        console.warn(`[Bot] No pude revisar permisos en "${guild.name}":`, err.message);
+      }
+    }
+  }
+
   client.once('ready', async c => {
     setTimeout(() => notifyExpiringKeys().catch(err => console.error('[Bot] Avisos de vencimiento:', err.message)), 30_000);
     setInterval(() => notifyExpiringKeys().catch(err => console.error('[Bot] Avisos de vencimiento:', err.message)), 10 * 60_000);
@@ -1329,6 +1421,7 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
     } catch (err) {
       console.error('[Bot] No se pudieron registrar los comandos:', err.message);
     }
+    await checkGuildPermissions(c);
   });
 
   // Bienvenida: a los nuevos miembros del servidor donde el creador (Premium Plus) la configuró con /welcome

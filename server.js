@@ -955,12 +955,37 @@ app.get('/api/me', requireAuth, (req, res) => {
 // ---------- Chat de la comunidad ----------
 const CHAT_MAX_CHARS = 500;
 const CHAT_COOLDOWN_MS = 2000;               // un mensaje cada 2 s por usuario
-// Palabras que no se permiten en el chat (en minúsculas). Edita esta lista a tu gusto.
-const CHAT_BLOCKED_WORDS = ['discord', 'scripts'];
+const CHAT_REACTIONS = ['👍', '❤️', '😂', '🔥', '😮', '😢'];
+const CHAT_SPAM_MUTE_S = 5 * 60;             // silencio automático por spam
+const CHAT_STREAM_MAX = 500;                 // conexiones en vivo a la vez
 // Enlaces: http(s)://, www. o dominios comunes (ej. algo.gg, algo.com)
 const CHAT_LINK_RE = /(https?:\/\/|www\.|\b[a-z0-9-]+\.(com|gg|net|org|io|me|xyz|ly|gl|cc|to|link|app|dev)\b)/i;
-const chatLastPost = new Map();
-const CHAT_SELECT = `SELECT c.id, c.user_id, c.text, c.created_at, u.username, u.avatar, u.custom_avatar, u.plan, u.staff_role
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS web_chat_words (word TEXT PRIMARY KEY);
+  CREATE TABLE IF NOT EXISTS web_chat_reactions (
+    message_id INTEGER NOT NULL, user_id TEXT NOT NULL, emoji TEXT NOT NULL,
+    PRIMARY KEY (message_id, user_id, emoji)
+  );
+  CREATE TABLE IF NOT EXISTS web_chat_reports (
+    message_id INTEGER NOT NULL, reporter_id TEXT NOT NULL, reason TEXT, created_at INTEGER,
+    PRIMARY KEY (message_id, reporter_id)
+  );
+`);
+if (!db.prepare("SELECT 1 FROM pragma_table_info('web_chat') WHERE name = 'reply_to'").get()) {
+  db.exec('ALTER TABLE web_chat ADD COLUMN reply_to INTEGER');
+}
+// Palabras bloqueadas: se siembra una vez; después se administran desde el chat
+if (!db.prepare('SELECT 1 FROM web_chat_words LIMIT 1').get()) {
+  db.prepare('INSERT OR IGNORE INTO web_chat_words (word) VALUES (?)').run('scripts');
+}
+
+const chatLastPost = new Map();   // usuario -> último envío (ms), para la espera entre mensajes
+const chatRecent = new Map();     // usuario -> envíos recientes ({ at, text }), para detectar spam
+const chatSeen = new Map();       // usuario -> última vez que estuvo en el chat (ms)
+const chatStreams = new Map();    // usuario -> conexiones en vivo (SSE)
+
+const CHAT_SELECT = `SELECT c.id, c.user_id, c.text, c.created_at, c.reply_to, u.username, u.avatar, u.custom_avatar, u.plan, u.staff_role
   FROM web_chat c LEFT JOIN users u ON u.id = c.user_id`;
 // Rol que se muestra: owner (DISCORD_OWNER_ID o asignado), admin (asignado), o el plan
 function roleOf(userId, plan, staffRole) {
@@ -970,37 +995,129 @@ function roleOf(userId, plan, staffRole) {
   if (plan === 'premium') return 'premium';
   return 'free';
 }
-const chatStmt = {
-  latest: db.prepare(`${CHAT_SELECT} ORDER BY c.id DESC LIMIT 60`),
-  newer: db.prepare(`${CHAT_SELECT} WHERE c.id > ? ORDER BY c.id ASC LIMIT 100`),
-  one: db.prepare(`${CHAT_SELECT} WHERE c.id = ?`),
-  insert: db.prepare('INSERT INTO web_chat (user_id, text, created_at) VALUES (?, ?, ?)'),
-};
-const chatView = r => ({
-  id: r.id,
-  user_id: r.user_id,
-  username: r.username || `ID ${r.user_id}`,
-  avatar: r.custom_avatar || (r.avatar ? `https://cdn.discordapp.com/avatars/${r.user_id}/${r.avatar}.png?size=64` : null),
-  role: roleOf(r.user_id, r.plan, r.staff_role),
-  text: r.text,
-  created_at: r.created_at,
-});
-
-// Mensajes nuevos (after = último id que ya tiene el cliente) o los últimos 60 si no hay after
-// Usuarios que leyeron el chat en los últimos 30 s (aprox. "en línea")
-const chatSeen = new Map();
 const canModerate = userId => {
   if (isOwnerId(userId)) return true;
   const staff = stmt.userById.get(userId)?.staff_role;
   return staff === 'admin' || staff === 'owner';
 };
+const chatStmt = {
+  latest: db.prepare(`${CHAT_SELECT} ORDER BY c.id DESC LIMIT 60`),
+  older: db.prepare(`${CHAT_SELECT} WHERE c.id < ? ORDER BY c.id DESC LIMIT ?`),
+  newer: db.prepare(`${CHAT_SELECT} WHERE c.id > ? ORDER BY c.id ASC LIMIT 100`),
+  one: db.prepare(`${CHAT_SELECT} WHERE c.id = ?`),
+  insert: db.prepare('INSERT INTO web_chat (user_id, text, created_at, reply_to) VALUES (?, ?, ?, ?)'),
+};
+
+// Usuarios que estuvieron en el chat en los últimos 30 s (aprox. "en línea")
+function onlineCount() {
+  const cut = Date.now() - 30_000;
+  for (const [id, t] of chatSeen) if (t < cut) chatSeen.delete(id);
+  return chatSeen.size;
+}
+
+// Mensaje tal como lo ve el cliente. viewerId decide las reacciones propias y si se ven los reportes.
+function decorateChat(rows, viewerId) {
+  if (!rows.length) return [];
+  const ids = rows.map(r => r.id);
+  const ph = ids.map(() => '?').join(',');
+  const reacts = db.prepare(`SELECT message_id, emoji, user_id FROM web_chat_reactions WHERE message_id IN (${ph})`).all(...ids);
+  const reportRows = canModerate(viewerId)
+    ? db.prepare(`SELECT message_id, COUNT(*) AS n FROM web_chat_reports WHERE message_id IN (${ph}) GROUP BY message_id`).all(...ids)
+    : [];
+  const replyIds = [...new Set(rows.map(r => r.reply_to).filter(Boolean))];
+  const replies = replyIds.length
+    ? db.prepare(`SELECT c.id, c.text, u.username FROM web_chat c LEFT JOIN users u ON u.id = c.user_id WHERE c.id IN (${replyIds.map(() => '?').join(',')})`).all(...replyIds)
+    : [];
+  const replyMap = new Map(replies.map(r => [r.id, r]));
+  const reportMap = new Map(reportRows.map(r => [r.message_id, r.n]));
+  const reactMap = new Map();
+  for (const x of reacts) {
+    const byEmoji = reactMap.get(x.message_id) ?? new Map();
+    byEmoji.set(x.emoji, [...(byEmoji.get(x.emoji) ?? []), x.user_id]);
+    reactMap.set(x.message_id, byEmoji);
+  }
+  return rows.map(r => {
+    const rep = r.reply_to ? replyMap.get(r.reply_to) : null;
+    return {
+      id: r.id,
+      user_id: r.user_id,
+      username: r.username || `ID ${r.user_id}`,
+      avatar: r.custom_avatar || (r.avatar ? `https://cdn.discordapp.com/avatars/${r.user_id}/${r.avatar}.png?size=64` : null),
+      role: roleOf(r.user_id, r.plan, r.staff_role),
+      text: r.text,
+      created_at: r.created_at,
+      reply: rep ? { id: rep.id, username: rep.username || 'usuario', text: String(rep.text).slice(0, 120) } : null,
+      reactions: CHAT_REACTIONS.map(emoji => {
+        const users = reactMap.get(r.id)?.get(emoji) ?? [];
+        return { emoji, count: users.length, mine: !!viewerId && users.includes(viewerId) };
+      }),
+      reports: reportMap.get(r.id) ?? 0,
+    };
+  });
+}
+
+function chatBroadcast(event, data) {
+  const payload = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
+  for (const set of chatStreams.values()) for (const res of set) res.write(payload);
+}
+
+function reactionCounts(messageId) {
+  const counts = {};
+  for (const r of db.prepare('SELECT emoji, COUNT(*) AS n FROM web_chat_reactions WHERE message_id = ? GROUP BY emoji').all(messageId)) {
+    counts[r.emoji] = r.n;
+  }
+  return counts;
+}
+
+const escapeRe = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+function blockedWordHit(text) {
+  const lowered = text.toLowerCase();
+  return db.prepare('SELECT word FROM web_chat_words').all()
+    .map(r => r.word)
+    .find(w => new RegExp(`(^|\\W)${escapeRe(w)}($|\\W)`).test(lowered)) ?? null;
+}
+
+// Mensajes: los últimos 60, los nuevos (after) o los anteriores (before)
 app.get('/api/chat', requireAuth, (req, res) => {
   const after = Number(req.query.after) || 0;
-  const rows = after > 0 ? chatStmt.newer.all(after) : chatStmt.latest.all().reverse();
-  const nowMs = Date.now();
-  chatSeen.set(req.userId, nowMs);
-  for (const [id, t] of chatSeen) if (nowMs - t > 30_000) chatSeen.delete(id);
-  res.json({ messages: rows.map(chatView), online: chatSeen.size, canModerate: canModerate(req.userId) });
+  const before = Number(req.query.before) || 0;
+  let rows;
+  if (after > 0) rows = chatStmt.newer.all(after);
+  else if (before > 0) rows = chatStmt.older.all(before, 50).reverse();
+  else rows = chatStmt.latest.all().reverse();
+  chatSeen.set(req.userId, Date.now());
+  res.json({
+    messages: decorateChat(rows, req.userId),
+    online: onlineCount(),
+    canModerate: canModerate(req.userId),
+    hasMore: rows.length === (before ? 50 : 60),
+  });
+});
+
+// Conexión en vivo: los mensajes, borrados, reacciones y reportes llegan al instante
+app.get('/api/chat/stream', requireAuth, (req, res) => {
+  let total = 0;
+  for (const set of chatStreams.values()) total += set.size;
+  if (total >= CHAT_STREAM_MAX) return res.status(503).end();
+
+  res.set({ 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache, no-transform', Connection: 'keep-alive', 'X-Accel-Buffering': 'no' });
+  res.flushHeaders();
+  const set = chatStreams.get(req.userId) ?? new Set();
+  set.add(res);
+  chatStreams.set(req.userId, set);
+  chatSeen.set(req.userId, Date.now());
+  res.write(`event: online\ndata: ${JSON.stringify({ online: onlineCount() })}\n\n`);
+
+  const ping = setInterval(() => {
+    chatSeen.set(req.userId, Date.now());
+    res.write(': ping\n\n');
+    chatBroadcast('online', { online: onlineCount() });
+  }, 25_000);
+  req.on('close', () => {
+    clearInterval(ping);
+    set.delete(res);
+    if (!set.size) chatStreams.delete(req.userId);
+  });
 });
 
 app.post('/api/chat', requireAuth, (req, res) => {
@@ -1008,29 +1125,105 @@ app.post('/api/chat', requireAuth, (req, res) => {
   if (!text) return res.status(400).json({ error: 'Escribe un mensaje' });
   if (text.length > CHAT_MAX_CHARS) return res.status(400).json({ error: `Máximo ${CHAT_MAX_CHARS} caracteres` });
   const mute = db.prepare('SELECT until FROM web_chat_mutes WHERE user_id = ?').get(req.userId);
-  if (mute && mute.until > Math.floor(Date.now() / 1000)) {
+  const nowS = Math.floor(Date.now() / 1000);
+  if (mute && mute.until > nowS) {
     const when = new Date(mute.until * 1000).toLocaleString('es-EC', { timeZone: 'America/Guayaquil' });
     return res.status(403).json({ error: `Estás silenciado en el chat hasta ${when}` });
   }
-  const lowered = text.toLowerCase();
-  if (CHAT_BLOCKED_WORDS.some(w => new RegExp(`(^|\\W)${w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}($|\\W)`).test(lowered))) {
-    return res.status(400).json({ error: 'Tu mensaje contiene palabras no permitidas' });
-  }
+  if (blockedWordHit(text)) return res.status(400).json({ error: 'Tu mensaje contiene palabras no permitidas' });
   if (CHAT_LINK_RE.test(text)) return res.status(400).json({ error: 'No se permiten enlaces en el chat' });
+
+  const nowMs = Date.now();
   const last = chatLastPost.get(req.userId) ?? 0;
-  if (Date.now() - last < CHAT_COOLDOWN_MS) return res.status(429).json({ error: 'Espera un momento antes de enviar otro mensaje' });
-  chatLastPost.set(req.userId, Date.now());
-  const info = chatStmt.insert.run(req.userId, text, Math.floor(Date.now() / 1000));
-  res.json({ message: chatView(chatStmt.one.get(info.lastInsertRowid)) });
+  if (nowMs - last < CHAT_COOLDOWN_MS) return res.status(429).json({ error: 'Espera un momento antes de enviar otro mensaje' });
+
+  // Spam: más de 6 mensajes en 10 s, o el mismo texto 3 veces en 1 minuto -> silencio de 5 min
+  const recent = (chatRecent.get(req.userId) ?? []).filter(t => nowMs - t.at < 60_000);
+  const burst = recent.filter(t => nowMs - t.at < 10_000).length;
+  const repeated = recent.filter(t => t.text === text).length;
+  if (burst >= 6 || repeated >= 2) {
+    db.prepare('INSERT OR REPLACE INTO web_chat_mutes (user_id, until) VALUES (?, ?)').run(req.userId, nowS + CHAT_SPAM_MUTE_S);
+    chatRecent.delete(req.userId);
+    return res.status(403).json({ error: 'Silenciado 5 minutos por spam' });
+  }
+  chatRecent.set(req.userId, [...recent, { at: nowMs, text }].slice(-20));
+  chatLastPost.set(req.userId, nowMs);
+
+  const replyTo = Number(req.body?.replyTo) || null;
+  if (replyTo && !chatStmt.one.get(replyTo)) return res.status(400).json({ error: 'El mensaje al que respondes ya no existe' });
+  const info = chatStmt.insert.run(req.userId, text, nowS, replyTo);
+  const [view] = decorateChat([chatStmt.one.get(info.lastInsertRowid)], null);
+  chatBroadcast('message', view);
+  res.json({ message: { ...view, reactions: view.reactions.map(r => ({ ...r, mine: false })) } });
 });
 
-// Borrar: cada usuario sus mensajes; el dueño puede borrar cualquiera (moderación)
+// Borrar: el dueño de cada mensaje, o admin/owner (moderación)
 app.delete('/api/chat/:id', requireAuth, (req, res) => {
   const id = Number(req.params.id);
   const row = db.prepare('SELECT user_id FROM web_chat WHERE id = ?').get(id);
   if (!row) return res.status(404).json({ error: 'Mensaje no encontrado' });
-  if (row.user_id !== req.userId && !isOwnerId(req.userId)) return res.status(403).json({ error: 'Solo puedes borrar tus mensajes' });
+  if (row.user_id !== req.userId && !canModerate(req.userId)) return res.status(403).json({ error: 'Solo puedes borrar tus mensajes' });
+  db.prepare('DELETE FROM web_chat_reactions WHERE message_id = ?').run(id);
+  db.prepare('DELETE FROM web_chat_reports WHERE message_id = ?').run(id);
   db.prepare('DELETE FROM web_chat WHERE id = ?').run(id);
+  chatBroadcast('delete', { id });
+  res.json({ ok: true });
+});
+
+// Reacción: agrega o quita tu emoji en el mensaje
+app.post('/api/chat/:id/react', requireAuth, (req, res) => {
+  const id = Number(req.params.id);
+  const emoji = String(req.body?.emoji ?? '');
+  if (!CHAT_REACTIONS.includes(emoji)) return res.status(400).json({ error: 'Reacción no permitida' });
+  if (!chatStmt.one.get(id)) return res.status(404).json({ error: 'Mensaje no encontrado' });
+  const has = db.prepare('SELECT 1 FROM web_chat_reactions WHERE message_id = ? AND user_id = ? AND emoji = ?').get(id, req.userId, emoji);
+  if (has) db.prepare('DELETE FROM web_chat_reactions WHERE message_id = ? AND user_id = ? AND emoji = ?').run(id, req.userId, emoji);
+  else db.prepare('INSERT INTO web_chat_reactions (message_id, user_id, emoji) VALUES (?, ?, ?)').run(id, req.userId, emoji);
+  const counts = reactionCounts(id);
+  chatBroadcast('reactions', { messageId: id, counts });
+  const mine = db.prepare('SELECT emoji FROM web_chat_reactions WHERE message_id = ? AND user_id = ?').all(id, req.userId).map(r => r.emoji);
+  res.json({ counts, mine });
+});
+
+// Reporte: cada usuario puede reportar un mensaje una vez; el staff ve el contador
+app.post('/api/chat/:id/report', requireAuth, (req, res) => {
+  const id = Number(req.params.id);
+  const row = chatStmt.one.get(id);
+  if (!row) return res.status(404).json({ error: 'Mensaje no encontrado' });
+  if (row.user_id === req.userId) return res.status(400).json({ error: 'No puedes reportar tu propio mensaje' });
+  const reason = String(req.body?.reason ?? '').trim().slice(0, 200) || 'Sin motivo';
+  const info = db.prepare('INSERT OR IGNORE INTO web_chat_reports (message_id, reporter_id, reason, created_at) VALUES (?, ?, ?, ?)')
+    .run(id, req.userId, reason, Math.floor(Date.now() / 1000));
+  if (!info.changes) return res.status(409).json({ error: 'Ya reportaste este mensaje' });
+  const count = db.prepare('SELECT COUNT(*) AS n FROM web_chat_reports WHERE message_id = ?').get(id).n;
+  chatBroadcast('reports', { messageId: id, count });
+  res.json({ ok: true });
+});
+
+// Descartar los reportes de un mensaje (staff)
+app.delete('/api/chat/:id/reports', requireAuth, (req, res) => {
+  if (!canModerate(req.userId)) return res.status(403).json({ error: 'Solo admin u owner pueden hacer esto' });
+  const id = Number(req.params.id);
+  db.prepare('DELETE FROM web_chat_reports WHERE message_id = ?').run(id);
+  chatBroadcast('reports', { messageId: id, count: 0 });
+  res.json({ ok: true });
+});
+
+// Palabras bloqueadas (staff)
+app.get('/api/chat/words', requireAuth, (req, res) => {
+  if (!canModerate(req.userId)) return res.status(403).json({ error: 'Solo admin u owner' });
+  res.json({ words: db.prepare('SELECT word FROM web_chat_words ORDER BY word').all().map(r => r.word) });
+});
+app.post('/api/chat/words', requireAuth, (req, res) => {
+  if (!canModerate(req.userId)) return res.status(403).json({ error: 'Solo admin u owner' });
+  const word = String(req.body?.word ?? '').trim().toLowerCase().slice(0, 40);
+  if (word.length < 2) return res.status(400).json({ error: 'La palabra debe tener al menos 2 caracteres' });
+  db.prepare('INSERT OR IGNORE INTO web_chat_words (word) VALUES (?)').run(word);
+  res.json({ ok: true });
+});
+app.delete('/api/chat/words/:word', requireAuth, (req, res) => {
+  if (!canModerate(req.userId)) return res.status(403).json({ error: 'Solo admin u owner' });
+  db.prepare('DELETE FROM web_chat_words WHERE word = ?').run(String(req.params.word).toLowerCase());
   res.json({ ok: true });
 });
 

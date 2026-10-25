@@ -103,6 +103,30 @@
   .chat-form { display: flex; gap: 10px; padding: 12px; border-top: 1px solid rgba(127, 127, 127, .2); }
   .chat-form .field { flex: 1; min-width: 0; }
   .chat-empty { margin: auto; color: var(--text-soft); font-size: 14px; text-align: center; }
+  .chat-top { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding-right: 12px; }
+  .chat-top .chat-online { flex: 1; }
+  .chat-words { margin: 0 12px; padding: 12px; border: 1px solid rgba(127, 127, 127, .2); border-radius: 10px; display: flex; flex-direction: column; gap: 10px; }
+  .chat-words-form { display: flex; gap: 8px; }
+  .chat-words-form .field { flex: 1; min-width: 0; }
+  .chat-words-list { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chat-word { font-size: 12px; padding: 3px 8px; border-radius: 999px; background: rgba(127, 127, 127, .15); }
+  .chat-word button { background: none; border: 0; color: var(--text-soft); cursor: pointer; padding: 0 0 0 4px; }
+  .chat-more { align-self: center; background: none; border: 1px solid rgba(127, 127, 127, .3); color: var(--text-soft); border-radius: 999px; padding: 4px 12px; cursor: pointer; font-size: 12px; }
+  .chat-msg.grouped { margin-top: -8px; }
+  .chat-msg.grouped .chat-av { width: 34px; }
+  .chat-bubble.mention { box-shadow: inset 3px 0 0 #faa61a; }
+  .chat-quote { font-size: 12px; color: var(--text-soft); border-left: 2px solid rgba(127, 127, 127, .4); padding: 2px 8px; margin: 2px 0 4px; overflow-wrap: anywhere; }
+  .chat-foot { display: flex; align-items: center; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+  .chat-react { background: rgba(127, 127, 127, .12); border: 1px solid transparent; border-radius: 999px; padding: 1px 8px; font-size: 12px; cursor: pointer; color: var(--text); }
+  .chat-react.on { border-color: #5865f2; background: rgba(88, 101, 242, .2); }
+  .chat-react.add { color: var(--text-soft); }
+  .chat-picker { display: inline-flex; gap: 2px; padding: 2px 4px; border-radius: 999px; background: rgba(127, 127, 127, .15); }
+  .chat-picker button { background: none; border: 0; cursor: pointer; font-size: 15px; padding: 0 3px; }
+  .chat-reply, .chat-report { background: none; border: 0; color: var(--text-soft); cursor: pointer; font-size: 13px; padding: 0 4px; }
+  .chat-flag { background: none; border: 1px solid rgba(240, 71, 71, .5); color: #f04747; border-radius: 999px; padding: 0 8px; font-size: 12px; cursor: pointer; margin-left: 4px; }
+  .chat-replying { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 12px; font-size: 12px; color: var(--text-soft); border-top: 1px solid rgba(127, 127, 127, .2); }
+  .chat-replying button { background: none; border: 0; color: var(--text-soft); cursor: pointer; }
+  .chat-newpill { align-self: center; margin: 6px 0;  background: #5865f2; color: #fff; border: 0; border-radius: 999px; padding: 4px 12px; font-size: 12px; cursor: pointer; box-shadow: 0 2px 8px rgba(0, 0, 0, .25); }
   .view.active { display: flex; animation: fadeIn .3s ease; }
   @keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
 
@@ -627,8 +651,14 @@
 
       <section class="view" data-view="chat">
         <article class="card chat-card">
-          <div class="chat-online" id="chatOnline"></div>
+          <div class="chat-top">
+            <div class="chat-online" id="chatOnline"></div>
+            <button class="btn ghost sm" id="chatWordsBtn" type="button" hidden>⚙️ Palabras</button>
+          </div>
+          <div class="chat-words" id="chatWords" hidden></div>
           <div class="chat-list" id="chatList" aria-live="polite"><div class="chat-empty">Cargando mensajes…</div></div>
+          <button class="chat-newpill" id="chatNew" type="button" hidden>⬇ Nuevos mensajes</button>
+          <div class="chat-replying" id="chatReplying" hidden><span id="chatReplyingText"></span><button type="button" id="chatReplyCancel" aria-label="Cancelar respuesta">✕</button></div>
           <form class="chat-form" id="chatForm" autocomplete="off">
             <input id="chatInput" class="field" type="text" maxlength="500" placeholder="Escribe un mensaje…" aria-label="Mensaje">
             <button type="submit" class="btn" id="chatSend">Enviar</button>
@@ -1575,8 +1605,13 @@
 
   // ---------- CHAT DE LA COMUNIDAD ----------
   let chatMessages = [];
-  let chatTimer = null;
+  let chatES = null;            // conexión en vivo (SSE)
+  let chatPollTimer = null;     // respaldo si la conexión en vivo no funciona
+  let chatReplyTo = null;       // { id, name } del mensaje al que se responde
+  let chatHasMore = false;
+  let chatPickerFor = null;     // id del mensaje con el selector de reacciones abierto
   let canModerateChat = false;
+  const CHAT_REACTION_EMOJIS = ['👍', '❤️', '😂', '🔥', '😮', '😢'];
   // Colores y nombre de cada rol en el chat
   const ROLE_STYLE = {
     owner:   { label: 'Owner',        color: '#ff5c7a' },
@@ -1588,40 +1623,80 @@
   const chatAvatar = m => m.avatar
     ? `<img src="${esc(m.avatar)}" alt="" referrerpolicy="no-referrer">`
     : esc((m.username || '?').charAt(0).toUpperCase());
+  const chatTime = ts => new Date(ts * 1000).toLocaleTimeString('es-EC', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Guayaquil' });
+  // Te mencionan si aparece @tuNombre (sin distinguir mayúsculas)
+  const chatMentionsMe = text => {
+    if (!user?.username) return false;
+    const name = user.username.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    return new RegExp(`@${name}(?!\\w)`, 'i').test(String(text));
+  };
+  const chatAtBottom = list => list.scrollHeight - list.scrollTop - list.clientHeight < 60;
 
   function renderChat(scrollToEnd) {
     const list = $('chatList');
-    const atBottom = list.scrollHeight - list.scrollTop - list.clientHeight < 60;
+    const wasAtBottom = chatAtBottom(list);
     if (!chatMessages.length) {
       list.innerHTML = '<div class="chat-empty">Todavía no hay mensajes. ¡Escribe el primero!</div>';
       return;
     }
-    list.innerHTML = chatMessages.map(m => {
+    const more = chatHasMore ? '<button class="chat-more" id="chatMore" type="button">Cargar mensajes anteriores</button>' : '';
+    let prev = null;
+    list.innerHTML = more + chatMessages.map(m => {
       const mine = !!user && m.user_id === user.id;
-      const canDelete = mine || !!(user && user.owner);
+      const canDelete = mine || canModerateChat;
       const canMute = canModerateChat && !mine;
       const rs = ROLE_STYLE[m.role] || ROLE_STYLE.free;
-      const time = new Date(m.created_at * 1000).toLocaleTimeString('es-EC', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Guayaquil' });
-      return `<div class="chat-msg${mine ? ' mine' : ''}">
-        <div class="chat-av">${chatAvatar(m)}</div>
-        <div class="chat-bubble" style="flex:1;min-width:0">
-          <div class="chat-head"><b style="color:${rs.color}">${esc(m.username)}</b><span class="chat-badge" style="color:${rs.color}">${rs.label}</span><span>${time}</span><span class="chat-tools">${canMute ? `<button class="chat-mod" data-mute="${esc(m.user_id)}" data-name="${esc(m.username)}" title="Silenciar" aria-label="Silenciar">🔇</button>` : ''}${canDelete ? `<button class="chat-del" data-del="${m.id}" title="Borrar mensaje" aria-label="Borrar mensaje">✕</button>` : ''}</span></div>
+      // Mensajes seguidos del mismo usuario (sin respuesta y con menos de 5 min): se agrupan
+      const grouped = !!prev && prev.user_id === m.user_id && !m.reply && (m.created_at - prev.created_at) < 300;
+      prev = m;
+      const mention = !mine && chatMentionsMe(m.text);
+      const chips = (m.reactions || []).filter(r => r.count > 0).map(r =>
+        `<button class="chat-react${r.mine ? ' on' : ''}" data-react="${m.id}" data-emoji="${esc(r.emoji)}" type="button">${esc(r.emoji)} ${r.count}</button>`).join('');
+      const picker = chatPickerFor === m.id
+        ? `<span class="chat-picker">${CHAT_REACTION_EMOJIS.map(e => `<button type="button" data-react="${m.id}" data-emoji="${e}">${e}</button>`).join('')}</span>`
+        : '';
+      const flag = canModerateChat && m.reports ? `<button class="chat-flag" data-clear-reports="${m.id}" type="button" title="Descartar reportes">🚩 ${m.reports}</button>` : '';
+      return `<div class="chat-msg${mine ? ' mine' : ''}${grouped ? ' grouped' : ''}" data-id="${m.id}">
+        <div class="chat-av">${grouped ? '' : chatAvatar(m)}</div>
+        <div class="chat-bubble${mention ? ' mention' : ''}" style="flex:1;min-width:0">
+          ${grouped ? '' : `<div class="chat-head"><b style="color:${rs.color}">${esc(m.username)}</b><span class="chat-badge" style="color:${rs.color}">${rs.label}</span><span>${chatTime(m.created_at)}</span></div>`}
+          ${m.reply ? `<div class="chat-quote">↪ <b>${esc(m.reply.username)}</b>: ${esc(m.reply.text)}</div>` : ''}
           <div class="chat-text">${esc(m.text)}</div>
+          <div class="chat-foot">
+            ${chips}
+            <button class="chat-react add" data-picker="${m.id}" type="button" title="Reaccionar">＋</button>${picker}
+            <span class="chat-tools">
+              <button class="chat-reply" data-reply="${m.id}" data-name="${esc(m.username)}" type="button" title="Responder">↩</button>
+              ${!mine ? `<button class="chat-report" data-report="${m.id}" type="button" title="Reportar">⚑</button>` : ''}
+              ${canMute ? `<button class="chat-mod" data-mute="${esc(m.user_id)}" data-name="${esc(m.username)}" type="button" title="Silenciar">🔇</button>` : ''}
+              ${canDelete ? `<button class="chat-del" data-del="${m.id}" type="button" title="Borrar">🗑</button>` : ''}
+            </span>
+            ${flag}
+          </div>
         </div>
       </div>`;
     }).join('');
-    if (scrollToEnd || atBottom) list.scrollTop = list.scrollHeight;
+    if (scrollToEnd || wasAtBottom) list.scrollTop = list.scrollHeight;
+    $('chatNew').hidden = chatAtBottom(list);
   }
 
-  // Primera carga: últimos mensajes. Después solo pide los nuevos (after = último id)
+  // Agrega un mensaje nuevo (sin duplicar el que ya llegó por la conexión en vivo)
+  function upsertChatMessage(m, scrollToEnd = false) {
+    if (chatMessages.some(x => x.id === m.id)) return;
+    chatMessages = chatMessages.concat([m]).slice(-300);
+    renderChat(scrollToEnd);
+  }
+
+  // Primera carga: últimos mensajes. Después pide solo los nuevos (after = último id)
   async function loadChat({ scrollToEnd = false } = {}) {
     try {
       const last = chatMessages.length ? chatMessages[chatMessages.length - 1].id : 0;
       const data = await api(`/api/chat${last ? `?after=${last}` : ''}`);
       canModerateChat = !!data.canModerate;
       $('chatOnline').textContent = `🟢 ${data.online} en línea`;
-      if (!last) chatMessages = data.messages;
-      else if (data.messages.length) chatMessages = chatMessages.concat(data.messages).slice(-200);
+      $('chatWordsBtn').hidden = !canModerateChat;
+      if (!last) { chatMessages = data.messages; chatHasMore = data.hasMore; }
+      else if (data.messages.length) chatMessages = chatMessages.concat(data.messages).slice(-300);
       else return;
       renderChat(scrollToEnd || !last);
     } catch (err) {
@@ -1629,14 +1704,97 @@
     }
   }
 
+  async function loadOlderChat() {
+    const oldest = chatMessages[0];
+    if (!oldest) return;
+    const list = $('chatList');
+    const before = list.scrollHeight;
+    try {
+      const data = await api(`/api/chat?before=${oldest.id}`);
+      chatMessages = data.messages.concat(chatMessages);
+      chatHasMore = data.hasMore;
+      renderChat(false);
+      list.scrollTop += list.scrollHeight - before; // conserva la posición de lectura
+    } catch (err) {
+      toast(err.message, 'error');
+    }
+  }
+
+  // Conexión en vivo: si falla, pasa a consultar cada 4 s
+  function connectChatStream() {
+    if (chatES || !window.EventSource) return false;
+    const es = new EventSource('/api/chat/stream');
+    chatES = es;
+    const parse = e => JSON.parse(e.data);
+    es.addEventListener('message', e => {
+      const m = parse(e);
+      upsertChatMessage(m, m.user_id === user?.id);
+    });
+    es.addEventListener('delete', e => {
+      const { id } = parse(e);
+      chatMessages = chatMessages.filter(m => m.id !== id);
+      renderChat(false);
+    });
+    es.addEventListener('reactions', e => {
+      const { messageId, counts } = parse(e);
+      const m = chatMessages.find(x => x.id === messageId);
+      if (!m) return;
+      const mineNow = new Set((m.reactions || []).filter(r => r.mine).map(r => r.emoji));
+      m.reactions = CHAT_REACTION_EMOJIS.map(emoji => ({ emoji, count: counts[emoji] || 0, mine: mineNow.has(emoji) }));
+      renderChat(false);
+    });
+    es.addEventListener('reports', e => {
+      const { messageId, count } = parse(e);
+      const m = chatMessages.find(x => x.id === messageId);
+      if (!m) return;
+      m.reports = count;
+      renderChat(false);
+    });
+    es.addEventListener('online', e => { $('chatOnline').textContent = `🟢 ${parse(e).online} en línea`; });
+    es.onerror = () => {
+      es.close();
+      chatES = null;
+      startChatFallback();
+    };
+    return true;
+  }
+
+  function startChatFallback() {
+    if (chatPollTimer) return;
+    chatPollTimer = setInterval(() => { if (!document.hidden) loadChat(); }, 4000);
+  }
+
   function startChatPolling() {
     stopChatPolling();
-    loadChat({ scrollToEnd: true });
-    chatTimer = setInterval(() => { if (!document.hidden) loadChat(); }, 4000);
+    loadChat({ scrollToEnd: true }).then(() => {
+      if (!connectChatStream()) startChatFallback();
+    });
   }
   function stopChatPolling() {
-    if (chatTimer) { clearInterval(chatTimer); chatTimer = null; }
+    if (chatES) { chatES.close(); chatES = null; }
+    if (chatPollTimer) { clearInterval(chatPollTimer); chatPollTimer = null; }
   }
+
+  function setChatReply(id, name) {
+    chatReplyTo = { id: Number(id), name };
+    $('chatReplyingText').textContent = `Respondiendo a ${name}`;
+    $('chatReplying').hidden = false;
+    $('chatInput').focus();
+  }
+  function clearChatReply() {
+    chatReplyTo = null;
+    $('chatReplying').hidden = true;
+  }
+  $('chatReplyCancel').addEventListener('click', clearChatReply);
+  $('chatNew').addEventListener('click', () => {
+    const list = $('chatList');
+    list.scrollTop = list.scrollHeight;
+    $('chatNew').hidden = true;
+  });
+  $('chatList').addEventListener('scroll', () => {
+    const list = $('chatList');
+    if (chatAtBottom(list)) $('chatNew').hidden = true;
+  });
 
   $('chatForm').addEventListener('submit', async e => {
     e.preventDefault();
@@ -1645,10 +1803,10 @@
     if (!text) return;
     $('chatSend').disabled = true;
     try {
-      const data = await api('/api/chat', { method: 'POST', body: JSON.stringify({ text }) });
+      const data = await api('/api/chat', { method: 'POST', body: JSON.stringify({ text, replyTo: chatReplyTo?.id ?? null }) });
       input.value = '';
-      chatMessages = chatMessages.concat([data.message]).slice(-200);
-      renderChat(true);
+      clearChatReply();
+      upsertChatMessage(data.message, true);
     } catch (err) {
       toast(err.message, 'error');
     } finally {
@@ -1658,6 +1816,51 @@
   });
 
   $('chatList').addEventListener('click', async e => {
+    if (e.target.closest('#chatMore')) return loadOlderChat();
+
+    const react = e.target.closest('[data-react]');
+    if (react) {
+      try {
+        const data = await api(`/api/chat/${react.dataset.react}/react`, { method: 'POST', body: JSON.stringify({ emoji: react.dataset.emoji }) });
+        const m = chatMessages.find(x => String(x.id) === react.dataset.react);
+        if (m) m.reactions = CHAT_REACTION_EMOJIS.map(emoji => ({ emoji, count: data.counts[emoji] || 0, mine: data.mine.includes(emoji) }));
+        chatPickerFor = null;
+        renderChat(false);
+      } catch (err) { toast(err.message, 'error'); }
+      return;
+    }
+    const picker = e.target.closest('[data-picker]');
+    if (picker) {
+      const id = Number(picker.dataset.picker);
+      chatPickerFor = chatPickerFor === id ? null : id;
+      renderChat(false);
+      return;
+    }
+    const reply = e.target.closest('[data-reply]');
+    if (reply) return setChatReply(reply.dataset.reply, reply.dataset.name);
+
+    const report = e.target.closest('[data-report]');
+    if (report) {
+      const reason = prompt('¿Por qué reportas este mensaje? (opcional)', '');
+      if (reason === null) return;
+      try {
+        await api(`/api/chat/${report.dataset.report}/report`, { method: 'POST', body: JSON.stringify({ reason }) });
+        toast('Reporte enviado. Gracias.');
+      } catch (err) { toast(err.message, 'error'); }
+      return;
+    }
+    const clear = e.target.closest('[data-clear-reports]');
+    if (clear) {
+      if (!confirm('¿Descartar los reportes de este mensaje?')) return;
+      try {
+        await api(`/api/chat/${clear.dataset.clearReports}/reports`, { method: 'DELETE' });
+        const m = chatMessages.find(x => String(x.id) === clear.dataset.clearReports);
+        if (m) m.reports = 0;
+        renderChat(false);
+      } catch (err) { toast(err.message, 'error'); }
+      return;
+    }
+
     const mute = e.target.closest('[data-mute]');
     if (mute) {
       const minutes = prompt(`Minutos de silencio para ${mute.dataset.name} (0 para quitarlo)`, '10');
@@ -1677,6 +1880,47 @@
       renderChat(false);
     } catch (err) {
       toast(err.message, 'error');
+    }
+  });
+
+  // Palabras bloqueadas (solo staff)
+  async function renderChatWords() {
+    const box = $('chatWords');
+    try {
+      const data = await api('/api/chat/words');
+      box.innerHTML = `
+        <div class="chat-words-form">
+          <input id="chatWordInput" class="field" type="text" maxlength="40" placeholder="Nueva palabra bloqueada" aria-label="Nueva palabra">
+          <button class="btn sm" id="chatWordAdd" type="button">Agregar</button>
+        </div>
+        <div class="chat-words-list">${data.words.length
+          ? data.words.map(w => `<span class="chat-word">${esc(w)} <button type="button" data-word="${esc(w)}" aria-label="Quitar ${esc(w)}">✕</button></span>`).join('')
+          : '<span class="muted">No hay palabras bloqueadas.</span>'}</div>`;
+    } catch (err) {
+      box.innerHTML = `<span class="muted">${esc(err.message)}</span>`;
+    }
+  }
+  $('chatWordsBtn').addEventListener('click', () => {
+    const box = $('chatWords');
+    box.hidden = !box.hidden;
+    if (!box.hidden) renderChatWords();
+  });
+  $('chatWords').addEventListener('click', async e => {
+    if (e.target.closest('#chatWordAdd')) {
+      const word = $('chatWordInput').value.trim();
+      if (!word) return;
+      try {
+        await api('/api/chat/words', { method: 'POST', body: JSON.stringify({ word }) });
+        renderChatWords();
+      } catch (err) { toast(err.message, 'error'); }
+      return;
+    }
+    const rm = e.target.closest('[data-word]');
+    if (rm) {
+      try {
+        await api(`/api/chat/words/${encodeURIComponent(rm.dataset.word)}`, { method: 'DELETE' });
+        renderChatWords();
+      } catch (err) { toast(err.message, 'error'); }
     }
   });
 

@@ -196,6 +196,8 @@ db.exec(`
   // Avisos por compartir la key (y último aviso, para no contar reintentos del loader)
   if (!db.prepare("SELECT 1 FROM pragma_table_info('keys') WHERE name = 'share_strikes'").get()) db.exec('ALTER TABLE keys ADD COLUMN share_strikes INTEGER DEFAULT 0');
   if (!db.prepare("SELECT 1 FROM pragma_table_info('keys') WHERE name = 'share_last_at'").get()) db.exec('ALTER TABLE keys ADD COLUMN share_last_at INTEGER');
+  // Equipo que intentó usar la key por última vez (el dueño puede permitirlo desde el log)
+  if (!db.prepare("SELECT 1 FROM pragma_table_info('keys') WHERE name = 'pending_hwid'").get()) db.exec('ALTER TABLE keys ADD COLUMN pending_hwid TEXT');
   // Último HWID vinculado: sobrevive al reinicio de HWID, para detectar compartidas aunque se reinicie
   if (!db.prepare("SELECT 1 FROM pragma_table_info('keys') WHERE name = 'last_hwid'").get()) {
     db.exec('ALTER TABLE keys ADD COLUMN last_hwid TEXT');
@@ -213,6 +215,8 @@ db.exec(`
   // source = código original (nunca se envía al cliente); content = lo que se sirve al loader
   if (!cols.includes('source')) db.exec('ALTER TABLE scripts ADD COLUMN source TEXT');
   if (!cols.includes('hwid_reset_hours')) db.exec('ALTER TABLE scripts ADD COLUMN hwid_reset_hours INTEGER DEFAULT 24');
+  // Detección de keys compartidas (1 = activa)
+  if (!cols.includes('share_detection')) db.exec('ALTER TABLE scripts ADD COLUMN share_detection INTEGER DEFAULT 1');
 
   // Columnas de keys para el bot y el control de HWID
   const keyCols = db.prepare('PRAGMA table_info(keys)').all().map(c => c.name);
@@ -296,11 +300,11 @@ const stmt = {
   `),
   scriptOwned: db.prepare('SELECT * FROM scripts WHERE id = ? AND user_id = ?'),
   scriptInsert: db.prepare(`
-    INSERT INTO scripts (user_id, name, slug, ffa, obfuscator, source, content, hwid_reset_hours)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO scripts (user_id, name, slug, ffa, obfuscator, source, content, hwid_reset_hours, share_detection)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
   `),
   scriptUpdate: db.prepare(`
-    UPDATE scripts SET name = ?, ffa = ?, obfuscator = ?, source = ?, content = ?, hwid_reset_hours = ?
+    UPDATE scripts SET name = ?, ffa = ?, obfuscator = ?, source = ?, content = ?, hwid_reset_hours = ?, share_detection = ?
     WHERE id = ? AND user_id = ?
   `),
   keysByUser: db.prepare(`
@@ -385,7 +389,7 @@ const luauUsedStmt = db.prepare('SELECT n FROM luau_usage WHERE user_id = ? AND 
 const luauBumpStmt = db.prepare('INSERT INTO luau_usage (user_id, day, n) VALUES (?, ?, 1) ON CONFLICT(user_id, day) DO UPDATE SET n = n + 1');
 const luauUsedToday = userId => luauUsedStmt.get(userId, luauDay())?.n ?? 0;
 
-function validateScriptInput({ name, ffa, obfuscator, code, hwidResetHours }, current = null) {
+function validateScriptInput({ name, ffa, obfuscator, code, hwidResetHours, shareDetection }, current = null) {
   const cleanName = name === undefined ? current?.name : String(name).trim();
   if (!cleanName || cleanName.length > 60) return { error: 'Nombre inválido (1 a 60 caracteres)' };
 
@@ -399,9 +403,10 @@ function validateScriptInput({ name, ffa, obfuscator, code, hwidResetHours }, cu
   if (Buffer.byteLength(source) > MAX_CODE_BYTES) return { error: 'El código supera 2 MB' };
 
   const hwid = hwidResetHours === undefined ? (current?.hwid_reset_hours ?? 24) : Number(hwidResetHours);
+  const share = shareDetection === undefined ? (current?.share_detection ?? 1) : (shareDetection ? 1 : 0);
   if (!HWID_RESET_OPTIONS.includes(hwid)) return { error: 'Intervalo de reinicio de HWID inválido' };
 
-  return { name: cleanName, isFfa, obfuscator: obf, source, hwidResetHours: hwid };
+  return { name: cleanName, isFfa, obfuscator: obf, source, hwidResetHours: hwid, shareDetection: share };
 }
 
 // ==========================================
@@ -870,6 +875,8 @@ app.get('/scripts/hosted/:slug/payload', loaderLimit, (req, res) => {
 // 1.er aviso: privado al dueño de la key. 2.º: aviso fuerte. 3.er: la key se elimina y el usuario queda bloqueado en ese script.
 const SHARE_COOLDOWN_S = 600;
 function reportKeyShare(script, k, hwid, reply) {
+  db.prepare('UPDATE keys SET pending_hwid = ? WHERE key = ?').run(hwid, k.key);
+  if (script.share_detection === 0) return reply('HWID_MISMATCH');
   const nowS = Math.floor(Date.now() / 1000);
   const boundHwid = k.hwid || k.last_hwid;
   const row = db.prepare(`UPDATE keys SET share_strikes = COALESCE(share_strikes, 0) + 1, share_last_at = ?
@@ -915,7 +922,7 @@ app.get('/scripts/hosted/:slug/auth', loaderLimit, (req, res) => {
   if (!hwid) return reply('VERIFY_FAILED');
   if (scriptBanned(script.id, 'hwid', hwid)) return reply('BLACKLISTED');
   // Tras reiniciar el HWID la key queda sin equipo: si el HWID nuevo no es el último vinculado, cuenta como compartida
-  if (!k.hwid && k.last_hwid && k.last_hwid !== hwid) return reportKeyShare(script, k, hwid, reply);
+  if (!k.hwid && k.last_hwid && k.last_hwid !== hwid && script.share_detection !== 0) return reportKeyShare(script, k, hwid, reply);
   if (!k.hwid) db.prepare('UPDATE keys SET hwid = ?, last_hwid = ? WHERE key = ?').run(hwid, hwid, key);
   else if (k.hwid !== hwid) return reportKeyShare(script, k, hwid, reply);
   const run = db.prepare('UPDATE keys SET last_ip = ?, exec_count = COALESCE(exec_count, 0) + 1 WHERE key = ? RETURNING exec_count')
@@ -1329,7 +1336,7 @@ app.post('/api/scripts', requireAuth, async (req, res) => {
     const content = input.obfuscator === 'none' ? input.source : await obfuscate(input.source, input.obfuscator);
     const info = stmt.scriptInsert.run(
       req.userId, input.name, uniqueSlug(input.name), input.isFfa ? 1 : 0,
-      input.obfuscator, input.source, content, input.hwidResetHours,
+      input.obfuscator, input.source, content, input.hwidResetHours, input.shareDetection,
     );
     if (!input.isFfa) stmt.obfIncrement.run(req.userId);
     if (input.obfuscator === 'luau') luauBumpStmt.run(req.userId, luauDay());
@@ -1371,7 +1378,7 @@ app.put('/api/scripts/:id', requireAuth, async (req, res) => {
   try {
     const content = input.obfuscator === 'none' ? input.source : await obfuscate(input.source, input.obfuscator);
     stmt.scriptUpdate.run(
-      input.name, input.isFfa ? 1 : 0, input.obfuscator, input.source, content, input.hwidResetHours,
+      input.name, input.isFfa ? 1 : 0, input.obfuscator, input.source, content, input.hwidResetHours, input.shareDetection,
       script.id, req.userId,
     );
     if (!input.isFfa) stmt.obfIncrement.run(req.userId);

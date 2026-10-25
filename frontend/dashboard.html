@@ -1056,6 +1056,10 @@
           }).join('')}
         </select>
         <div class="hint">Cada cuánto puede reiniciar su HWID un comprador. Si lo desactivas, el botón Reset HWID del panel queda gris. El creador siempre puede usar /resethwid. "Desactivado" es solo para Premium y Premium Plus.</div>
+        <label style="display:flex;gap:10px;align-items:flex-start;margin-top:12px;cursor:pointer">
+          <input type="checkbox" name="shareDetection" ${(s.share_detection ?? 1) !== 0 ? 'checked' : ''} style="margin-top:3px">
+          <span><b>Detectar keys compartidas</b><small style="display:block;color:var(--text-soft)">A la 1.ª vez que se use desde otro equipo, avisa al dueño de la key. A la 2.ª, avisa con más fuerza. A la 3.ª, elimina la key y bloquea al usuario en este script.</small></span>
+        </label>
       </div>`;
   }
 
@@ -1185,6 +1189,7 @@
       // El ofuscador solo aplica a scripts protegidos
       obfuscator: protection === 'protected' ? obfuscator : null,
       hwidResetHours: Number(fd.get('hwidReset') ?? 24),
+      shareDetection: fd.get('shareDetection') === 'on',
     };
     if (code.trim()) body.code = code;
 

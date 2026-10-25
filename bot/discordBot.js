@@ -1213,15 +1213,24 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
     }
   }
 
-  // Botón del log de compartidas: elimina la key (creador del script, staff o dueño de la plataforma)
-  async function handleDeleteKeyButton(interaction, key) {
+  // Botones del log de compartidas: eliminar la key, o permitir el equipo que la intentó usar
+  async function handleKeyLogButton(interaction, action, key) {
     const ephemeral = { flags: MessageFlags.Ephemeral };
     const row = db.prepare('SELECT s.user_id FROM keys k JOIN scripts s ON s.id = k.script_id WHERE k.key = ?').get(key);
     if (!row) return interaction.reply({ content: 'Esta key ya no existe.', ...ephemeral });
     const actor = interaction.user.id;
     const allowed = row.user_id === actor || isPlatformOwner(actor)
       || (interaction.inGuild() && await isStaffOf(interaction.guild, actor));
-    if (!allowed) return interaction.reply({ content: '⛔ Solo el creador del script o el staff puede eliminar esta key.', ...ephemeral });
+    if (!allowed) return interaction.reply({ content: '⛔ Solo el creador del script o el staff puede usar estos botones.', ...ephemeral });
+
+    if (action === 'allowkey') {
+      // Vincula el equipo que intentó usarla; no cuenta como aviso
+      const res = db.prepare('UPDATE keys SET hwid = pending_hwid, last_hwid = pending_hwid, pending_hwid = NULL WHERE key = ? AND pending_hwid IS NOT NULL').run(key);
+      if (!res.changes) return interaction.reply({ content: 'No hay un equipo pendiente para esta key.', ...ephemeral });
+      await interaction.update({ components: [] }).catch(() => {});
+      return interaction.followUp({ content: '✅ Acceso permitido: ese equipo quedó vinculado a la key.', ...ephemeral });
+    }
+
     db.prepare('DELETE FROM keys WHERE key = ?').run(key);
     await interaction.update({ components: [] }).catch(() => {});
     return interaction.followUp({ content: '🗑️ Key eliminada.', ...ephemeral });
@@ -1231,7 +1240,7 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
     const [ns, action, rawId] = interaction.customId.split(':');
     if (ns !== 'vanta') return;
     if (action === 'cookie') return handleCookieClick(interaction, rawId);
-    if (action === 'delkey') return handleDeleteKeyButton(interaction, rawId);
+    if (action === 'delkey' || action === 'allowkey') return handleKeyLogButton(interaction, action, rawId);
     if (action === 'ticket-open' || action === 'ticket-close') return handleTicketButton(interaction, action, rawId);
     const script = findScript(rawId);
     if (!script) return interaction.reply({ content: NO_ACCESS_MSG, flags: MessageFlags.Ephemeral });
@@ -1420,10 +1429,11 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
       `• Discord ID: ${discordId ? `\`${discordId}\`` : 'sin vincular'}`,
       removed
         ? '• Acción: key eliminada y usuario bloqueado en este script'
-        : '• Si confirmas que la compartieron, elimina la key con el botón.',
+        : '• Si la compartieron, elimina la key. Si es tu propio equipo, permite el acceso.',
     ].join('\n');
     const components = removed ? [] : [new ActionRowBuilder().addComponents(
       new ButtonBuilder().setCustomId(`vanta:delkey:${key}`).setLabel('Eliminar key').setEmoji('🗑️').setStyle(ButtonStyle.Danger),
+      new ButtonBuilder().setCustomId(`vanta:allowkey:${key}`).setLabel('Permitir acceso').setEmoji('✅').setStyle(ButtonStyle.Success),
     )];
     await logScriptEvent(script, text, discordId, {
       color: 0xed4245,

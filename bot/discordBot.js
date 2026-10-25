@@ -162,6 +162,13 @@ export const commands = [
     .addSubcommand(s => s.setName('categoria').setDescription('Elige la categoría donde se crean los tickets')
       .addChannelOption(o => o.setName('categoria').setDescription('Categoría').addChannelTypes([ChannelType.GuildCategory]).setRequired(true)))
     .addSubcommand(s => s.setName('ver').setDescription('Muestra la configuración de tickets')),
+  new SlashCommandBuilder().setName('lock').setDescription('Bloquea un canal: nadie puede escribir, ni en hilos (staff)')
+    .setDefaultMemberPermissions(PermissionFlagsBits.ManageChannels)
+    .addChannelOption(o => o.setName('canal').setDescription('Canal a bloquear (opcional: este canal)').addChannelTypes([ChannelType.GuildText, ChannelType.GuildAnnouncement]).setRequired(false))
+    .addStringOption(o => o.setName('motivo').setDescription('Motivo que se muestra en el canal (opcional)').setMaxLength(200).setRequired(false)),
+  new SlashCommandBuilder().setName('unlock').setDescription('Desbloquea un canal bloqueado con /lock (staff)')
+    .setDefaultMemberPermissions(PermissionFlagsBits.ManageChannels)
+    .addChannelOption(o => o.setName('canal').setDescription('Canal a desbloquear (opcional: este canal)').addChannelTypes([ChannelType.GuildText, ChannelType.GuildAnnouncement]).setRequired(false)),
 ].map(c => c.toJSON());
 
 // Comandos que responden en público
@@ -930,6 +937,42 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
           `• Categoría: ${category ? `**${category.name}**` : cfg.categoryId ? 'eliminada (elige otra con /ticketperm categoria)' : 'sin elegir'}`,
           `• Staff: ${roles}`,
         ].join('\n'));
+      }
+
+      case 'lock':
+      case 'unlock': {
+        if (!interaction.inGuild()) return reply('❌ Usa este comando dentro de tu servidor.');
+        if (!(await isStaffOf(interaction.guild, actor))) return reply('⛔ Necesitas permisos de administración en este servidor para bloquear canales.');
+        const channel = interaction.options.getChannel('canal') ?? interaction.channel ?? await interaction.client.channels.fetch(interaction.channelId).catch(() => null);
+        if (!channel?.permissionOverwrites) return reply('❌ No pude acceder a ese canal.');
+        if (!channel.permissionsFor(interaction.client.user)?.has(PermissionFlagsBits.ManageChannels)) {
+          return reply(`❌ El bot no puede editar **#${channel.name}**. Dale el permiso "Gestionar canales" en ese canal.`);
+        }
+        const locking = cmd === 'lock';
+        const motivo = interaction.options.getString('motivo');
+        // null = quitar el bloqueo del canal (vuelve a lo que dicte el servidor)
+        const value = locking ? false : null;
+        await channel.permissionOverwrites.edit(interaction.guild.roles.everyone.id, {
+          SendMessages: value,
+          SendMessagesInThreads: value,
+          CreatePublicThreads: value,
+          CreatePrivateThreads: value,
+        }, { reason: `${cmd === 'lock' ? 'Bloqueado' : 'Desbloqueado'} por ${interaction.user.tag}` });
+
+        // Hilos activos: se bloquean o desbloquean también (necesita "Gestionar hilos")
+        let threadsDone = 0;
+        if (channel.threads?.fetchActive) {
+          const active = await channel.threads.fetchActive().catch(() => null);
+          for (const thread of active?.threads?.values() ?? []) {
+            await thread.setLocked(locking, `${cmd} por ${interaction.user.tag}`).then(() => { threadsDone++; }).catch(() => {});
+          }
+        }
+
+        const note = locking
+          ? `🔒 Canal bloqueado por <@${actor}>.${motivo ? `\nMotivo: ${motivo}` : ''}`
+          : `🔓 Canal desbloqueado por <@${actor}>.`;
+        await channel.send({ content: note, allowedMentions: { users: [] } }).catch(() => {});
+        return reply(`✅ **#${channel.name}** ${locking ? 'bloqueado' : 'desbloqueado'}${threadsDone ? ` (${threadsDone} hilo(s) activo(s) también)` : ''}.`);
       }
 
       default:

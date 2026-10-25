@@ -326,7 +326,7 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
   }
 
   // Registro de eventos en el canal de logs que configuró el creador del script (/logs)
-  async function logScriptEvent(script, text) {
+  async function logScriptEvent(script, text, userId = null) {
     // Siempre se guarda en la base (lo ve el panel admin), tenga o no canal de logs
     const plain = text
       .replace(/<@&(\d+)>/g, '@role:$1')
@@ -339,10 +339,16 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
     try {
       const channel = await client.channels.fetch(channelId);
       if (!channel?.isTextBased()) return;
-      await channel.send({
-        embeds: [new EmbedBuilder().setColor(0x5865f2).setDescription(text)
-          .setFooter({ text: `${script.name} · ${formatPanelDate(new Date())}` })],
-      });
+      const embed = new EmbedBuilder()
+        .setColor(0x5865f2)
+        .setTitle(`📜 ${script.name}`)
+        .setDescription(text)
+        .setFooter({ text: 'logs by Vantarmor', iconURL: client.user.displayAvatarURL() })
+        .setTimestamp();
+      // Usuario de Discord vinculado a la key: nombre y foto
+      const user = userId ? await client.users.fetch(userId).catch(() => null) : null;
+      if (user) embed.setAuthor({ name: user.username, iconURL: user.displayAvatarURL() }).setThumbnail(user.displayAvatarURL());
+      await channel.send({ embeds: [embed] });
     } catch (err) {
       console.error('[Bot] No se pudo escribir en el canal de logs:', err.message);
     }
@@ -1379,9 +1385,9 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
   };
 
   // Expuesto al servidor para registrar cuando se ejecuta un loader
-  client.logScriptEvent = (scriptId, text) => {
+  client.logScriptEvent = (scriptId, text, userId = null) => {
     const script = q.scriptById.get(scriptId);
-    if (script) logScriptEvent(script, text);
+    if (script) logScriptEvent(script, text, userId);
   };
 
   // Permisos que el bot necesita en cada servidor. Si faltan, avisa en consola y le escribe al dueño (una vez al arrancar).

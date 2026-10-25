@@ -830,7 +830,7 @@ const DISCORD_JOIN_URL = 'https://discord.gg/FUjbTN69';
 function discordJoinDone(userId) {
   return isPaidPlanId(userId) || Boolean(stmt.userById.get(userId)?.discord_joined);
 }
-const logUse = (scriptId, text) => { try { discordBot?.logScriptEvent?.(scriptId, text); } catch { /* el log nunca rompe el loader */ } };
+const logUse = (scriptId, text, userId = null) => { try { discordBot?.logScriptEvent?.(scriptId, text, userId); } catch { /* el log nunca rompe el loader */ } };
 
 const payloadTokens = new Map(); // token -> { scriptId, expires }
 const PAYLOAD_TTL_MS = 30_000;
@@ -894,7 +894,7 @@ app.get('/scripts/hosted/:slug/auth', loaderLimit, (req, res) => {
     `• Discord ID: ${k.discord_id ? `\`${k.discord_id}\`` : 'sin vincular'}`,
     `• ID del script: \`${script.id}\``,
     `• Veces que esta key ejecutó este script: ${run?.exec_count ?? 1}`,
-  ].join('\n'));
+  ].join('\n'), k.discord_id);
   reply(`OK:${issuePayloadToken(script.id)}`);
 });
 

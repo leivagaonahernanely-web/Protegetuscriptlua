@@ -295,7 +295,7 @@ const stmt = {
   `),
   // Nunca se seleccionan source ni content aquí
   scriptsByUser: db.prepare(`
-    SELECT id, user_id, name, slug, ffa, obfuscator, hwid_reset_hours FROM scripts
+    SELECT id, user_id, name, slug, ffa, obfuscator, hwid_reset_hours, share_detection FROM scripts
     WHERE user_id = ? ORDER BY id DESC
   `),
   scriptOwned: db.prepare('SELECT * FROM scripts WHERE id = ? AND user_id = ?'),

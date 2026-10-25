@@ -196,6 +196,11 @@ db.exec(`
   // Avisos por compartir la key (y último aviso, para no contar reintentos del loader)
   if (!db.prepare("SELECT 1 FROM pragma_table_info('keys') WHERE name = 'share_strikes'").get()) db.exec('ALTER TABLE keys ADD COLUMN share_strikes INTEGER DEFAULT 0');
   if (!db.prepare("SELECT 1 FROM pragma_table_info('keys') WHERE name = 'share_last_at'").get()) db.exec('ALTER TABLE keys ADD COLUMN share_last_at INTEGER');
+  // Último HWID vinculado: sobrevive al reinicio de HWID, para detectar compartidas aunque se reinicie
+  if (!db.prepare("SELECT 1 FROM pragma_table_info('keys') WHERE name = 'last_hwid'").get()) {
+    db.exec('ALTER TABLE keys ADD COLUMN last_hwid TEXT');
+    db.exec('UPDATE keys SET last_hwid = hwid WHERE hwid IS NOT NULL');
+  }
   // Foto de perfil personalizada (URL). Si es NULL se usa la de Discord.
   if (!db.prepare("SELECT 1 FROM pragma_table_info('users') WHERE name = 'custom_avatar'").get()) db.exec('ALTER TABLE users ADD COLUMN custom_avatar TEXT');
   // Foto del bot solo en los servidores del creador (se aplica desde sus paneles)
@@ -866,6 +871,7 @@ app.get('/scripts/hosted/:slug/payload', loaderLimit, (req, res) => {
 const SHARE_COOLDOWN_S = 600;
 function reportKeyShare(script, k, hwid, reply) {
   const nowS = Math.floor(Date.now() / 1000);
+  const boundHwid = k.hwid || k.last_hwid;
   const row = db.prepare(`UPDATE keys SET share_strikes = COALESCE(share_strikes, 0) + 1, share_last_at = ?
     WHERE key = ? AND (share_last_at IS NULL OR share_last_at < ?) RETURNING share_strikes`)
     .get(nowS, k.key, nowS - SHARE_COOLDOWN_S);
@@ -879,7 +885,7 @@ function reportKeyShare(script, k, hwid, reply) {
         .run(script.id, k.discord_id, 'Key compartida (3 avisos)', nowS);
     }
   }
-  discordBot?.notifyKeyShare?.({ scriptId: script.id, key: k.key, discordId: k.discord_id, strikes, removed, hwid, boundHwid: k.hwid });
+  discordBot?.notifyKeyShare?.({ scriptId: script.id, key: k.key, discordId: k.discord_id, strikes, removed, hwid, boundHwid });
   return reply(removed ? 'KEY_INVALID' : 'HWID_MISMATCH');
 }
 
@@ -908,7 +914,9 @@ app.get('/scripts/hosted/:slug/auth', loaderLimit, (req, res) => {
   }
   if (!hwid) return reply('VERIFY_FAILED');
   if (scriptBanned(script.id, 'hwid', hwid)) return reply('BLACKLISTED');
-  if (!k.hwid) db.prepare('UPDATE keys SET hwid = ? WHERE key = ?').run(hwid, key);
+  // Tras reiniciar el HWID la key queda sin equipo: si el HWID nuevo no es el último vinculado, cuenta como compartida
+  if (!k.hwid && k.last_hwid && k.last_hwid !== hwid) return reportKeyShare(script, k, hwid, reply);
+  if (!k.hwid) db.prepare('UPDATE keys SET hwid = ?, last_hwid = ? WHERE key = ?').run(hwid, hwid, key);
   else if (k.hwid !== hwid) return reportKeyShare(script, k, hwid, reply);
   const run = db.prepare('UPDATE keys SET last_ip = ?, exec_count = COALESCE(exec_count, 0) + 1 WHERE key = ? RETURNING exec_count')
     .get(req.ip || null, key);

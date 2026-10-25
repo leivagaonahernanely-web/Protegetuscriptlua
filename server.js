@@ -851,9 +851,9 @@ setInterval(() => {
   const now = Date.now();
   for (const [t, v] of payloadTokens) if (v.expires < now) payloadTokens.delete(t);
 }, 60_000).unref();
-function issuePayloadToken(scriptId) {
+function issuePayloadToken(scriptId, ip) {
   const token = crypto.randomBytes(24).toString('hex');
-  payloadTokens.set(token, { scriptId, expires: Date.now() + PAYLOAD_TTL_MS });
+  payloadTokens.set(token, { scriptId, ip: ip || null, expires: Date.now() + PAYLOAD_TTL_MS });
   return token;
 }
 
@@ -864,7 +864,8 @@ app.get('/scripts/hosted/:slug/payload', loaderLimit, (req, res) => {
   const entry = payloadTokens.get(token);
   payloadTokens.delete(token);
   const script = stmt.scriptBySlug.get(req.params.slug);
-  if (!entry || entry.expires < Date.now() || !script || script.id !== entry.scriptId) {
+  // El token vale solo para la IP que hizo el login, una vez y 30 s
+  if (!entry || entry.expires < Date.now() || !script || script.id !== entry.scriptId || entry.ip !== (req.ip || null)) {
     return res.status(403).type('text/plain').send('!VANTARMOR:TOKEN_INVALID');
   }
   res.type('text/plain').send(script.content);
@@ -905,11 +906,13 @@ app.get('/scripts/hosted/:slug/auth', loaderLimit, (req, res) => {
   if (!script) return reply('SCRIPT_NOT_FOUND');
   if (script.ffa) {
     logUse(script.id, '🟢 Script ejecutado (FFA)');
-    return reply(`OK:${issuePayloadToken(script.id)}`);
+    return reply(`OK:${issuePayloadToken(script.id, req.ip)}`);
   }
 
   const key = String(req.query.key || '').trim().slice(0, 64);
-  const hwid = String(req.query.hwid || '').slice(0, 128);
+  const rawHwid = String(req.query.hwid || '').slice(0, 128);
+  // Solo caracteres imprimibles (sin espacios ni control): evita basura y texto que rompa los logs
+  const hwid = /^[\x21-\x7E]{8,128}$/.test(rawHwid) ? rawHwid : '';
   if (!key) return reply('KEY_REQUIRED');
   if (scriptBanned(script.id, 'ip', req.ip)) return reply('BLACKLISTED');
   const k = db.prepare('SELECT * FROM keys WHERE key = ? AND script_id = ?').get(key, script.id);
@@ -923,8 +926,15 @@ app.get('/scripts/hosted/:slug/auth', loaderLimit, (req, res) => {
   if (scriptBanned(script.id, 'hwid', hwid)) return reply('BLACKLISTED');
   // Tras reiniciar el HWID la key queda sin equipo: si el HWID nuevo no es el último vinculado, cuenta como compartida
   if (!k.hwid && k.last_hwid && k.last_hwid !== hwid && script.share_detection !== 0) return reportKeyShare(script, k, hwid, reply);
-  if (!k.hwid) db.prepare('UPDATE keys SET hwid = ?, last_hwid = ? WHERE key = ?').run(hwid, hwid, key);
-  else if (k.hwid !== hwid) return reportKeyShare(script, k, hwid, reply);
+  if (!k.hwid) {
+    // Vinculación atómica: si otro equipo la vinculó al mismo tiempo, esta petición no la sobrescribe
+    const bound = db.prepare('UPDATE keys SET hwid = ?, last_hwid = ? WHERE key = ? AND hwid IS NULL').run(hwid, hwid, key);
+    if (!bound.changes) {
+      const current = db.prepare('SELECT hwid FROM keys WHERE key = ?').get(key);
+      if (!current) return reply('KEY_INVALID');
+      if (current.hwid !== hwid) return reportKeyShare(script, k, hwid, reply);
+    }
+  } else if (k.hwid !== hwid) return reportKeyShare(script, k, hwid, reply);
   const run = db.prepare('UPDATE keys SET last_ip = ?, exec_count = COALESCE(exec_count, 0) + 1 WHERE key = ? RETURNING exec_count')
     .get(req.ip || null, key);
   logUse(script.id, [
@@ -935,7 +945,7 @@ app.get('/scripts/hosted/:slug/auth', loaderLimit, (req, res) => {
     `• ID del script: \`${script.id}\``,
     `• Veces que esta key ejecutó este script: ${run?.exec_count ?? 1}`,
   ].join('\n'), k.discord_id);
-  reply(`OK:${issuePayloadToken(script.id)}`);
+  reply(`OK:${issuePayloadToken(script.id, req.ip)}`);
 });
 
 app.get('/auth/logout', (req, res) => {

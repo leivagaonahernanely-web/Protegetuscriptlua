@@ -483,6 +483,38 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
     return `📊 **Tus keys**\n${lines.join('\n')}`;
   }
 
+  // Da automáticamente el rol comprador del creador al usuario (whitelist o canje de key).
+  // Busca el servidor donde está ese rol; si el bot no está ahí, no hace nada.
+  async function grantBuyerRole(script, userId) {
+    const roleId = settingFor(script.user_id, 'buyer_role');
+    if (!roleId) return null;
+    for (const guild of client.guilds.cache.values()) {
+      if (!guild.roles.cache.has(roleId)) continue;
+      try {
+        const member = await guild.members.fetch(userId);
+        await member.roles.add(roleId);
+        logScriptEvent(script, `👤 <@${userId}> recibió el rol comprador automáticamente`);
+        return guild;
+      } catch (err) {
+        console.warn('[Bot] No se pudo dar el rol comprador:', err.message);
+        return null;
+      }
+    }
+    return null;
+  }
+
+  // Canje de key: además de activarla, da el rol comprador
+  async function redeemWithRole(code, userId) {
+    const result = redeemKey(code, userId);
+    const row = db.prepare('SELECT script_id FROM keys WHERE key = ? AND discord_id = ?').get(code, userId);
+    const script = row ? q.scriptById.get(row.script_id) : null;
+    if (script) {
+      const guild = await grantBuyerRole(script, userId);
+      if (guild) return `${result}\n🎭 Te dimos el rol comprador en **${guild.name}**.`;
+    }
+    return result;
+  }
+
   async function giveBuyerRole(interaction, script) {
     const roleId = settingFor(script.user_id, 'buyer_role');
     if (!roleId) return '👤 El creador de este script todavía no configuró el rol comprador con /getrole.';
@@ -577,7 +609,7 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
         return reply(statsReply(actor));
 
       case 'redeem':
-        return reply(redeemKey(interaction.options.getString('key', true).trim(), actor));
+        return reply(await redeemWithRole(interaction.options.getString('key', true).trim(), actor));
 
       case 'generatekey': {
         const script = findScript(interaction.options.getString('script', true));
@@ -770,7 +802,9 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
           }
           const panel = q.panelForScript.get(script.id);
           const where = panel ? ` en el panel <#${panel.channel_id}>` : '';
-          return reply(`✅ ${label} añadido a la whitelist de **${script.name}** (${expiryText}). Puede obtener el script con Get Script${where}.`);
+          const roleGuild = user ? await grantBuyerRole(script, id) : null;
+          const roleNote = roleGuild ? ` Se le dio el rol comprador en **${roleGuild.name}**.` : '';
+          return reply(`✅ ${label} añadido a la whitelist de **${script.name}** (${expiryText}). Puede obtener el script con Get Script${where}.${roleNote}`);
         }
         q.ruleDelete.run(script.id, kind, id);
         logScriptEvent(script, `➖ ${label} quitado de la whitelist por <@${actor}>`);
@@ -1288,7 +1322,7 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
     if (ns !== 'vanta' || action !== 'redeem-modal') return;
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
     const code = interaction.fields.getTextInputValue('key').trim();
-    return interaction.editReply({ content: redeemKey(code, interaction.user.id) });
+    return interaction.editReply({ content: await redeemWithRole(code, interaction.user.id) });
   }
 
   // ---------- Cliente ----------

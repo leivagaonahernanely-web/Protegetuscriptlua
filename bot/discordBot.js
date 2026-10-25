@@ -326,7 +326,7 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
   }
 
   // Registro de eventos en el canal de logs que configuró el creador del script (/logs)
-  async function logScriptEvent(script, text, userId = null) {
+  async function logScriptEvent(script, text, userId = null, opts = {}) {
     // Siempre se guarda en la base (lo ve el panel admin), tenga o no canal de logs
     const plain = text
       .replace(/<@&(\d+)>/g, '@role:$1')
@@ -340,15 +340,15 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
       const channel = await client.channels.fetch(channelId);
       if (!channel?.isTextBased()) return;
       const embed = new EmbedBuilder()
-        .setColor(0x5865f2)
-        .setTitle(`📜 ${script.name}`)
+        .setColor(opts.color ?? 0x5865f2)
+        .setTitle(opts.title ?? `📜 ${script.name}`)
         .setDescription(text)
         .setFooter({ text: 'logs by Vantarmor', iconURL: client.user.displayAvatarURL() })
         .setTimestamp();
       // Usuario de Discord vinculado a la key: nombre y foto
       const user = userId ? await client.users.fetch(userId).catch(() => null) : null;
       if (user) embed.setAuthor({ name: user.username, iconURL: user.displayAvatarURL() }).setThumbnail(user.displayAvatarURL());
-      await channel.send({ embeds: [embed] });
+      await channel.send({ embeds: [embed], components: opts.components ?? [] });
     } catch (err) {
       console.error('[Bot] No se pudo escribir en el canal de logs:', err.message);
     }
@@ -1213,10 +1213,25 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
     }
   }
 
+  // Botón del log de compartidas: elimina la key (creador del script, staff o dueño de la plataforma)
+  async function handleDeleteKeyButton(interaction, key) {
+    const ephemeral = { flags: MessageFlags.Ephemeral };
+    const row = db.prepare('SELECT s.user_id FROM keys k JOIN scripts s ON s.id = k.script_id WHERE k.key = ?').get(key);
+    if (!row) return interaction.reply({ content: 'Esta key ya no existe.', ...ephemeral });
+    const actor = interaction.user.id;
+    const allowed = row.user_id === actor || isPlatformOwner(actor)
+      || (interaction.inGuild() && await isStaffOf(interaction.guild, actor));
+    if (!allowed) return interaction.reply({ content: '⛔ Solo el creador del script o el staff puede eliminar esta key.', ...ephemeral });
+    db.prepare('DELETE FROM keys WHERE key = ?').run(key);
+    await interaction.update({ components: [] }).catch(() => {});
+    return interaction.followUp({ content: '🗑️ Key eliminada.', ...ephemeral });
+  }
+
   async function handleButton(interaction) {
     const [ns, action, rawId] = interaction.customId.split(':');
     if (ns !== 'vanta') return;
     if (action === 'cookie') return handleCookieClick(interaction, rawId);
+    if (action === 'delkey') return handleDeleteKeyButton(interaction, rawId);
     if (action === 'ticket-open' || action === 'ticket-close') return handleTicketButton(interaction, action, rawId);
     const script = findScript(rawId);
     if (!script) return interaction.reply({ content: NO_ACCESS_MSG, flags: MessageFlags.Ephemeral });
@@ -1385,6 +1400,38 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
   };
 
   // Expuesto al servidor para registrar cuando se ejecuta un loader
+  // Aviso de key usada desde otro equipo: DM al dueño de la key y registro en logs con botón para eliminarla
+  client.notifyKeyShare = async ({ scriptId, key, discordId, strikes, removed, hwid, boundHwid }) => {
+    const script = q.scriptById.get(scriptId);
+    if (!script) return;
+    const dm = discordId ? await client.users.fetch(discordId).catch(() => null) : null;
+    if (dm) {
+      const msg = removed
+        ? `⛔ Tu key de **${script.name}** fue eliminada por compartirla, y quedaste bloqueado de ese script.`
+        : strikes === 1
+          ? `⚠️ Tu key de **${script.name}** se usó desde otro equipo. Las keys son personales e intransferibles. Si vuelve a pasar, recibirás un aviso mucho más fuerte.`
+          : `🚨 Segundo aviso: tu key de **${script.name}** volvió a usarse desde otro equipo. Si se comparte una vez más, la key se eliminará y quedarás bloqueado de este script.`;
+      await dm.send(msg).catch(() => {});
+    }
+    const text = [
+      `• Key: \`${key}\``,
+      `• HWID vinculado: \`${boundHwid}\``,
+      `• HWID que intentó usarla: \`${hwid}\``,
+      `• Discord ID: ${discordId ? `\`${discordId}\`` : 'sin vincular'}`,
+      removed
+        ? '• Acción: key eliminada y usuario bloqueado en este script'
+        : '• Si confirmas que la compartieron, elimina la key con el botón.',
+    ].join('\n');
+    const components = removed ? [] : [new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId(`vanta:delkey:${key}`).setLabel('Eliminar key').setEmoji('🗑️').setStyle(ButtonStyle.Danger),
+    )];
+    await logScriptEvent(script, text, discordId, {
+      color: 0xed4245,
+      title: removed ? '🚫 Key eliminada por compartirla' : `⚠️ Key compartida · aviso ${strikes}/3`,
+      components,
+    });
+  };
+
   client.logScriptEvent = (scriptId, text, userId = null) => {
     const script = q.scriptById.get(scriptId);
     if (script) logScriptEvent(script, text, userId);

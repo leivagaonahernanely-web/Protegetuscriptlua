@@ -193,6 +193,9 @@ db.exec(`
   if (!cols.includes('obfuscator')) db.exec('ALTER TABLE scripts ADD COLUMN obfuscator TEXT');
   // Contador de ejecuciones por key (cada key pertenece a un solo script)
   if (!db.prepare("SELECT 1 FROM pragma_table_info('keys') WHERE name = 'exec_count'").get()) db.exec('ALTER TABLE keys ADD COLUMN exec_count INTEGER DEFAULT 0');
+  // Avisos por compartir la key (y último aviso, para no contar reintentos del loader)
+  if (!db.prepare("SELECT 1 FROM pragma_table_info('keys') WHERE name = 'share_strikes'").get()) db.exec('ALTER TABLE keys ADD COLUMN share_strikes INTEGER DEFAULT 0');
+  if (!db.prepare("SELECT 1 FROM pragma_table_info('keys') WHERE name = 'share_last_at'").get()) db.exec('ALTER TABLE keys ADD COLUMN share_last_at INTEGER');
   // Foto de perfil personalizada (URL). Si es NULL se usa la de Discord.
   if (!db.prepare("SELECT 1 FROM pragma_table_info('users') WHERE name = 'custom_avatar'").get()) db.exec('ALTER TABLE users ADD COLUMN custom_avatar TEXT');
   // Foto del bot solo en los servidores del creador (se aplica desde sus paneles)
@@ -858,6 +861,28 @@ app.get('/scripts/hosted/:slug/payload', loaderLimit, (req, res) => {
 });
 
 // Endpoint de verificación: lo llama el bootstrap. Responde el código del script o "!VANTARMOR:CODIGO".
+// Key usada desde otro equipo. Cada aviso cuenta como máximo una vez cada 10 minutos (un reintento del loader no suma).
+// 1.er aviso: privado al dueño de la key. 2.º: aviso fuerte. 3.er: la key se elimina y el usuario queda bloqueado en ese script.
+const SHARE_COOLDOWN_S = 600;
+function reportKeyShare(script, k, hwid, reply) {
+  const nowS = Math.floor(Date.now() / 1000);
+  const row = db.prepare(`UPDATE keys SET share_strikes = COALESCE(share_strikes, 0) + 1, share_last_at = ?
+    WHERE key = ? AND (share_last_at IS NULL OR share_last_at < ?) RETURNING share_strikes`)
+    .get(nowS, k.key, nowS - SHARE_COOLDOWN_S);
+  if (!row) return reply('HWID_MISMATCH');
+  const strikes = row.share_strikes;
+  const removed = strikes >= 3;
+  if (removed) {
+    db.prepare('DELETE FROM keys WHERE key = ?').run(k.key);
+    if (k.discord_id) {
+      db.prepare('INSERT OR REPLACE INTO bot_blacklist (script_id, discord_id, reason, created_at) VALUES (?, ?, ?, ?)')
+        .run(script.id, k.discord_id, 'Key compartida (3 avisos)', nowS);
+    }
+  }
+  discordBot?.notifyKeyShare?.({ scriptId: script.id, key: k.key, discordId: k.discord_id, strikes, removed, hwid, boundHwid: k.hwid });
+  return reply(removed ? 'KEY_INVALID' : 'HWID_MISMATCH');
+}
+
 app.get('/scripts/hosted/:slug/auth', loaderLimit, (req, res) => {
   // Los navegadores no reciben nunca el código
   if (/text\/html/.test(req.get('accept') || '')) return res.status(403).type('text/plain').send('!VANTARMOR:FORBIDDEN');
@@ -884,7 +909,7 @@ app.get('/scripts/hosted/:slug/auth', loaderLimit, (req, res) => {
   if (!hwid) return reply('VERIFY_FAILED');
   if (scriptBanned(script.id, 'hwid', hwid)) return reply('BLACKLISTED');
   if (!k.hwid) db.prepare('UPDATE keys SET hwid = ? WHERE key = ?').run(hwid, key);
-  else if (k.hwid !== hwid) return reply('HWID_MISMATCH');
+  else if (k.hwid !== hwid) return reportKeyShare(script, k, hwid, reply);
   const run = db.prepare('UPDATE keys SET last_ip = ?, exec_count = COALESCE(exec_count, 0) + 1 WHERE key = ? RETURNING exec_count')
     .get(req.ip || null, key);
   logUse(script.id, [

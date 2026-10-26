@@ -264,6 +264,12 @@ setInterval(() => expirePlans(), 10 * 60_000);
 // Clave de sesión: JWT_SECRET si está definida; si no, una clave generada y guardada en la base de datos.
 // Así el login no se rompe en cada deploy mientras la base de datos esté en el volumen.
 db.exec('CREATE TABLE IF NOT EXISTS app_settings (name TEXT PRIMARY KEY, value TEXT)');
+// Registro de acciones del dueño y ajustes globales (mantenimiento, banner, estado del Ofuscador 3)
+db.exec('CREATE TABLE IF NOT EXISTS admin_audit (id INTEGER PRIMARY KEY AUTOINCREMENT, actor_id TEXT, action TEXT, target TEXT, detail TEXT, created_at INTEGER)');
+const appGet = (name, def = '') => db.prepare('SELECT value FROM app_settings WHERE name = ?').get(name)?.value ?? def;
+const appSet = (name, value) => db.prepare('INSERT INTO app_settings (name, value) VALUES (?, ?) ON CONFLICT(name) DO UPDATE SET value = excluded.value').run(name, String(value));
+const auditLog = (actorId, action, target = '', detail = '') => db.prepare('INSERT INTO admin_audit (actor_id, action, target, detail, created_at) VALUES (?, ?, ?, ?, ?)')
+  .run(String(actorId ?? ''), action, String(target).slice(0, 120), String(detail).slice(0, 300), Math.floor(Date.now() / 1000));
 const SESSION_SECRET = JWT_SECRET || (() => {
   const row = db.prepare("SELECT value FROM app_settings WHERE name = 'session_secret'").get();
   if (row) return row.value;
@@ -526,6 +532,8 @@ async function obfuscateLuau(source) {
   if (!r.ok || !data.ok || !data.file?.download_url) {
     const detail = String(data.error || data.message || r.status).slice(0, 300);
     console.warn('[Luau] Error de la API:', r.status, detail);
+    appSet('luau_last_error', `${new Date().toISOString()} · ${r.status} · ${detail}`.slice(0, 300));
+    if (/token|credit|quota/i.test(detail)) appSet('luau_no_tokens_at', Math.floor(Date.now() / 1000));
     if (/token|credit|quota/i.test(detail)) throw Object.assign(new Error('El Ofuscador 3 se quedó sin créditos. Avisa al dueño para que recargue la cuenta.'), { status: 503 });
     if (r.status === 422 || /syntax|compiler|source/i.test(detail)) {
       throw Object.assign(new Error('Tu script tiene sintaxis que el Ofuscador 3 no entiende. Revisa que sea Luau válido.'), { status: 422 });
@@ -544,6 +552,7 @@ async function obfuscateLuau(source) {
     throw Object.assign(new Error('El Ofuscador 3 no entregó el resultado. Inténtalo de nuevo.'), { status: 502 });
   }
   if (!out.trim()) throw Object.assign(new Error('El Ofuscador 3 no generó salida. Inténtalo de nuevo.'), { status: 502 });
+  appSet('luau_no_tokens_at', '');
   return out;
 }
 
@@ -652,6 +661,7 @@ app.get('/api/config', (req, res) => {
 
 // Canje de key de plan (Premium / Premium Plus); cada key se usa una sola vez
 app.post('/api/plan/redeem', requireAuth, jsonLimit, (req, res) => {
+  if (maintenanceBlock(req, res)) return;
   const key = String(req.body?.key || '').trim();
   if (key.length < 32 || key.length > 64) return res.status(400).json({ error: 'Key inválida' });
 
@@ -1405,6 +1415,17 @@ app.post('/api/me/bot-avatar', requireAuth, requirePerkPlan, async (req, res) =>
   }
 });
 
+// Mantenimiento: bloquea compras, canjes y scripts nuevos. Los loaders existentes siguen funcionando y el dueño no se bloquea
+function maintenanceBlock(req, res) {
+  if (appGet('maintenance') !== '1' || isOwnerId(req.userId)) return false;
+  res.status(503).json({ error: appGet('maintenance_msg') || 'Estamos en mantenimiento. Vuelve en unos minutos.', code: 'MAINTENANCE' });
+  return true;
+}
+// Estado público del sitio (banner y mantenimiento)
+app.get('/api/status', (req, res) => {
+  res.json({ maintenance: appGet('maintenance') === '1', message: appGet('maintenance_msg'), banner: appGet('banner') });
+});
+
 // ---- Panel del dueño: solo DISCORD_OWNER_ID ----
 function isOwnerId(id) {
   return Boolean(process.env.DISCORD_OWNER_ID) && String(id) === String(process.env.DISCORD_OWNER_ID);
@@ -1430,6 +1451,7 @@ app.post('/api/owner/plan-keys', requireOwnerApi, (req, res) => {
   if (!plan) return res.status(400).json({ error: 'Plan inválido' });
   const key = crypto.randomBytes(24).toString('base64url'); // 32 caracteres, uso único
   db.prepare('INSERT INTO plan_keys (key, plan, days, created_at) VALUES (?, ?, ?, ?)').run(key, plan, PLAN_DAYS_DEFAULT, Math.floor(Date.now() / 1000));
+  auditLog(req.userId, 'plan_key_create', plan, `${PLAN_DAYS_DEFAULT} días`);
   res.json({ key, plan, days: PLAN_DAYS_DEFAULT });
 });
 // ---- Usuarios (solo dueño): ver planes y cambiarlos ----
@@ -1448,6 +1470,7 @@ app.post('/api/owner/users/:id/plan', requireOwnerApi, (req, res) => {
   const expiresAt = plan === 'free' ? null : Math.floor(Date.now() / 1000) + MONTH_SECONDS;
   const info = db.prepare('UPDATE users SET plan = ?, plan_expires_at = ?, plan_expired_at = NULL WHERE id = ?').run(plan, expiresAt, req.params.id);
   if (!info.changes) return res.status(404).json({ error: 'Usuario no encontrado' });
+  auditLog(req.userId, 'user_plan', req.params.id, plan);
   res.json({ ok: true, plan, expires_at: expiresAt });
 });
 
@@ -1457,6 +1480,7 @@ app.post('/api/owner/users/:id/staff', requireOwnerApi, (req, res) => {
   const role = raw === 'admin' || raw === 'owner' ? raw : null;
   const info = db.prepare('UPDATE users SET staff_role = ? WHERE id = ?').run(role, req.params.id);
   if (!info.changes) return res.status(404).json({ error: 'Usuario no encontrado' });
+  auditLog(req.userId, 'staff', req.params.id, role || 'quitado');
   res.json({ ok: true, staff_role: role });
 });
 
@@ -1468,6 +1492,46 @@ app.get('/api/owner/publisher', requireOwnerApi, (req, res) => {
 // Registro de usos y acciones de scripts (lo lee el panel admin)
 app.get('/api/owner/logs', requireOwnerApi, (req, res) => {
   res.json(db.prepare('SELECT id, script_id, script_name, text, created_at FROM script_logs ORDER BY id DESC LIMIT 300').all());
+});
+
+// Resumen del dueño: Ofuscador 3, ventas de planes, ajustes del sitio y registro de acciones
+app.get('/api/owner/overview', requireOwnerApi, (req, res) => {
+  const usage = db.prepare('SELECT COALESCE(SUM(n), 0) AS n FROM luau_usage WHERE day = ?');
+  const total = db.prepare('SELECT COALESCE(SUM(n), 0) AS n FROM luau_usage');
+  const since = Math.floor(Date.now() / 1000) - 180 * 86400;
+  res.json({
+    luau: {
+      configured: Boolean(process.env.LUO_API_KEY),
+      today: usage.get(luauDay()).n,
+      total: total.get().n,
+      dailyLimit: LUAU_DAILY_LIMIT,
+      noTokensAt: Number(appGet('luau_no_tokens_at', '')) || null,
+      lastError: appGet('luau_last_error', '') || null,
+    },
+    settings: {
+      maintenance: appGet('maintenance') === '1',
+      maintenanceMsg: appGet('maintenance_msg'),
+      banner: appGet('banner'),
+    },
+    sales: {
+      byPlan: db.prepare('SELECT plan, COUNT(*) AS total, SUM(CASE WHEN used_by IS NOT NULL THEN 1 ELSE 0 END) AS used FROM plan_keys GROUP BY plan').all(),
+      byMonth: db.prepare("SELECT strftime('%Y-%m', used_at, 'unixepoch') AS month, COUNT(*) AS count FROM plan_keys WHERE used_at IS NOT NULL AND used_at >= ? GROUP BY month ORDER BY month DESC LIMIT 6").all(since),
+      usersByPlan: db.prepare("SELECT COALESCE(plan, 'free') AS plan, COUNT(*) AS count FROM users GROUP BY plan").all(),
+    },
+    audit: db.prepare('SELECT actor_id, action, target, detail, created_at FROM admin_audit ORDER BY id DESC LIMIT 100').all(),
+  });
+});
+app.post('/api/owner/settings', requireOwnerApi, (req, res) => {
+  const b = req.body || {};
+  const msg = String(b.maintenanceMsg ?? '').trim();
+  const banner = String(b.banner ?? '').trim();
+  if (msg.length > 200 || banner.length > 200) return res.status(400).json({ error: 'El mensaje y el banner deben tener máximo 200 caracteres' });
+  const on = b.maintenance === true;
+  appSet('maintenance', on ? '1' : '0');
+  appSet('maintenance_msg', msg);
+  appSet('banner', banner);
+  auditLog(req.userId, 'settings', on ? 'mantenimiento activado' : 'mantenimiento desactivado', banner ? `banner: ${banner}` : 'sin banner');
+  res.json({ ok: true });
 });
 
 // Canales del servidor de Discord para el selector del panel admin
@@ -1493,6 +1557,7 @@ app.post('/api/owner/announce', requireOwnerApi, async (req, res) => {
   if (!discordBot?.announce) return res.status(503).json({ error: 'El bot todavía no está conectado' });
   try {
     await discordBot.announce(kind, String(channelId), String(title).trim(), String(description).trim(), image);
+    auditLog(req.userId, 'announce', kind, String(title).trim());
     res.json({ ok: true });
   } catch (err) {
     res.status(502).json({ error: `No se pudo publicar: ${err.message}` });
@@ -1522,6 +1587,7 @@ app.post('/api/discord/joined', requireAuth, (req, res) => {
 });
 
 app.post('/api/scripts', requireAuth, async (req, res) => {
+  if (maintenanceBlock(req, res)) return;
   const input = validateScriptInput(req.body || {});
   if (input.error) return res.status(400).json({ error: input.error });
   if (input.obfuscator === 'luau' && !isPlusPlanId(req.userId)) return res.status(403).json({ error: 'El Ofuscador 3 es solo para Premium Plus' });
@@ -1711,6 +1777,7 @@ app.post('/api/blacklist', requireAuth, (req, res) => blacklistChange(req, res, 
 app.post('/api/blacklist/remove', requireAuth, (req, res) => blacklistChange(req, res, false));
 
 app.post('/api/keys', requireAuth, (req, res) => {
+  if (maintenanceBlock(req, res)) return;
   const scriptId = Number(req.body?.scriptId);
   const amount = req.body?.amount === undefined ? 1 : Number(req.body.amount);
   const days = req.body?.days === undefined || req.body.days === null ? null : Number(req.body.days);

@@ -252,6 +252,23 @@
   .key-row:last-child { border-bottom: 0; }
   .key-idx { font: 700 11px 'JetBrains Mono', monospace; color: var(--text-dim); min-width: 22px; }
   .key-val { flex: 1; min-width: 0; font: 500 12px 'JetBrains Mono', monospace; color: #fff; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .owner-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 20px; }
+  .owner-wide { grid-column: 1 / -1; }
+  .owner-stat { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 12px; }
+  .owner-stat > div { background: rgba(255,255,255,.04); border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px; display: flex; flex-direction: column; gap: 4px; }
+  .owner-stat strong { font-size: 22px; font-weight: 900; letter-spacing: -.5px; }
+  .owner-month { display: grid; grid-template-columns: 70px 1fr 36px; gap: 10px; align-items: center; font-size: 13px; color: var(--text-soft); margin-top: 8px; }
+  .owner-bar { height: 8px; border-radius: 99px; background: rgba(255,255,255,.08); overflow: hidden; }
+  .owner-bar i { display: block; height: 100%; background: linear-gradient(90deg, #f5f5f8, #a0a0ac); border-radius: 99px; }
+  .owner-body { margin-top: 14px; }
+  .owner-audit { max-height: 360px; overflow-y: auto; }
+  .owner-audit-row { display: grid; grid-template-columns: 150px 170px 1fr; gap: 10px; padding: 9px 0; border-top: 1px solid var(--border); font-size: 13px; align-items: baseline; }
+  .owner-audit-row .hint { margin: 0; }
+  .toggle-row { display: flex; align-items: center; gap: 10px; font-size: 14px; cursor: pointer; }
+  .toggle-row input { width: 18px; height: 18px; accent-color: #fff; }
+  .site-notice { margin: 0 0 18px; padding: 12px 16px; border: 1px solid var(--border); border-radius: 12px; background: linear-gradient(135deg, rgba(255,255,255,.07), rgba(255,255,255,.02)); color: var(--text-soft); font-size: 14px; }
+  .site-notice.maint { border-color: rgba(251,191,36,.45); background: linear-gradient(135deg, rgba(251,191,36,.12), rgba(251,191,36,.02)); color: #fde68a; }
+  @media (max-width: 640px) { .owner-audit-row { grid-template-columns: 1fr; gap: 2px; } }
   .textarea { width: 100%; min-height: 220px; resize: vertical; font-family: 'JetBrains Mono', monospace; font-size: 12px; background: #000; color: #fff; border: 1px solid var(--border); border-radius: 10px; padding: 12px; line-height: 1.5; }
   .textarea:focus { border-color: #fff; }
   .code-meta { display: flex; justify-content: space-between; align-items: center; margin-top: 8px; font-size: 12px; color: var(--text-dim); gap: 10px; flex-wrap: wrap; }
@@ -353,6 +370,10 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg>
           Bienvenida
         </button>
+        <button class="nav-item" data-nav="ownerpanel" data-owner-only style="display:none">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg>
+          Panel del dueño
+        </button>
         <button class="nav-item" data-nav="planskeys" data-owner-only style="display:none">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="7.5" cy="15.5" r="4.5"/><path d="M10.7 12.3 21 2M17 6l3 3M14 9l2 2"/></svg>
           Plans keys
@@ -401,6 +422,8 @@
     </header>
 
     <div class="content">
+
+      <div id="siteNotice" class="site-notice" hidden></div>
 
       <!-- ERROR DE SESIÓN (se muestra en lugar de redirigir en bucle) -->
       <section class="view" data-view="auth" id="authView">
@@ -538,6 +561,28 @@
       </section>
 
       <!-- PLANS -->
+      <!-- PANEL DEL DUEÑO (solo dueño) -->
+      <section class="view" data-view="ownerpanel">
+        <div class="owner-grid">
+          <article class="card">
+            <h3>Ofuscador 3 (LuaUObfuscator)</h3>
+            <div id="ownLuau" class="owner-body"></div>
+          </article>
+          <article class="card">
+            <h3>Mantenimiento y banner</h3>
+            <div id="ownSettings" class="owner-body"></div>
+          </article>
+          <article class="card">
+            <h3>Ventas de planes</h3>
+            <div id="ownSales" class="owner-body"></div>
+          </article>
+          <article class="card owner-wide">
+            <h3>Registro de acciones</h3>
+            <div id="ownAudit" class="owner-body"></div>
+          </article>
+        </div>
+      </section>
+
       <!-- PLANS KEYS (solo dueño) -->
       <section class="view" data-view="planskeys">
         <article class="card">
@@ -815,6 +860,7 @@
     blacklist: { title: 'Blacklist', sub: 'Bloquea usuarios de Discord, IPs o HWID en tus scripts' },
     chat:      { title: 'Chat',      sub: 'Chat de la comunidad de Vantarmor' },
     plans:     { title: 'Planes',    sub: 'Elige el plan que necesitas' },
+    ownerpanel: { title: 'Panel del dueño', sub: 'Ofuscador 3, ventas, mantenimiento y registro (solo dueño)' },
     planskeys: { title: 'Plans keys', sub: 'Keys de Premium y Premium Plus (solo dueño)' },
     publisher: { title: 'Publisher',  sub: 'Scripts subidos en formato source (solo dueño)' },
     users:     { title: 'Usuarios',   sub: 'Plan y uso de cada usuario (solo dueño)' },
@@ -1534,7 +1580,9 @@
   }
 
   // ---- Solo dueño: plans keys y publisher ----
-  let ownerData = { planKeys: [], publisher: [], users: [] };
+  let ownerData = { planKeys: [], publisher: [], users: [], overview: null };
+  const AUDIT_LABELS = { plan_key_create: 'Key de plan creada', user_plan: 'Plan cambiado', staff: 'Rol de staff', announce: 'Anuncio publicado', settings: 'Ajustes del sitio' };
+  const fmtWhen = ts => new Date(ts * 1000).toLocaleString('es-EC', { dateStyle: 'short', timeStyle: 'short' });
   const PLAN_OPTIONS = [['free', 'Free'], ['premium', 'Premium'], ['plus', 'Premium Plus']];
   const hasPerkPlan = () => !!user && (user.plan === 'premium' || user.plan === 'plus');
   const hasPlusPlan = () => !!user && user.plan === 'plus';
@@ -1549,13 +1597,95 @@
   }
   async function loadOwnerData() {
     if (!user || !user.owner) return;
-    const [pk, pub, us] = await Promise.allSettled([
-      api('/api/owner/plan-keys'), api('/api/owner/publisher'), api('/api/owner/users'),
+    const [pk, pub, us, ov] = await Promise.allSettled([
+      api('/api/owner/plan-keys'), api('/api/owner/publisher'), api('/api/owner/users'), api('/api/owner/overview'),
     ]);
     if (pk.status === 'fulfilled') ownerData.planKeys = pk.value;
     if (pub.status === 'fulfilled') ownerData.publisher = pub.value;
     if (us.status === 'fulfilled') ownerData.users = us.value;
+    if (ov.status === 'fulfilled') ownerData.overview = ov.value;
     renderOwner();
+    renderOverview();
+  }
+
+  // ---- Panel del dueño: Ofuscador 3, mantenimiento, ventas y registro ----
+  function renderOverview() {
+    const o = ownerData.overview;
+    if (!o) {
+      $('ownLuau').innerHTML = '<p class="hint">No pude cargar el resumen. Recarga la página.</p>';
+      $('ownSettings').innerHTML = $('ownSales').innerHTML = $('ownAudit').innerHTML = '';
+      return;
+    }
+    const l = o.luau;
+    const [tone, label] = !l.configured ? ['bad', 'No configurado (falta LUO_API_KEY)']
+      : l.noTokensAt ? ['bad', `Sin créditos desde ${fmtWhen(l.noTokensAt)}`]
+      : ['ok', 'Operativo'];
+    $('ownLuau').innerHTML = `
+      <span class="badge ${tone}">${esc(label)}</span>
+      <div class="owner-stat" style="margin-top:14px">
+        <div><span class="card-label">Hoy</span><strong>${l.today}</strong><span class="hint">de todos los usuarios</span></div>
+        <div><span class="card-label">Total</span><strong>${l.total}</strong><span class="hint">compilaciones</span></div>
+      </div>
+      <p class="hint" style="margin-top:14px">${l.lastError ? `Último error: <span class="mono">${esc(l.lastError)}</span>` : 'Sin errores registrados.'}</p>
+      <p class="hint">La API no informa el saldo de tokens. Aquí ves las compilaciones hechas y si hubo falta de créditos.</p>`;
+
+    const s = o.settings;
+    $('ownSettings').innerHTML = `
+      <label class="toggle-row"><input type="checkbox" id="ownMaint" ${s.maintenance ? 'checked' : ''}> <span>Mantenimiento: pausa compras, canjes y scripts nuevos</span></label>
+      <div class="input-group" style="margin:14px 0 0"><label for="ownMaintMsg">Mensaje de mantenimiento</label>
+        <input id="ownMaintMsg" class="field block" maxlength="200" value="${esc(s.maintenanceMsg)}" placeholder="Volvemos en unos minutos"></div>
+      <div class="input-group" style="margin:14px 0 0"><label for="ownBanner">Banner informativo (opcional)</label>
+        <input id="ownBanner" class="field block" maxlength="200" value="${esc(s.banner)}" placeholder="Nuevo: ..."></div>
+      <div style="margin-top:16px"><button class="btn" id="ownSave" type="button">Guardar cambios</button></div>
+      <p class="hint">Los loaders de tus scripts siguen funcionando durante el mantenimiento.</p>`;
+
+    const sa = o.sales;
+    const planName = p => PLAN_OPTIONS.find(([v]) => v === p)?.[1] || p;
+    const maxM = Math.max(1, ...sa.byMonth.map(m => m.count));
+    $('ownSales').innerHTML = `
+      <div class="owner-stat">
+        ${sa.byPlan.map(p => `<div><span class="card-label">${esc(planName(p.plan))}</span><strong>${p.used}/${p.total}</strong><span class="hint">canjeadas / generadas</span></div>`).join('') || '<p class="hint">Aún no hay keys de plan.</p>'}
+      </div>
+      <h4 style="margin:18px 0 6px;font-size:13px">Canjes por mes (últimos 6)</h4>
+      ${sa.byMonth.length ? sa.byMonth.map(m => `<div class="owner-month"><span>${esc(m.month)}</span><div class="owner-bar"><i style="width:${Math.round(m.count / maxM * 100)}%"></i></div><b>${m.count}</b></div>`).join('') : '<p class="hint">Sin canjes en los últimos 6 meses.</p>'}
+      <h4 style="margin:18px 0 6px;font-size:13px">Usuarios por plan</h4>
+      <p class="hint">${sa.usersByPlan.map(u => `${esc(planName(u.plan))}: <b>${u.count}</b>`).join(' · ')}</p>`;
+
+    $('ownAudit').innerHTML = o.audit.length ? `<div class="owner-audit">${o.audit.map(a => `
+      <div class="owner-audit-row"><span class="hint">${fmtWhen(a.created_at)}</span><b>${esc(AUDIT_LABELS[a.action] || a.action)}</b><span>${esc(a.target)}${a.detail ? ` <span class="hint">· ${esc(a.detail)}</span>` : ''}</span></div>`).join('')}</div>`
+      : '<p class="hint">Aún no hay acciones registradas.</p>';
+  }
+  $('ownSettings').addEventListener('click', async e => {
+    const b = e.target.closest('#ownSave');
+    if (!b) return;
+    setBusy(b, true);
+    try {
+      await api('/api/owner/settings', { method: 'POST', body: JSON.stringify({
+        maintenance: $('ownMaint').checked,
+        maintenanceMsg: $('ownMaintMsg').value,
+        banner: $('ownBanner').value,
+      }) });
+      toast('Ajustes guardados');
+      await loadOwnerData();
+      loadSiteStatus();
+    } catch (err) {
+      toast(err.message, 'error');
+      setBusy(b, false);
+    }
+  });
+
+  // Banner y aviso de mantenimiento visibles para todos
+  async function loadSiteStatus() {
+    try {
+      const st = await api('/api/status');
+      const parts = [];
+      if (st.maintenance) parts.push(`<strong>Mantenimiento:</strong> ${esc(st.message || 'Estamos en mantenimiento. Vuelve en unos minutos.')}`);
+      if (st.banner) parts.push(esc(st.banner));
+      const box = $('siteNotice');
+      box.innerHTML = parts.join(' · ');
+      box.hidden = !parts.length;
+      box.classList.toggle('maint', !!st.maintenance);
+    } catch (_) { /* sin aviso si el estado no responde */ }
   }
   function renderUsers() {
     $('userList').innerHTML = ownerData.users.length ? ownerData.users.map(u => `
@@ -2366,6 +2496,7 @@
 
     clearAuthLoop();
     setOwnerNav(!!user.owner);
+    loadSiteStatus();
     loadExecStats();
     setPlanNav(hasPerkPlan());
     setPlusNav(hasPlusPlan());

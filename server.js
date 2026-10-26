@@ -729,60 +729,74 @@ function loaderPage(script) {
     `<span class="f">loadstring</span>(game:HttpGet(<span class="s">"${escHtml(url)}"</span>))()`,
   ];
   const name = escHtml(script.name);
+  const steps = [
+    'Copia el loader',
+    'Pégalo en tu executor',
+    ...(ffa ? [] : ['Reemplaza <b>KEY</b> por tu key']),
+  ];
   return `<!doctype html>
 <html lang="es">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="robots" content="noindex">
-<title>Vantarmor · Loader</title>
+<title>${name} · Vantarmor</title>
 <style>
-:root{--bg:#06060a;--card:rgba(18,18,26,.8);--border:rgba(255,255,255,.08);--text:#f1f1f5;--muted:#8d8da0;--a:#8b5cf6;--b:#22d3ee;--ok:#34d399}
+:root{--bg:#08080a;--panel:#121216;--panel-2:#1a1a20;--border:#26262e;--text:#f5f5f8;--text-dim:#a8a8b4;--muted:#6e6e78;--silver-1:#f5f5f8;--silver-2:#d0d0d8;--silver-3:#a0a0ac;--ok:#4ade80}
 *{box-sizing:border-box}
-html,body{margin:0;min-height:100%;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;-webkit-font-smoothing:antialiased}
-body{min-height:100vh;display:grid;place-items:center;padding:28px 16px;overflow-x:hidden;position:relative;
-  background:radial-gradient(900px 500px at 15% -10%,rgba(139,92,246,.30),transparent 60%),radial-gradient(800px 500px at 90% 110%,rgba(34,211,238,.18),transparent 60%),var(--bg)}
-body::before{content:"";position:fixed;inset:-40%;background:conic-gradient(from 0deg,transparent,rgba(139,92,246,.09),transparent 30%);animation:spin 26s linear infinite;pointer-events:none}
-@keyframes spin{to{transform:rotate(360deg)}}
-@keyframes rise{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
-.wrap{position:relative;width:100%;max-width:680px;animation:rise .5s ease both}
-.brand{display:flex;align-items:center;gap:10px;margin:0 0 14px 4px;font-weight:800;letter-spacing:.18em;font-size:12px;color:var(--muted)}
-.logo{width:26px;height:26px;border-radius:8px;background:linear-gradient(135deg,var(--a),var(--b));display:grid;place-items:center;box-shadow:0 0 18px rgba(139,92,246,.6)}
-.logo svg{width:15px;height:15px;stroke:#fff;fill:none;stroke-width:2.4}
-.card{background:var(--card);border:1px solid var(--border);border-radius:20px;overflow:hidden;backdrop-filter:blur(10px);box-shadow:0 30px 80px rgba(0,0,0,.55)}
-.head{padding:22px 24px 18px;border-bottom:1px solid var(--border)}
-.title{margin:0;font-size:20px;font-weight:700;display:flex;align-items:center;gap:10px;flex-wrap:wrap;letter-spacing:-.01em}
-.tag{font-size:10px;font-weight:800;padding:4px 10px;border-radius:999px;letter-spacing:.08em;background:rgba(52,211,153,.12);color:var(--ok);border:1px solid rgba(52,211,153,.25)}
-.tag.p{background:rgba(139,92,246,.14);color:#c4b5fd;border-color:rgba(139,92,246,.3)}
-.steps{margin:14px 0 0;padding:0;list-style:none;display:grid;gap:8px;color:var(--muted);font-size:13px}
-.steps li{display:flex;gap:10px;align-items:center}
-.n{width:20px;height:20px;border-radius:50%;display:grid;place-items:center;font-size:11px;font-weight:700;color:#0b0b10;background:linear-gradient(135deg,var(--a),var(--b));flex:none}
-.bar{display:flex;justify-content:space-between;align-items:center;padding:12px 16px 12px 24px;border-bottom:1px solid var(--border);font-size:12px;color:var(--muted)}
-button.copy{font:inherit;font-size:12px;font-weight:600;color:var(--text);background:rgba(255,255,255,.06);border:1px solid var(--border);border-radius:9px;padding:7px 12px;cursor:pointer;transition:background .2s,transform .1s}
-button.copy:hover{background:rgba(255,255,255,.12)}
+html,body{margin:0;min-height:100%;background:var(--bg);color:var(--text);font-family:Inter,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;-webkit-font-smoothing:antialiased;line-height:1.55}
+body{min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:32px 16px;overflow-x:hidden;
+  background:radial-gradient(ellipse 70% 45% at 50% -5%,rgba(224,224,232,.09),transparent 70%),var(--bg)}
+.wrap{width:100%;max-width:640px}
+.brand{display:flex;align-items:center;gap:10px;margin:0 0 18px 2px;font-weight:900;letter-spacing:.16em;font-size:12px;color:var(--text-dim)}
+.logo{width:24px;height:24px;border-radius:7px;display:grid;place-items:center;background:linear-gradient(135deg,var(--silver-1) 0%,var(--silver-2) 45%,var(--silver-3) 100%)}
+.logo svg{width:14px;height:14px;stroke:#08080a;fill:none;stroke-width:2.4}
+.card{background:linear-gradient(180deg,var(--panel-2),var(--panel)) ;border:1px solid var(--border);border-radius:18px;overflow:hidden;box-shadow:0 30px 70px -30px rgba(0,0,0,.8)}
+.head{padding:26px 26px 22px;border-bottom:1px solid var(--border)}
+.eyebrow{margin:0 0 8px;font-size:11px;font-weight:800;letter-spacing:.2em;color:var(--muted);text-transform:uppercase}
+.title{margin:0;display:flex;align-items:center;gap:12px;flex-wrap:wrap;font-size:24px;font-weight:900;letter-spacing:-.02em;line-height:1.2;overflow-wrap:anywhere}
+.badge{font-size:10px;font-weight:800;letter-spacing:.12em;padding:4px 9px;border-radius:6px;white-space:nowrap}
+.badge.ok{color:var(--ok);background:rgba(74,222,128,.10);border:1px solid rgba(74,222,128,.25)}
+.badge.p{color:var(--text-dim);background:rgba(255,255,255,.04);border:1px solid var(--border)}
+.steps{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;margin:20px 0 0;padding:0;list-style:none}
+.steps li{display:flex;align-items:center;gap:10px;font-size:13px;color:var(--text-dim)}
+.n{width:24px;height:24px;border-radius:50%;display:grid;place-items:center;flex:none;font-size:11px;font-weight:800;color:#08080a;background:linear-gradient(135deg,var(--silver-1),var(--silver-3))}
+.steps b{color:var(--text)}
+.bar{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:12px 14px 12px 22px;border-bottom:1px solid var(--border);font-size:12px;color:var(--muted)}
+.bar code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;color:var(--text-dim)}
+button.copy{font:inherit;font-size:13px;font-weight:800;color:#08080a;background:linear-gradient(135deg,var(--silver-1) 0%,var(--silver-2) 50%,var(--silver-3) 100%);border:0;border-radius:10px;padding:8px 16px;cursor:pointer;transition:transform .15s,box-shadow .2s;white-space:nowrap}
+button.copy:hover{transform:translateY(-1px);box-shadow:0 8px 18px -8px rgba(224,224,232,.5)}
 button.copy:active{transform:scale(.97)}
-pre{margin:0;padding:22px 24px;background:#040407;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:13.5px;line-height:1.85;white-space:pre-wrap;word-break:break-all;color:#d6d6e0;-webkit-user-select:text;user-select:text}
-.k{color:#c4b5fd}.s{color:#86efac}.f{color:#7dd3fc}
-.foot{padding:14px 24px;border-top:1px solid var(--border);color:var(--muted);font-size:12px;line-height:1.55}
-@media (max-width:480px){.title{font-size:18px}pre{font-size:12.5px;padding:18px}.bar,.head,.foot{padding-left:18px;padding-right:18px}}
+button.copy:focus-visible{outline:2px solid var(--silver-1);outline-offset:3px}
+pre{margin:0;padding:22px 24px;background:#040407;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:13.5px;line-height:1.85;white-space:pre-wrap;word-break:break-all;color:#d6d6e0;user-select:text;-webkit-user-select:text}
+.k{color:#c9cbd6}.s{color:#9fd8b6}.f{color:#b8c4e8}
+.foot{display:flex;align-items:center;gap:10px;padding:14px 22px;border-top:1px solid var(--border);color:var(--muted);font-size:12px;line-height:1.5}
+.foot svg{width:14px;height:14px;flex:none;stroke:var(--muted);fill:none;stroke-width:2}
+.legal{margin:18px 2px 0;font-size:12px;color:var(--muted);text-align:center}
+.legal a{color:var(--text-dim);text-decoration:none}
+.legal a:hover{color:var(--text)}
+@media (max-width:560px){.head{padding:20px 18px 18px}.title{font-size:20px}.bar{padding-left:18px}pre{font-size:12.5px;padding:18px}.foot{padding:14px 18px}}
 </style>
 </head>
 <body>
 <main class="wrap">
   <div class="brand"><span class="logo"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2 4 5.5v6c0 5 3.4 9.2 8 10.5 4.6-1.3 8-5.5 8-10.5v-6z"/></svg></span>VANTARMOR</div>
-  <section class="card">
+  <section class="card" aria-labelledby="scriptTitle">
     <header class="head">
-      <h1 class="title">${name}<span class="tag${ffa ? '' : ' p'}">${ffa ? 'FFA' : 'PROTEGIDO'}</span></h1>
+      <p class="eyebrow">Loader</p>
+      <h1 class="title" id="scriptTitle">${name}<span class="badge ${ffa ? 'ok' : 'p'}">${ffa ? 'FFA · LIBRE' : 'PROTEGIDO'}</span></h1>
       <ol class="steps">
-        <li><span class="n">1</span>Copia el loader</li>
-        <li><span class="n">2</span>Pégalo en tu executor</li>
-        ${ffa ? '' : '<li><span class="n">3</span>Reemplaza <b>KEY</b> por tu key</li>'}
+        ${steps.map((t, i) => `<li><span class="n">${i + 1}</span><span>${t}</span></li>`).join('')}
       </ol>
     </header>
-    <div class="bar"><span>loadstring</span><button class="copy" id="copy" type="button">Copiar</button></div>
+    <div class="bar"><code>loadstring</code><button class="copy" id="copy" type="button">Copiar</button></div>
     <pre id="code">${lines.join('\n')}</pre>
-    <footer class="foot">El código del script solo se entrega al ejecutarlo con una key válida.</footer>
+    <footer class="foot">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>
+      <span>El código del script solo se entrega al ejecutarlo con una key válida.</span>
+    </footer>
   </section>
+  <p class="legal"><a href="/terminos.html">Términos</a> · <a href="/privacidad.html">Privacidad</a></p>
 </main>
 <script>${LOADER_COPY_JS}</script>
 </body>

@@ -36,6 +36,31 @@ pre{white-space:pre-wrap;word-break:break-all;background:#040407;border:1px soli
 #login h2{margin:0 0 14px}
 #login .btn{width:100%;margin-top:10px}
 .err{color:var(--bad);min-height:20px;margin-top:8px;font-size:13px}
+.mt-status{display:flex;align-items:center;gap:14px;padding:16px;border:1px solid var(--line);border-radius:12px;background:linear-gradient(135deg,rgba(255,255,255,.04),transparent);margin-bottom:20px}
+.mt-dot{width:12px;height:12px;border-radius:50%;background:var(--ok);box-shadow:0 0 0 4px rgba(52,211,153,.15);flex:none}
+.mt-status.maint .mt-dot{background:#fbbf24;box-shadow:0 0 0 4px rgba(251,191,36,.18)}
+.mt-status.maint{border-color:rgba(251,191,36,.35);background:linear-gradient(135deg,rgba(251,191,36,.10),transparent)}
+.mt-title{font-weight:800;font-size:16px}
+.mt-switch{display:flex;align-items:center;gap:12px;cursor:pointer;margin-bottom:20px;font-weight:600;position:relative}
+.mt-switch input{position:absolute;opacity:0;pointer-events:none}
+.mt-track{width:44px;height:24px;border-radius:999px;background:#1c1c24;border:1px solid var(--line);position:relative;transition:background .2s;flex:none}
+.mt-knob{position:absolute;top:2px;left:2px;width:18px;height:18px;border-radius:50%;background:#e5e7eb;transition:transform .2s}
+.mt-switch input:checked + .mt-track{background:linear-gradient(135deg,var(--a),var(--b));border-color:transparent}
+.mt-switch input:checked + .mt-track .mt-knob{transform:translateX(20px);background:#08080c}
+.mt-switch input:focus-visible + .mt-track{outline:2px solid var(--a);outline-offset:2px}
+.mt-field{margin-bottom:18px}
+.mt-label{display:flex;justify-content:space-between;font-size:13px;font-weight:600;margin-bottom:6px}
+.mt-chips{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
+.mt-chip{background:#0c0c12;border:1px solid var(--line);color:var(--muted);border-radius:999px;padding:5px 11px;font-size:12px;font-weight:600;cursor:pointer;transition:all .15s}
+.mt-chip:hover{color:var(--text);border-color:var(--muted)}
+.mt-preview-label{font-size:12px;margin-bottom:6px}
+.mt-banner{padding:12px 14px;border-radius:10px;border:1px solid var(--line);background:#0c0c12;font-size:14px;min-height:44px;line-height:1.5;overflow-wrap:anywhere}
+.mt-banner:empty::before{content:'Sin banner';color:var(--muted)}
+.mt-banner.maint{border-color:rgba(251,191,36,.45);background:rgba(251,191,36,.08);color:#fde68a}
+.mt-blocks{font-size:13px;line-height:1.55;padding:12px 14px;border-left:3px solid var(--line);margin:20px 0 4px;color:var(--muted)}
+.mt-blocks b{color:var(--text)}
+.mt-actions{justify-content:space-between;margin:20px 0 0}
+.mt-last{font-size:12px;margin:10px 0 0}
 .hidden{display:none!important}
 .toast{position:fixed;right:18px;bottom:18px;background:var(--card);border:1px solid var(--line);padding:10px 14px;border-radius:10px;opacity:0;transition:opacity .2s}
 .toast.show{opacity:1}
@@ -96,11 +121,49 @@ pre{white-space:pre-wrap;word-break:break-all;background:#040407;border:1px soli
     </section>
 
     <section class="card hidden" data-panel="site">
-      <p class="muted" style="margin-top:0">Pausa compras, canjes y scripts nuevos mientras haces cambios. Los loaders de tus scripts siguen funcionando.</p>
-      <label class="row" style="gap:10px;cursor:pointer"><input type="checkbox" id="mtOn"> <span>Mantenimiento activado</span></label>
-      <div class="row"><input class="field" id="mtMsg" maxlength="200" placeholder="Mensaje, por ejemplo: Volvemos en 20 minutos" style="flex:1;min-width:220px"></div>
-      <div class="row"><input class="field" id="mtBanner" maxlength="200" placeholder="Banner informativo (opcional)" style="flex:1;min-width:220px"></div>
-      <div class="row" style="margin:14px 0 0"><button class="btn primary" id="mtSave">Guardar cambios</button><span class="muted" id="mtState"></span></div>
+      <div class="mt-status" id="mtStatus">
+        <span class="mt-dot"></span>
+        <div>
+          <div class="mt-title" id="mtTitle">Cargando…</div>
+          <div class="muted" id="mtSub"></div>
+        </div>
+      </div>
+
+      <label class="mt-switch">
+        <input type="checkbox" id="mtOn">
+        <span class="mt-track"><span class="mt-knob"></span></span>
+        <span>Activar mantenimiento</span>
+      </label>
+
+      <div class="mt-field">
+        <div class="mt-label"><span>Mensaje de mantenimiento</span><span class="muted" id="mtMsgCount">0/200</span></div>
+        <input class="field" id="mtMsg" maxlength="200" placeholder="Volvemos en unos minutos" style="width:100%">
+        <div class="mt-chips">
+          <button class="mt-chip" type="button" data-preset="Actualizando el Ofuscador 3. Volvemos en unos minutos.">Ofuscador 3</button>
+          <button class="mt-chip" type="button" data-preset="Mantenimiento programado. Volvemos en 20 minutos.">20 minutos</button>
+          <button class="mt-chip" type="button" data-preset="Estamos mejorando la plataforma. Gracias por tu paciencia.">Mejoras</button>
+        </div>
+      </div>
+
+      <div class="mt-field">
+        <div class="mt-label"><span>Banner informativo (opcional)</span><span class="muted" id="mtBannerCount">0/200</span></div>
+        <input class="field" id="mtBanner" maxlength="200" placeholder="Nuevo: pack de scripts disponible" style="width:100%">
+      </div>
+
+      <div class="mt-preview">
+        <div class="muted mt-preview-label">Así lo verán los usuarios</div>
+        <div id="mtPreview" class="mt-banner"></div>
+      </div>
+
+      <div class="mt-blocks">
+        <b>Mientras esté activo:</b> no se pueden comprar ni canjear keys de plan, ni crear scripts nuevos. Los loaders de los scripts existentes siguen funcionando.
+      </div>
+
+      <div class="row mt-actions">
+        <span class="muted" id="mtDirty"></span>
+        <button class="btn primary" id="mtSave" disabled>Guardar cambios</button>
+      </div>
+      <p class="muted mt-last" id="mtLast"></p>
     </section>
 
     <datalist id="chanList"></datalist>
@@ -190,23 +253,52 @@ document.querySelectorAll('.tab').forEach(t => t.addEventListener('click', () =>
 }));
 
 // ---- Mantenimiento y banner ----
+let mtSaved = { on: false, msg: '', banner: '' };
+const mtCurrent = () => ({ on: $('mtOn').checked, msg: $('mtMsg').value.trim(), banner: $('mtBanner').value.trim() });
+function mtRender() {
+  const c = mtCurrent();
+  $('mtStatus').classList.toggle('maint', mtSaved.on);
+  $('mtTitle').textContent = mtSaved.on ? 'En mantenimiento' : 'Abierto';
+  $('mtSub').textContent = mtSaved.on ? 'Compras, canjes y scripts nuevos pausados' : 'Todo funciona con normalidad';
+  $('mtMsgCount').textContent = `${$('mtMsg').value.length}/200`;
+  $('mtBannerCount').textContent = `${$('mtBanner').value.length}/200`;
+  const prev = $('mtPreview');
+  prev.classList.toggle('maint', c.on);
+  prev.textContent = c.on ? 'Mantenimiento: ' + (c.msg || 'Estamos en mantenimiento. Vuelve en unos minutos.') : c.banner;
+  const dirty = c.on !== mtSaved.on || c.msg !== mtSaved.msg || c.banner !== mtSaved.banner;
+  $('mtDirty').textContent = dirty ? 'Cambios sin guardar' : '';
+  $('mtSave').disabled = !dirty;
+}
 async function loadSite() {
   try {
     const o = await api('GET', '/admin/api/overview');
-    $('mtOn').checked = !!o.settings.maintenance;
-    $('mtMsg').value = o.settings.maintenanceMsg || '';
-    $('mtBanner').value = o.settings.banner || '';
-    $('mtState').textContent = o.settings.maintenance ? 'Ahora mismo: en mantenimiento' : 'Ahora mismo: abierto';
+    mtSaved = { on: !!o.settings.maintenance, msg: o.settings.maintenanceMsg || '', banner: o.settings.banner || '' };
+    $('mtOn').checked = mtSaved.on;
+    $('mtMsg').value = mtSaved.msg;
+    $('mtBanner').value = mtSaved.banner;
+    const last = (o.audit || []).find(a => a.action === 'settings');
+    $('mtLast').textContent = last ? `Último cambio: ${last.target} · ${when(last.created_at)}` : '';
+    mtRender();
   } catch (err) { toast(err.message); }
 }
+['mtOn', 'mtMsg', 'mtBanner'].forEach(id => $(id).addEventListener('input', mtRender));
+$('mtOn').addEventListener('change', mtRender);
+document.querySelectorAll('[data-preset]').forEach(b => b.addEventListener('click', () => {
+  $('mtMsg').value = b.dataset.preset;
+  mtRender();
+}));
 $('mtSave').addEventListener('click', async () => {
-  const on = $('mtOn').checked;
-  if (on && !confirm('¿Activar mantenimiento? Nadie podrá comprar, canjear ni crear scripts nuevos.')) return;
+  const c = mtCurrent();
+  if (c.on && !mtSaved.on && !confirm('¿Activar mantenimiento? Nadie podrá comprar, canjear ni crear scripts nuevos.')) return;
+  $('mtSave').disabled = true;
   try {
-    await api('POST', '/admin/api/settings', { maintenance: on, maintenanceMsg: $('mtMsg').value, banner: $('mtBanner').value });
-    toast('Ajustes guardados');
-    loadSite();
-  } catch (err) { toast(err.message); }
+    await api('POST', '/admin/api/settings', { maintenance: c.on, maintenanceMsg: c.msg, banner: c.banner });
+    toast(c.on ? 'Mantenimiento activado' : 'Ajustes guardados');
+    await loadSite();
+  } catch (err) {
+    toast(err.message);
+    mtRender();
+  }
 });
 
 // ---- Prices & Plans / Changelog (se publican en Discord con el bot) ----

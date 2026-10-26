@@ -87,6 +87,8 @@ const ALLOWED = {
   channels: { GET: '/channels' },
   obfuscators: { GET: '/obfuscators' },
   announce: { POST: '/announce' },
+  overview: { GET: '/overview' },
+  settings: { POST: '/settings' },
 };
 
 async function forward(res, method, route, body) {

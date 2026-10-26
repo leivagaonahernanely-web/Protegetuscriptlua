@@ -66,6 +66,7 @@ pre{white-space:pre-wrap;word-break:break-all;background:#040407;border:1px soli
       <button class="tab" data-tab="logs">Logs</button>
       <button class="tab" data-tab="prices">Prices &amp; Plans</button>
       <button class="tab" data-tab="changelog">Changelog</button>
+      <button class="tab" data-tab="site">Mantenimiento</button>
     </nav>
 
     <section class="card" data-panel="keys">
@@ -92,6 +93,14 @@ pre{white-space:pre-wrap;word-break:break-all;background:#040407;border:1px soli
         <button class="btn" id="logRefresh">Refresh</button>
       </div>
       <table><thead><tr><th>Time</th><th>Script</th><th>Event</th></tr></thead><tbody id="logsBody"></tbody></table>
+    </section>
+
+    <section class="card hidden" data-panel="site">
+      <p class="muted" style="margin-top:0">Pausa compras, canjes y scripts nuevos mientras haces cambios. Los loaders de tus scripts siguen funcionando.</p>
+      <label class="row" style="gap:10px;cursor:pointer"><input type="checkbox" id="mtOn"> <span>Mantenimiento activado</span></label>
+      <div class="row"><input class="field" id="mtMsg" maxlength="200" placeholder="Mensaje, por ejemplo: Volvemos en 20 minutos" style="flex:1;min-width:220px"></div>
+      <div class="row"><input class="field" id="mtBanner" maxlength="200" placeholder="Banner informativo (opcional)" style="flex:1;min-width:220px"></div>
+      <div class="row" style="margin:14px 0 0"><button class="btn primary" id="mtSave">Guardar cambios</button><span class="muted" id="mtState"></span></div>
     </section>
 
     <datalist id="chanList"></datalist>
@@ -177,7 +186,28 @@ document.querySelectorAll('.tab').forEach(t => t.addEventListener('click', () =>
   document.querySelectorAll('.tab').forEach(x => x.classList.toggle('on', x === t));
   document.querySelectorAll('[data-panel]').forEach(p => p.classList.toggle('hidden', p.dataset.panel !== t.dataset.tab));
   if (t.dataset.tab === 'prices' || t.dataset.tab === 'changelog') loadChannels();
+  if (t.dataset.tab === 'site') loadSite();
 }));
+
+// ---- Mantenimiento y banner ----
+async function loadSite() {
+  try {
+    const o = await api('GET', '/admin/api/overview');
+    $('mtOn').checked = !!o.settings.maintenance;
+    $('mtMsg').value = o.settings.maintenanceMsg || '';
+    $('mtBanner').value = o.settings.banner || '';
+    $('mtState').textContent = o.settings.maintenance ? 'Ahora mismo: en mantenimiento' : 'Ahora mismo: abierto';
+  } catch (err) { toast(err.message); }
+}
+$('mtSave').addEventListener('click', async () => {
+  const on = $('mtOn').checked;
+  if (on && !confirm('¿Activar mantenimiento? Nadie podrá comprar, canjear ni crear scripts nuevos.')) return;
+  try {
+    await api('POST', '/admin/api/settings', { maintenance: on, maintenanceMsg: $('mtMsg').value, banner: $('mtBanner').value });
+    toast('Ajustes guardados');
+    loadSite();
+  } catch (err) { toast(err.message); }
+});
 
 // ---- Prices & Plans / Changelog (se publican en Discord con el bot) ----
 let channels = [];

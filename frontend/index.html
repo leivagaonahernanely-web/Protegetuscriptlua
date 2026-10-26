@@ -306,6 +306,7 @@
     50%      { opacity: .5; transform: scale(.85); }
   }
 
+  .hero-logo img, .brand-logo img, .footer-logo img { object-fit: contain !important; padding: 12% !important; }
   .hero-logo {
     width: 130px;
     height: 130px;
@@ -401,7 +402,8 @@
     background-clip: text;
     color: transparent;
     margin-bottom: 4px;
-    font-family: 'JetBrains Mono', monospace;
+    font-family: inherit;
+    font-variant-numeric: tabular-nums;
   }
 
   .hero-stat span {

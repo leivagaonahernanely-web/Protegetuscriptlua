@@ -928,7 +928,7 @@
     ? new Date(ts * 1000).toLocaleDateString('es-EC', { day: '2-digit', month: 'short', year: 'numeric' })
     : 'Nunca';
   const loaderFor = s => (protectionOf(s) === 'ffa' ? '' : 'script_key = "KEY"; ')
-    + `loadstring(game:HttpGet("${location.origin}/scripts/hosted/${s.slug}"))()`;
+    + `loadstring(game:HttpGet("${location.origin}${s.loader_id ? `/files/v1/loaders/${s.loader_id}.lua` : `/scripts/hosted/${s.slug}`}"))()`;
   const byteLen = s => new TextEncoder().encode(s).length;
   const fmtKB = b => (b / 1024).toFixed(1) + ' KB';
   const csvCell = v => `"${String(v ?? '').replace(/"/g, '""')}"`;

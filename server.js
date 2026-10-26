@@ -236,7 +236,13 @@ for (const sql of [
   "ALTER TABLE users ADD COLUMN plan_expires_at INTEGER",
   "ALTER TABLE users ADD COLUMN plan_expired_at INTEGER",
   "ALTER TABLE users ADD COLUMN quota_reset_at INTEGER",
+  "ALTER TABLE scripts ADD COLUMN loader_id TEXT",
 ]) { try { db.exec(sql); } catch { /* ya existe */ } }
+// Identificador estable del loader: 40 caracteres aleatorios que se crean una vez y no cambian al editar el script
+db.exec('CREATE UNIQUE INDEX IF NOT EXISTS scripts_loader_id ON scripts(loader_id)');
+for (const row of db.prepare('SELECT id FROM scripts WHERE loader_id IS NULL').all()) {
+  db.prepare('UPDATE scripts SET loader_id = ? WHERE id = ?').run(crypto.randomBytes(20).toString('hex'), row.id);
+}
 // Todos los planes duran un mes, y los contadores (ofuscaciones) se reinician cada mes
 const PLAN_DAYS_DEFAULT = 30;
 const MONTH_SECONDS = PLAN_DAYS_DEFAULT * 86400;
@@ -301,7 +307,7 @@ const stmt = {
   `),
   // Nunca se seleccionan source ni content aquí
   scriptsByUser: db.prepare(`
-    SELECT id, user_id, name, slug, ffa, obfuscator, hwid_reset_hours, share_detection FROM scripts
+    SELECT id, user_id, name, slug, loader_id, ffa, obfuscator, hwid_reset_hours, share_detection FROM scripts
     WHERE user_id = ? ORDER BY id DESC
   `),
   scriptOwned: db.prepare('SELECT * FROM scripts WHERE id = ? AND user_id = ?'),
@@ -321,6 +327,7 @@ const stmt = {
   keyInsert: db.prepare('INSERT INTO keys (key, script_id, expires_at) VALUES (?, ?, ?)'),
   slugExists: db.prepare('SELECT 1 FROM scripts WHERE slug = ?'),
   scriptBySlug: db.prepare('SELECT * FROM scripts WHERE slug = ?'),
+  scriptByLoaderId: db.prepare('SELECT * FROM scripts WHERE loader_id = ?'),
 };
 
 // ==========================================
@@ -711,8 +718,10 @@ const PAGE_HEADERS = {
 const LOADER_COPY_JS = "document.getElementById('copy').addEventListener('click',function(){var b=this;navigator.clipboard.writeText(document.getElementById('code').innerText).then(function(){b.textContent='Copiado ✓';setTimeout(function(){b.textContent='Copiar'},1600)})});";
 const LOADER_CSP = `default-src 'none'; style-src 'unsafe-inline'; script-src 'sha256-${crypto.createHash('sha256').update(LOADER_COPY_JS).digest('base64')}'`;
 
+// URL pública del loader: la nueva (con .lua) si el script ya tiene loader_id; si no, la de siempre
+const loaderPath = s => (s.loader_id ? `/files/v1/loaders/${s.loader_id}.lua` : `/scripts/hosted/${s.slug}`);
 function loaderPage(script) {
-  const url = `${APP_URL}/scripts/hosted/${script.slug}`;
+  const url = `${APP_URL}${loaderPath(script)}`;
   const ffa = !!script.ffa;
   // Solo el loader: nada del código del script. FFA no necesita key.
   const lines = [
@@ -843,6 +852,17 @@ app.get('/scripts/hosted/:slug', (req, res) => {
   }
   const script = stmt.scriptBySlug.get(req.params.slug);
   res.type('text/plain').send(loaderBootstrap(req.params.slug, !!(script && script.ffa)));
+});
+
+// Loader con URL de archivo: /files/v1/loaders/<loader_id>.lua (mismo contenido que /scripts/hosted/<slug>)
+app.get('/files/v1/loaders/:file', (req, res) => {
+  const m = /^([0-9a-f]{40})\.lua$/.exec(req.params.file);
+  const script = m ? stmt.scriptByLoaderId.get(m[1]) : null;
+  if (!script) return res.status(404).type('text/plain').send('-- script no encontrado');
+  if (/text\/html/.test(req.get('accept') || '')) {
+    return res.set({ ...PAGE_HEADERS, 'Content-Security-Policy': LOADER_CSP }).type('html').send(loaderPage(script));
+  }
+  res.type('text/plain').send(loaderBootstrap(script.slug, !!script.ffa));
 });
 
 // Tokens de un solo uso para entregar el código: /auth los emite, /payload los consume.
@@ -1607,6 +1627,7 @@ app.post('/api/scripts', requireAuth, async (req, res) => {
       req.userId, input.name, uniqueSlug(input.name), input.isFfa ? 1 : 0,
       input.obfuscator, input.source, content, input.hwidResetHours, input.shareDetection,
     );
+    db.prepare('UPDATE scripts SET loader_id = ? WHERE id = ?').run(crypto.randomBytes(20).toString('hex'), info.lastInsertRowid);
     if (!input.isFfa) stmt.obfIncrement.run(req.userId);
     if (input.obfuscator === 'luau') luauBumpStmt.run(req.userId, luauDay());
     res.status(201).json({ ok: true, id: info.lastInsertRowid });

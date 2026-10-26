@@ -387,7 +387,7 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
   }
 
   function loaderText(script, key) {
-    const url = `${publicUrl}/scripts/hosted/${script.slug}`;
+    const url = `${publicUrl}${script.loader_id ? `/files/v1/loaders/${script.loader_id}.lua` : `/scripts/hosted/${script.slug}`}`;
     if (script.ffa) return `loadstring(game:HttpGet("${url}"))()`;
     return [
       `script_key = "${key}"`,

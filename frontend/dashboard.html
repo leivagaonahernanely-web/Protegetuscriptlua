@@ -232,6 +232,26 @@
   .input-group label, .label { display: block; font-size: 11px; font-weight: 800; color: var(--text-dim); margin-bottom: 8px; text-transform: uppercase; letter-spacing: .5px; }
   .hint { font-size: 12px; color: var(--text-dim); margin-top: 6px; }
   .form-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 8px; }
+  .stepper { display: flex; align-items: stretch; border: 1px solid var(--border); border-radius: 12px; overflow: hidden; background: rgba(255,255,255,.04); }
+  .step-btn { width: 52px; border: 0; background: transparent; color: #fff; font-size: 20px; font-weight: 700; transition: background .2s; }
+  .step-btn:hover:not(:disabled) { background: rgba(255,255,255,.08); }
+  .step-btn:disabled { opacity: .3; cursor: not-allowed; }
+  .step-input { flex: 1; min-width: 0; text-align: center; border: 0; border-left: 1px solid var(--border); border-right: 1px solid var(--border); background: transparent; color: #fff; font: 800 18px 'Inter', system-ui, sans-serif; padding: 10px 0; -moz-appearance: textfield; }
+  .step-input::-webkit-outer-spin-button, .step-input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+  .step-input:focus { outline: none; background: rgba(255,255,255,.06); }
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+  .chip { position: relative; display: inline-flex; align-items: center; padding: 7px 14px; border: 1px solid var(--border); border-radius: 999px; background: rgba(255,255,255,.03); color: var(--text-soft); font-size: 13px; font-weight: 700; cursor: pointer; transition: all .2s; user-select: none; }
+  .chip:hover { border-color: var(--border-3, #42424e); color: #fff; }
+  .chip.on, .chip:has(input:checked) { background: linear-gradient(135deg, #f5f5f8, #a0a0ac); color: #000; border-color: transparent; box-shadow: 0 6px 16px -8px rgba(224,224,232,.6); }
+  .chip input { position: absolute; opacity: 0; pointer-events: none; }
+  .chip:focus-within { outline: 2px solid #fff; outline-offset: 2px; }
+  .keys-summary { font-size: 13px; color: var(--text-soft); background: linear-gradient(135deg, rgba(255,255,255,.06), rgba(255,255,255,.02)); border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px; margin: 4px 0 6px; line-height: 1.5; }
+  .keys-summary strong { color: #fff; }
+  .key-list { list-style: none; margin: 0; padding: 0; max-height: 320px; overflow-y: auto; border: 1px solid var(--border); border-radius: 12px; background: #000; }
+  .key-row { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-bottom: 1px solid var(--border); }
+  .key-row:last-child { border-bottom: 0; }
+  .key-idx { font: 700 11px 'JetBrains Mono', monospace; color: var(--text-dim); min-width: 22px; }
+  .key-val { flex: 1; min-width: 0; font: 500 12px 'JetBrains Mono', monospace; color: #fff; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .textarea { width: 100%; min-height: 220px; resize: vertical; font-family: 'JetBrains Mono', monospace; font-size: 12px; background: #000; color: #fff; border: 1px solid var(--border); border-radius: 10px; padding: 12px; line-height: 1.5; }
   .textarea:focus { border-color: #fff; }
   .code-meta { display: flex; justify-content: space-between; align-items: center; margin-top: 8px; font-size: 12px; color: var(--text-dim); gap: 10px; flex-wrap: wrap; }
@@ -1151,7 +1171,10 @@
 
   function openKeysModal(preselect = '') {
     if (!scripts.length) { toast('Crea un script primero', 'error'); return; }
+    const DAY_OPTS = [['', 'Nunca'], ['1', '1 día'], ['7', '7 días'], ['30', '30 días']];
+    const AMOUNT_PRESETS = [1, 5, 10, 25, 50];
     openModal('Generar keys', `
+      <p class="card-sub" style="margin:-6px 0 20px">Crea keys vinculadas a un script. Podrás copiarlas al terminar.</p>
       <form id="formKeys" novalidate>
         <div class="input-group">
           <label for="fScript">Script</label>
@@ -1159,39 +1182,89 @@
             ${scripts.map(s => `<option value="${esc(s.id)}" ${String(s.id) === String(preselect) ? 'selected' : ''}>${esc(s.name)}</option>`).join('')}
           </select>
         </div>
+
         <div class="input-group">
-          <label for="fAmount">Cantidad</label>
-          <input id="fAmount" type="number" name="amount" class="field block" value="1" min="1" max="50" inputmode="numeric">
-          <div class="hint">Entre 1 y 50 keys por generación.</div>
+          <span class="label" id="amountLabel">Cantidad</span>
+          <div class="stepper" role="group" aria-labelledby="amountLabel">
+            <button type="button" class="step-btn" data-step="-1" aria-label="Quitar una key">−</button>
+            <input id="fAmount" type="number" name="amount" class="step-input" value="1" min="1" max="50" inputmode="numeric" aria-describedby="amountHint">
+            <button type="button" class="step-btn" data-step="1" aria-label="Agregar una key">+</button>
+          </div>
+          <div class="chips" data-amount-presets>
+            ${AMOUNT_PRESETS.map(n => `<button type="button" class="chip" data-preset="${n}">${n}</button>`).join('')}
+          </div>
+          <div class="hint" id="amountHint">Entre 1 y 50 keys por generación.</div>
         </div>
+
         <div class="input-group">
-          <label for="fDays">Expiración</label>
-          <select id="fDays" name="days" class="field block">
-            <option value="">Nunca</option>
-            <option value="1">1 día</option>
-            <option value="7">7 días</option>
-            <option value="30">30 días</option>
-          </select>
+          <span class="label" id="daysLabel">Expiración</span>
+          <div class="chips seg" role="radiogroup" aria-labelledby="daysLabel">
+            ${DAY_OPTS.map(([v, t], i) => `
+              <label class="chip">
+                <input type="radio" name="days" value="${v}" ${i === 0 ? 'checked' : ''}>
+                <span>${t}</span>
+              </label>`).join('')}
+          </div>
         </div>
+
+        <div class="keys-summary" id="keysSummary" aria-live="polite"></div>
+
         <div class="form-actions">
           <button type="button" class="btn ghost" data-close>Cancelar</button>
-          <button type="submit" class="btn">Generar</button>
+          <button type="submit" class="btn" id="keysSubmit">Generar 1 key</button>
         </div>
       </form>`);
-    $('formKeys').addEventListener('submit', submitKeys);
+
+    const form = $('formKeys');
+    const amountEl = $('fAmount');
+    const scriptEl = $('fScript');
+    const summary = $('keysSummary');
+    const submitBtn = $('keysSubmit');
+
+    const clampAmount = (n) => Math.min(50, Math.max(1, Number.isFinite(n) ? Math.floor(n) : 1));
+    const currentDays = () => form.querySelector('input[name="days"]:checked')?.value || '';
+    const refresh = () => {
+      const n = clampAmount(parseInt(amountEl.value, 10));
+      const days = currentDays();
+      const expiry = days ? `expiran en ${days} ${days === '1' ? 'día' : 'días'}` : 'no expiran';
+      summary.innerHTML = `Se crearán <strong>${n} ${n === 1 ? 'key' : 'keys'}</strong> para <strong>${esc(scriptName(parseInt(scriptEl.value, 10)))}</strong> que ${expiry}.`;
+      submitBtn.textContent = `Generar ${n} ${n === 1 ? 'key' : 'keys'}`;
+      form.querySelectorAll('[data-preset]').forEach(b => b.classList.toggle('on', Number(b.dataset.preset) === n));
+      form.querySelector('[data-step="-1"]').disabled = n <= 1;
+      form.querySelector('[data-step="1"]').disabled = n >= 50;
+    };
+    const setAmount = (n) => { amountEl.value = clampAmount(n); refresh(); };
+
+    form.querySelectorAll('[data-step]').forEach(b => b.addEventListener('click', () => setAmount(parseInt(amountEl.value, 10) + Number(b.dataset.step))));
+    form.querySelectorAll('[data-preset]').forEach(b => b.addEventListener('click', () => setAmount(Number(b.dataset.preset))));
+    amountEl.addEventListener('input', refresh);
+    amountEl.addEventListener('blur', () => setAmount(parseInt(amountEl.value, 10)));
+    form.querySelectorAll('input[name="days"]').forEach(r => r.addEventListener('change', refresh));
+    scriptEl.addEventListener('change', refresh);
+    form.addEventListener('submit', submitKeys);
+    refresh();
   }
 
   function showGenerated(newKeys, scriptLabel) {
     const text = newKeys.map(k => k.key).join('\n');
-    openModal(`${newKeys.length} keys generadas`, `
-      <p class="card-sub" style="margin-bottom:12px">Script: ${esc(scriptLabel)}. Cópialas ahora; siempre puedes volver a verlas en Keys.</p>
-      <textarea class="textarea" readonly id="genText">${esc(text)}</textarea>
-      <div class="toolbar" style="margin-top:14px">
+    const count = newKeys.length;
+    openModal(`${count} ${count === 1 ? 'key generada' : 'keys generadas'}`, `
+      <p class="card-sub" style="margin:-6px 0 16px">Script: <strong>${esc(scriptLabel)}</strong>. Cópialas ahora; siempre puedes volver a verlas en Keys.</p>
+      <ul class="key-list">
+        ${newKeys.map((k, i) => `
+          <li class="key-row">
+            <span class="key-idx">${String(i + 1).padStart(2, '0')}</span>
+            <code class="key-val">${esc(k.key)}</code>
+            <button type="button" class="btn ghost sm" data-copy="${esc(k.key)}">Copiar</button>
+          </li>`).join('')}
+      </ul>
+      <div class="toolbar" style="margin-top:16px">
         <button class="btn" id="genCopyAll">Copiar todas</button>
         <button class="btn ghost" id="genCsv">Descargar CSV</button>
         <span style="flex:1"></span>
         <button class="btn ghost" data-close>Cerrar</button>
       </div>`, 'wide');
+    $('modalBody').querySelectorAll('[data-copy]').forEach(b => b.addEventListener('click', () => copyText(b.dataset.copy, 'Key copiada')));
     $('genCopyAll').onclick = () => copyText(text, 'Keys copiadas');
     $('genCsv').onclick = () => {
       const rows = newKeys.map(k => [k.key, scriptLabel].map(csvCell).join(',')).join('\n');

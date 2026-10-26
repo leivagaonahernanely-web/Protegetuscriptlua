@@ -266,6 +266,25 @@
   .owner-audit-row .hint { margin: 0; }
   .toggle-row { display: flex; align-items: center; gap: 10px; font-size: 14px; cursor: pointer; }
   .toggle-row input { width: 18px; height: 18px; accent-color: #fff; }
+  .maint-screen { position: fixed; inset: 0; z-index: 10000; display: flex; align-items: center; justify-content: center; padding: 24px; background: radial-gradient(ellipse 70% 60% at 50% 0%, rgba(224,224,232,.10), transparent 70%), #08080a; color: #f5f5f8; font-family: 'Inter', system-ui, -apple-system, sans-serif; overflow-y: auto; }
+  .maint-screen[hidden] { display: none; }
+  .maint-card { width: 100%; max-width: 520px; text-align: center; }
+  .maint-icon { width: 72px; height: 72px; margin: 0 auto 22px; border-radius: 20px; display: grid; place-items: center; color: #08080a; background: linear-gradient(135deg, #f5f5f8 0%, #d0d0d8 45%, #a0a0ac 100%); box-shadow: 0 20px 50px -18px rgba(224,224,232,.45); }
+  .maint-icon svg { width: 34px; height: 34px; }
+  .maint-eyebrow { margin: 0 0 10px; font-size: 12px; font-weight: 800; letter-spacing: .24em; color: #a8a8b4; }
+  .maint-title { margin: 0 0 14px; font-size: clamp(30px, 6vw, 44px); font-weight: 900; letter-spacing: -.03em; line-height: 1.1; background: linear-gradient(135deg, #f5f5f8 0%, #d0d0d8 45%, #a0a0ac 100%); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .maint-msg { margin: 0 0 12px; font-size: 17px; line-height: 1.55; color: #f5f5f8; overflow-wrap: anywhere; }
+  .maint-note { margin: 0 0 28px; font-size: 14px; line-height: 1.6; color: #a8a8b4; }
+  .maint-actions { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
+  .maint-btn { display: inline-flex; align-items: center; justify-content: center; padding: 12px 22px; border-radius: 12px; font: 800 14px 'Inter', system-ui, sans-serif; text-decoration: none; cursor: pointer; border: 1px solid #26262e; background: transparent; color: #f5f5f8; transition: transform .2s, background .2s; }
+  .maint-btn.primary { background: linear-gradient(135deg, #f5f5f8 0%, #d0d0d8 50%, #a0a0ac 100%); color: #08080a; border-color: transparent; }
+  .maint-btn:hover { transform: translateY(-1px); background: rgba(255,255,255,.06); }
+  .maint-btn.primary:hover { background: linear-gradient(135deg, #f5f5f8 0%, #d0d0d8 50%, #a0a0ac 100%); box-shadow: 0 10px 24px -10px rgba(224,224,232,.5); }
+  .maint-btn:focus-visible, .maint-staff:focus-visible { outline: 2px solid #f5f5f8; outline-offset: 3px; }
+  .maint-staff { display: inline-block; margin-top: 26px; font-size: 13px; color: #6e6e78; text-decoration: none; }
+  .maint-staff:hover { color: #d0d0d8; }
+  .maint-staff[hidden] { display: none; }
+  @media (max-width: 560px) { .maint-actions .maint-btn { flex: 1 1 100%; } }
   .site-notice { margin: 0 0 18px; padding: 12px 16px; border: 1px solid var(--border); border-radius: 12px; background: linear-gradient(135deg, rgba(255,255,255,.07), rgba(255,255,255,.02)); color: var(--text-soft); font-size: 14px; }
   .site-notice.maint { border-color: rgba(251,191,36,.45); background: linear-gradient(135deg, rgba(251,191,36,.12), rgba(251,191,36,.02)); color: #fde68a; }
   @media (max-width: 640px) { .owner-audit-row { grid-template-columns: 1fr; gap: 2px; } }
@@ -319,6 +338,22 @@
 </style>
 </head>
 <body>
+
+<div id="maintScreen" class="maint-screen" role="alert" hidden>
+  <div class="maint-card">
+    <div class="maint-icon" aria-hidden="true">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 0 0 5.4-5.4l-2.5 2.5-2.4-.6-.6-2.4z"/></svg>
+    </div>
+    <p class="maint-eyebrow">VANTARMOR</p>
+    <h1 class="maint-title">Estamos en mantenimiento</h1>
+    <p class="maint-msg" id="maintMsg">Volvemos en unos minutos.</p>
+    <p class="maint-note">Tus scripts y loaders siguen funcionando. Las compras y los canjes se reanudan en cuanto terminemos.</p>
+    <div class="maint-actions">
+      <button class="maint-btn primary" type="button" id="maintRetry">Reintentar</button>
+      <a class="maint-btn" href="https://discord.gg/FUjbTN69" target="_blank" rel="noopener">Novedades en Discord</a>
+    </div>
+      </div>
+</div>
 
 <div class="app">
   <!-- SIDEBAR -->
@@ -1674,16 +1709,22 @@
     }
   });
 
+  $('maintRetry').addEventListener('click', () => location.reload());
   // Banner y aviso de mantenimiento visibles para todos
   async function loadSiteStatus() {
     try {
       const st = await api('/api/status');
       const parts = [];
-      if (st.maintenance) parts.push(`<strong>Mantenimiento:</strong> ${esc(st.message || 'Estamos en mantenimiento. Vuelve en unos minutos.')}`);
-      if (st.banner) parts.push(esc(st.banner));
       const box = $('siteNotice');
-      box.innerHTML = parts.join(' · ');
-      box.hidden = !parts.length;
+      // Mantenimiento: pantalla completa para los usuarios; el dueño sigue entrando y ve el aviso normal
+      const fullScreen = !!st.maintenance && !(user && user.owner);
+      $('maintMsg').textContent = st.message || 'Volvemos en unos minutos.';
+      $('maintScreen').hidden = !fullScreen;
+      document.body.style.overflow = fullScreen ? 'hidden' : '';
+      if (st.maintenance && !fullScreen) parts.unshift(`<strong>Mantenimiento:</strong> ${esc(st.message || 'Estamos en mantenimiento.')}`);
+      if (st.banner) parts.push(esc(st.banner));
+      box.innerHTML = fullScreen ? '' : parts.join(' · ');
+      box.hidden = !box.innerHTML;
       box.classList.toggle('maint', !!st.maintenance);
     } catch (_) { /* sin aviso si el estado no responde */ }
   }
@@ -2497,6 +2538,7 @@
     clearAuthLoop();
     setOwnerNav(!!user.owner);
     loadSiteStatus();
+    setInterval(loadSiteStatus, 60000);
     loadExecStats();
     setPlanNav(hasPerkPlan());
     setPlusNav(hasPlusPlan());

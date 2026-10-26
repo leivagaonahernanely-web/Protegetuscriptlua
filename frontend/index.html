@@ -661,8 +661,10 @@
   }
 
   .plan.featured {
-    border-color: var(--silver-3);
-    background: linear-gradient(180deg, var(--panel-2), var(--panel));
+    border: 1px solid transparent;
+    background:
+      linear-gradient(180deg, var(--panel-2), var(--panel)) padding-box,
+      linear-gradient(135deg, var(--silver-1) 0%, var(--silver-4) 45%, var(--silver-2) 100%) border-box;
     box-shadow: 0 20px 80px -20px rgba(224,224,232,.2);
     transform: scale(1.02);
   }

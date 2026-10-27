@@ -766,3 +766,12 @@ tbody tr:hover td { background: rgba(255,255,255,.025); }
 .script-card > .row:last-child { display: grid; grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); gap: 8px; }
 .script-card > .row:last-child .btn { justify-content: center; text-align: center; }
 .script-card > .row:last-child .btn { white-space: normal; line-height: 1.25; min-height: 38px; padding-left: 10px; padding-right: 10px; }
+
+/* Barra superior en móvil: título en su fila y acciones debajo, sin cortar textos */
+@media (max-width: 700px) {
+  .topbar { flex-wrap: wrap; row-gap: 10px; column-gap: 10px; padding: 12px 14px; }
+  .page-title { flex: 0 0 calc(100% - 54px); }
+  .page-title small { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .topbar > #inviteBotBtn, .topbar > #botServers, .topbar > #langSlot, .topbar > #refreshBtn { flex: 0 0 auto; }
+  #langSlot .vm-lang { font-size: 12px; padding: 8px 26px 8px 10px; }
+}

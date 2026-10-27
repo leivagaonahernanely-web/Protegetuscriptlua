@@ -311,6 +311,10 @@
           <input type="checkbox" name="clydeVm" ${s.clyde_vm ? 'checked' : ''} style="margin-top:3px">
           <span><b>Máquina virtual</b><small style="display:block;color:var(--text-soft)">Más protección, pero puede bajar los FPS del juego. Solo aplica al Ofuscador 1.</small></span>
         </label>
+        <div id="vmWarn" hidden style="margin-top:10px;padding:10px 12px;border-radius:10px;background:var(--warn-bg);border:1px solid rgba(251,191,36,.25);font-size:13px;color:var(--text-soft)">
+          Detectamos código que corre cada frame (RenderStepped, Heartbeat o Stepped). Con VM puede bajar los FPS.
+          <button type="button" class="btn ghost sm" id="vmOff" style="margin-top:8px">Desactivar VM</button>
+        </div>
         <button type="button" class="btn ghost sm" id="macroBtn" hidden style="margin-top:8px">Macros de rendimiento (Ofuscador 3)</button>
       </div>
 
@@ -339,9 +343,15 @@
       $('hwidGroup').hidden = !isProtected;
       $('macroBtn').hidden = $('fObf').value !== 'luau';
       $('vmGroup').hidden = $('fObf').value !== 'clyde';
+      const vmOn = $('vmGroup').querySelector('input')?.checked;
+      const hot = hotRanges($('fCode')?.value || '').length > 0;
+      $('vmWarn').hidden = !($('fObf').value === 'clyde' && vmOn && hot);
     };
     document.querySelectorAll('input[name="protection"]').forEach(r => r.addEventListener('change', sync));
     $('fObf').addEventListener('change', sync);
+    $('vmGroup').querySelector('input').addEventListener('change', sync);
+    $('fCode')?.addEventListener('input', sync);
+    $('vmOff').addEventListener('click', () => { $('vmGroup').querySelector('input').checked = false; sync(); });
     sync();
   }
 
@@ -1720,6 +1730,24 @@
   });
 
   // ---------- MACROS DE RENDIMIENTO (Ofuscador 3) ----------
+  // Callbacks que corren cada frame: se detectan por texto y se toma el bloque hasta su 'end' con la misma sangría
+  const HOT_EVENT_RE = /\b(RenderStepped|Heartbeat|Stepped|PreRender|PreSimulation|PostSimulation)\s*:\s*[Cc]onnect\s*\(/;
+  function hotRanges(code) {
+    const lines = code.split('\n');
+    const ranges = [];
+    lines.forEach((ln, i) => {
+      if (!HOT_EVENT_RE.test(ln)) return;
+      const indent = ln.match(/^\s*/)[0];
+      let end = lines.length - 1;
+      for (let j = i + 1; j < lines.length; j++) {
+        if (/^\s*end\)?\s*$/.test(lines[j]) && lines[j].match(/^\s*/)[0] === indent) { end = j; break; }
+      }
+      ranges.push([i, end]);
+    });
+    return ranges;
+  }
+  const inHot = (line, ranges) => ranges.some(([a, b]) => line >= a && line <= b);
+
   // Busca funciones en el código (por texto). Las macros van justo encima de la función.
   function findLuauFunctions(code) {
     const lines = code.split('\n');
@@ -1745,6 +1773,7 @@
   function openMacroPicker() {
     const fns = findLuauFunctions($('fCode').value);
     if (!fns.length) { toast('No encontré funciones en el código', 'error'); return; }
+    const hot = hotRanges($('fCode').value);
     const wrap = document.createElement('div');
     wrap.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;z-index:1000;padding:16px';
     wrap.innerHTML = `
@@ -1754,8 +1783,8 @@
         <div style="max-height:340px;overflow:auto;margin-top:10px">
           ${fns.map((f, i) => `
             <label style="display:flex;gap:8px;align-items:center;padding:6px 0">
-              <input type="checkbox" data-mc="${i}" ${f.count >= 30 ? 'checked' : ''}>
-              <span><code>${esc(f.name)}</code> · línea ${f.line + 1} · ${f.count} líneas</span>
+              <input type="checkbox" data-mc="${i}" ${f.count >= 30 || inHot(f.line, hot) ? 'checked' : ''}>
+              <span><code>${esc(f.name)}</code> · línea ${f.line + 1} · ${f.count} líneas${inHot(f.line, hot) ? ' · <b>corre cada frame</b>' : ''}</span>
             </label>`).join('')}
         </div>
         <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px">

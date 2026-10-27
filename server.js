@@ -595,6 +595,8 @@ async function obfuscateLuau(source) {
   return out;
 }
 
+// La tabla debe existir antes de preparar las consultas.
+db.exec(`CREATE TABLE IF NOT EXISTS obf_cache (hash TEXT PRIMARY KEY, content TEXT NOT NULL, created_at INTEGER NOT NULL)`);
 const obfCacheGet = db.prepare('SELECT content FROM obf_cache WHERE hash = ?');
 const obfCachePut = db.prepare('INSERT OR REPLACE INTO obf_cache (hash, content, created_at) VALUES (?, ?, ?)');
 async function obfuscate(source, obfuscator, opts = {}) {
@@ -937,7 +939,6 @@ function discordJoinDone(userId) {
 // Conteo diario de ejecuciones por script (hora de Ecuador). Las gráficas leen de aquí,
 // así que borrar los logs viejos no afecta a las estadísticas.
 // Caché de ofuscación: mismo código y mismo modo = mismo resultado, sin volver a ofuscar (ni gastar créditos)
-db.exec(`CREATE TABLE IF NOT EXISTS obf_cache (hash TEXT PRIMARY KEY, content TEXT NOT NULL, created_at INTEGER NOT NULL)`);
 db.exec(`CREATE TABLE IF NOT EXISTS execution_daily (script_id INTEGER NOT NULL, day TEXT NOT NULL, n INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (script_id, day))`);
 // Primera vez: se rellena con lo que quedaba en los logs
 if (!db.prepare('SELECT 1 FROM execution_daily LIMIT 1').get()) {

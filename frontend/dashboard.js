@@ -137,7 +137,9 @@
     $('menuBtn').setAttribute('aria-expanded', String(open));
   }
 
+  const OWNER_VIEWS = new Set(['ownerpanel', 'planskeys', 'publisher', 'users']);
   function showView(name) {
+    if (OWNER_VIEWS.has(name) && !(user && user.owner)) name = 'dashboard';
     document.querySelectorAll('.nav-item[data-nav]').forEach(b => {
       const on = b.dataset.nav === name;
       b.classList.toggle('active', on);

@@ -888,7 +888,6 @@ local function loaderTampered()
   local okI, info = pcall(function() return debug.getinfo(ls, "S") end)
   return okI and type(info) == "table" and info.what ~= "C"
 end
-if loaderTampered() then kick("TAMPERING") end
 local key = ""
 if type(script_key) == "string" then key = (script_key:gsub("^%s+", ""):gsub("%s+$", "")) end
 if key == "" and not FFA then kick("KEY_REQUIRED") end
@@ -899,6 +898,12 @@ if okh and h then hwid = h end
 local rbxid = ""
 local okr, rid = pcall(function() return tostring(Players.LocalPlayer.UserId) end)
 if okr and rid then rbxid = rid end
+-- Si loadstring fue interceptado: se avisa al servidor (dueño) y se corta antes de validar la key
+if loaderTampered() then
+  pcall(function() game:HttpGet(AUTH_URL .. "?key=" .. enc(key) .. "&hwid=" .. enc(hwid) .. "&rbxid=" .. enc(rbxid) .. "&tamper=1") end)
+  script_key = nil
+  kick("TAMPERING")
+end
 local ok, body = pcall(function() return game:HttpGet(AUTH_URL .. "?key=" .. enc(key) .. "&hwid=" .. enc(hwid) .. "&rbxid=" .. enc(rbxid)) end)
 script_key = nil
 if not ok or type(body) ~= "string" then kick("SERVER_UNREACHABLE") end
@@ -1072,6 +1077,7 @@ function reportKeyShare(script, k, hwid, reply) {
   return reply(removed ? 'KEY_INVALID' : 'HWID_MISMATCH');
 }
 
+const tamperSeen = new Map(); // antispam de avisos de volcado
 app.get('/scripts/hosted/:slug/auth', loaderLimit, (req, res) => {
   // Los navegadores no reciben nunca el código
   if (/text\/html/.test(req.get('accept') || '')) return res.status(403).type('text/plain').send('!VANTARMOR:FORBIDDEN');
@@ -1083,6 +1089,26 @@ app.get('/scripts/hosted/:slug/auth', loaderLimit, (req, res) => {
   if (script.maintenance) return reply('MAINTENANCE');
   // ID de Roblox de quien ejecuta (lo manda el loader desde el juego; vacío si no llegó)
   const rbxid = /^\d{1,20}$/.test(String(req.query.rbxid || '')) ? String(req.query.rbxid) : '';
+  // El loader avisa cuando loadstring fue interceptado (volcado). Solo avisa al dueño: no banea.
+  if (req.query.tamper === '1') {
+    const tKey = String(req.query.key || '').trim().slice(0, 64);
+    const tHwid = /^[\x21-\x7E]{8,128}$/.test(String(req.query.hwid || '')) ? String(req.query.hwid) : '';
+    const keyRow = tKey ? db.prepare('SELECT discord_id FROM keys WHERE key = ? AND script_id = ?').get(tKey, script.id) : null;
+    const tDiscord = keyRow?.discord_id || null;
+    const seenKey = `${script.id}|${tKey}|${tHwid}`;
+    const last = tamperSeen.get(seenKey) || 0;
+    if (Date.now() - last > 10 * 60 * 1000) { // un aviso cada 10 min por key y HWID
+      tamperSeen.set(seenKey, Date.now());
+      logWithRoblox(script.id, [
+        '🚨 Intento de volcado: loadstring fue interceptado',
+        `• Key: \`${tKey || 'sin key'}\``,
+        `• HWID: \`${tHwid || 'sin dato'}\``,
+        `• Discord: ${tDiscord ? `<@${tDiscord}>` : 'sin vincular'}`,
+      ], tDiscord, rbxid);
+      discordBot?.notifyTamper?.({ scriptId: script.id, key: tKey, hwid: tHwid, rbxid, discordId: tDiscord });
+    }
+    return reply('TAMPERING');
+  }
   if (script.ffa) {
     const ffaHwid = String(req.query.hwid || '').slice(0, 128);
     countExecution(script.id, req.ip, script.user_id);

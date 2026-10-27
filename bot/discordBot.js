@@ -348,7 +348,7 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
       if (!user && opts.author) embed.setAuthor(opts.author);
       // Avatar de Roblox (si se pudo consultar) reemplaza la miniatura
       if (opts.thumbnail) embed.setThumbnail(opts.thumbnail);
-      await channel.send({ embeds: [embed], components: opts.components ?? [] });
+      await channel.send({ content: opts.content, embeds: [embed], components: opts.components ?? [] });
     } catch (err) {
       console.error('[Bot] No se pudo escribir en el canal de logs:', err.message);
     }
@@ -1482,6 +1482,30 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
 
   // Expuesto al servidor para registrar cuando se ejecuta un loader
   // Aviso de key usada desde otro equipo: DM al dueño de la key y registro en logs con botón para eliminarla
+  // Intento de volcado: avisa al dueño con mención, la key y un botón para eliminarla
+  client.notifyTamper = async ({ scriptId, key, hwid, rbxid, discordId }) => {
+    const script = q.scriptById.get(scriptId);
+    if (!script) return;
+    const text = [
+      `• Key: ${key ? `\`${key}\`` : 'sin key'}`,
+      `• HWID: ${hwid ? `\`${hwid}\`` : 'sin dato'}`,
+      `• Roblox: ${rbxid ? `\`${rbxid}\`` : 'sin dato'}`,
+      `• Discord: ${discordId ? `<@${discordId}>` : 'sin vincular'}`,
+      key ? '• Si no reconoces este uso, elimina la key con el botón.' : '',
+    ].filter(Boolean).join('\n');
+    const components = key ? [new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId(`vanta:delkey:${key}`).setLabel('Eliminar key').setEmoji('🗑️').setStyle(ButtonStyle.Danger),
+    )] : [];
+    await logScriptEvent(script, text, discordId, {
+      color: 0xed4245,
+      title: `🚨 Intento de volcado · ${script.name}`,
+      content: `<@${script.user_id}> alguien intentó volcar **${script.name}**.`,
+      components,
+    });
+    const owner = await client.users.fetch(script.user_id).catch(() => null);
+    if (owner) await owner.send(`🚨 Intento de volcado en **${script.name}**. Revisa el canal de logs o el panel.`).catch(() => {});
+  };
+
   client.notifyKeyShare = async ({ scriptId, key, discordId, strikes, removed, hwid, boundHwid }) => {
     const script = q.scriptById.get(scriptId);
     if (!script) return;

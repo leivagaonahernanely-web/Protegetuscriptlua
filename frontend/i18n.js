@@ -11,9 +11,24 @@
     const m = document.cookie.match(/(?:^|;\s*)googtrans=\/es\/([^;]+)/);
     return m ? decodeURIComponent(m[1]) : 'es';
   };
+  // Guarda la elección en la cookie (para recordarla al volver a entrar).
+  const saveCookie = code => {
+    const value = code === 'es' ? '' : `/es/${code}`;
+    const age = code === 'es' ? 'max-age=0' : 'max-age=31536000';
+    document.cookie = `googtrans=${value}; path=/; ${age}`;
+    document.cookie = `googtrans=${value}; path=/; domain=${location.hostname}; ${age}`;
+  };
+  // Cambia el idioma sin recargar: usa el selector interno que crea Google Translate.
+  // Volver al español sí recarga, porque el original solo se restaura al cargar la página.
   const setLang = code => {
-    if (code === 'es') document.cookie = 'googtrans=; path=/; max-age=0';
-    else document.cookie = `googtrans=/es/${code}; path=/; max-age=31536000`;
+    saveCookie(code);
+    const combo = document.querySelector('.goog-te-combo');
+    if (combo && code !== 'es') {
+      combo.value = code;
+      combo.dispatchEvent(new Event('change'));
+    } else {
+      location.reload();
+    }
   };
 
   const css = `
@@ -45,7 +60,7 @@
     sel.appendChild(o);
   });
   sel.value = current();
-  sel.addEventListener('change', () => { setLang(sel.value); location.reload(); });
+  sel.addEventListener('change', () => setLang(sel.value));
 
   const slot = document.getElementById('langSlot');
   if (slot) slot.appendChild(sel);

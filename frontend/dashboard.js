@@ -1597,10 +1597,11 @@
     const d3 = window.d3;
     const svg = d3.select($('geoMap'));
     const [world, meta] = await Promise.all([
-      fetch('https://cdn.jsdelivr.net/npm/world-atlas@2.0.2/countries-110m.json').then(r => r.json()),
+      fetch('https://cdn.jsdelivr.net/npm/world-atlas@2.0.2/countries-50m.json').then(r => r.json()),
       fetch('https://cdn.jsdelivr.net/npm/world-countries@5.0.0/countries.json').then(r => r.json()),
     ]);
     const alphaByNum = new Map(meta.map(c => [String(c.ccn3 || '').padStart(3, '0'), c.cca2]));
+    const latlngByCode = new Map(meta.map(c => [c.cca2, c.latlng]));
     const features = window.topojson.feature(world, world.objects.countries).features;
     const width = 960, height = 470;
     svg.attr('viewBox', `0 0 ${width} ${height}`).attr('preserveAspectRatio', 'xMidYMid meet');
@@ -1613,10 +1614,11 @@
     const paths = g.selectAll('path.country').data(features).join('path')
       .attr('class', 'country').attr('d', path);
     g.append('g').attr('class', 'labels');
+    g.append('g').attr('class', 'dots');
     const zoom = d3.zoom().scaleExtent([1, 8]).translateExtent([[0, 0], [width, height]])
       .on('zoom', e => g.attr('transform', e.transform));
     svg.call(zoom);
-    geoMapState = { g, zoom, svg, path, paths, features, alphaByNum, byCode: new Map() };
+    geoMapState = { g, zoom, svg, path, projection, paths, features, alphaByNum, latlngByCode, byCode: new Map() };
     paths.each(function (f) {
       const code = alphaByNum.get(String(f.id).padStart(3, '0'));
       if (code) geoMapState.byCode.set(code, { el: this, f });
@@ -1625,20 +1627,14 @@
 
   function colorGeoMap(counts, max) {
     const d3 = window.d3;
-    const { g, path, byCode } = geoMapState;
+    const { g, path, projection, byCode, latlngByCode } = geoMapState;
     const top = Math.max(2, max);
     // Escala logarítmica: los países pequeños en volumen también se distinguen
     const scale = d3.scaleSequentialLog(d3.interpolateRgb('#3d3d4f', '#ffffff')).domain([1, top]).clamp(true);
     const tip = $('geoTip');
     const wrap = $('geoMap').parentNode;
-    geoMapState.paths.each(function (f) {
-      const code = geoMapState.alphaByNum.get(String(f.id).padStart(3, '0'));
-      const n = code ? counts.get(code) || 0 : 0;
-      const el = d3.select(this);
-      el.classed('has', n > 0).attr('fill', n ? scale(n) : null);
-      el.on('mouseenter', null).on('mousemove', null).on('mouseleave', null);
-      if (!n) return;
-      el.on('mouseenter', () => {
+    const bindTip = (sel, code, n) => {
+      sel.on('mouseenter', () => {
         tip.innerHTML = `<b>${flagOf(code)} ${esc(countryName(code))}</b>${n.toLocaleString('es-EC')} ejecuciones`;
         tip.hidden = false;
       }).on('mousemove', event => {
@@ -1646,6 +1642,30 @@
         tip.style.left = `${x}px`;
         tip.style.top = `${y}px`;
       }).on('mouseleave', () => { tip.hidden = true; });
+    };
+    geoMapState.paths.each(function (f) {
+      const code = geoMapState.alphaByNum.get(String(f.id).padStart(3, '0'));
+      const n = code ? counts.get(code) || 0 : 0;
+      const el = d3.select(this);
+      el.classed('has', n > 0).attr('fill', n ? scale(n) : null);
+      el.on('mouseenter', null).on('mousemove', null).on('mouseleave', null);
+      if (n) bindTip(el, code, n);
+    });
+    // Países tan pequeños que no se ven en el mapa: punto en su ubicación real
+    const dots = g.select('g.dots');
+    dots.selectAll('*').remove();
+    [...counts.entries()].forEach(([code, n]) => {
+      const hit = byCode.get(code);
+      const ll = latlngByCode.get(code);
+      if (!hit || !ll) return;
+      const [[x0, y0], [x1, y1]] = path.bounds(hit.f);
+      if (x1 - x0 >= 6 && y1 - y0 >= 6) return;
+      const [x, y] = projection([ll[1], ll[0]]);
+      if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+      const r = 3 + 3 * Math.sqrt(n / top);
+      const dot = dots.append('circle').attr('class', 'dot').attr('cx', x).attr('cy', y).attr('r', r)
+        .attr('fill', scale(n));
+      bindTip(dot, code, n);
     });
     // Etiquetas de los 5 países con más ejecuciones
     const labels = g.select('g.labels');
@@ -1700,8 +1720,12 @@
         $('geoMap').closest('.geo-map-wrap').classList.add('geo-off');
         return;
       }
-      if (!geoMapState) await buildGeoMap();
-      colorGeoMap(counts, max);
+      try {
+        if (!geoMapState) await buildGeoMap();
+        colorGeoMap(counts, max);
+      } catch (mapErr) {
+        $('geoMap').closest('.geo-map-wrap').classList.add('geo-off');
+      }
     } catch (err) {
       list.innerHTML = '<li class="geo-empty">No se pudieron cargar los países.</li>';
     }

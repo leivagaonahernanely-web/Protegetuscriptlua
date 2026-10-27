@@ -724,3 +724,7 @@ tbody tr:hover td { background: rgba(255,255,255,.025); }
 }
 .chart-tip b { display: block; color: #fff; font-size: 12px; margin-bottom: 2px; }
 .btn.ghost.on { background: rgba(255,255,255,.1); border-color: rgba(255,255,255,.3); color: #fff; }
+
+/* Mapa: puntos para países muy pequeños */
+.geo-map .dot { stroke: #0b0b0e; stroke-width: .8; cursor: pointer; transition: stroke .15s ease; }
+.geo-map .dot:hover { stroke: #ffffff; stroke-width: 1.2; }

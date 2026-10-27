@@ -353,7 +353,7 @@ function renderKeys() {
     <tr>
       <td><code>${esc(k.key)}</code></td>
       <td>${esc(PLAN_NAMES[k.plan] || k.plan)}</td>
-      <td><span class="badge ${k.used_by ? 'bad' : 'ok'}">${k.used_by ? 'Used' : 'Available'}</span></td>
+      <td><span class="badge ${k.used_by ? 'bad' : 'ok'}">${k.used_by ? 'Used' : 'Available'}</span>${k.used_by ? `<div class="who" style="margin-top:6px">${k.used_by_avatar_url ? `<img class="av" src="${esc(k.used_by_avatar_url)}" alt="" loading="lazy">` : '<span class="av-empty"></span>'}<span>${esc(k.used_by_name || k.used_by)}</span></div>` : ''}</td>
       <td class="muted">${when(k.created_at)}</td>
       <td><button class="btn" data-copy="${esc(k.key)}">Copy</button></td>
     </tr>`).join('') : '<tr><td colspan="5" class="muted">No plan keys yet.</td></tr>';

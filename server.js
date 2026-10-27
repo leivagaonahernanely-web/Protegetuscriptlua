@@ -1577,7 +1577,15 @@ function requireOwner(req, res, next) {
   next();
 }
 app.get('/api/owner/plan-keys', requireOwnerApi, (req, res) => {
-  res.json(db.prepare('SELECT key, plan, days, used_by, used_at, created_at FROM plan_keys ORDER BY created_at DESC LIMIT 200').all());
+  // Quien canjeó la key: nombre y foto de Discord (la personalizada si la cambió)
+  res.json(db.prepare(`SELECT pk.key, pk.plan, pk.days, pk.used_by, pk.used_at, pk.created_at,
+      u.username AS used_by_name, u.avatar AS used_by_avatar, u.custom_avatar AS used_by_custom
+    FROM plan_keys pk LEFT JOIN users u ON u.id = pk.used_by ORDER BY pk.created_at DESC LIMIT 200`).all()
+    .map(({ used_by_avatar, used_by_custom, ...k }) => ({
+      ...k,
+      used_by_avatar_url: !k.used_by ? null : (used_by_custom
+        || (used_by_avatar ? `https://cdn.discordapp.com/avatars/${k.used_by}/${used_by_avatar}.png?size=64` : defaultDiscordAvatar(k.used_by))),
+    })));
 });
 app.post('/api/owner/plan-keys', requireOwnerApi, (req, res) => {
   const plan = req.body?.plan === 'plus' ? 'plus' : (req.body?.plan === 'premium' ? 'premium' : null);

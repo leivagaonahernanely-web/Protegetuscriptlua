@@ -407,6 +407,9 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
   }
 
   // Tarjeta mientras el script está en mantenimiento (el loader tampoco se entrega)
+  // Mantenimiento total: el bot también responde con la tarjeta de mantenimiento
+  const maintenanceAllOn = () => db.prepare("SELECT value FROM app_settings WHERE name = 'maintenance_all'").get()?.value === '1';
+  const inMaintenance = script => Boolean(script.maintenance) || maintenanceAllOn();
   function maintenanceCard(script) {
     const embed = new EmbedBuilder()
       .setColor(0xfaa61a)
@@ -433,7 +436,7 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
 
   // Lógica compartida entre comandos y botones del panel
   function getScriptReply(script, userId, roleIds) {
-    if (script.maintenance) return maintenanceCard(script);
+    if (inMaintenance(script)) return maintenanceCard(script);
     if (script.ffa) return `\`\`\`lua\n${loaderText(script)}\n\`\`\``;
     const access = resolveAccess(script, userId, roleIds);
     if (access.status === 'blacklisted') return `⛔ Estás bloqueado para **${script.name}**.`;
@@ -1339,7 +1342,7 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
     if (action === 'script') return reply(getScriptReply(script, actor, memberRoleIds(interaction)));
     if (action === 'stats') return reply(statsReply(actor, script, memberRoleIds(interaction)));
     if (action === 'role') {
-      if (script.maintenance) return reply(maintenanceCard(script));
+      if (inMaintenance(script)) return reply(maintenanceCard(script));
       const access = resolveAccess(script, actor, memberRoleIds(interaction));
       if (access.status !== 'ok') return reply(access.status === 'limit' ? KEY_LIMIT_MSG : noAccessCard(script));
       return reply(await giveBuyerRole(interaction, script));

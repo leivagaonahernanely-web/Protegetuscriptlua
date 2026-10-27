@@ -1057,7 +1057,7 @@ app.get('/scripts/hosted/:slug/auth', loaderLimit, (req, res) => {
 
   const script = stmt.scriptBySlug.get(req.params.slug);
   if (!script) return reply('SCRIPT_NOT_FOUND');
-  if (script.maintenance) return reply('MAINTENANCE');
+  if (script.maintenance || (maintenanceAllOn() && !isOwnerId(script.user_id))) return reply('MAINTENANCE');
   // ID de Roblox de quien ejecuta (lo manda el loader desde el juego; vacío si no llegó)
   const rbxid = /^\d{1,20}$/.test(String(req.query.rbxid || '')) ? String(req.query.rbxid) : '';
   if (script.ffa) {
@@ -1569,8 +1569,11 @@ app.post('/api/me/bot-avatar', requireAuth, requirePerkPlan, async (req, res) =>
 });
 
 // Mantenimiento: bloquea compras, canjes y scripts nuevos. Los loaders existentes siguen funcionando y el dueño no se bloquea
+// Mantenimiento total ('maintenance_all') también para loaders y bot; implica el normal.
+function maintenanceAllOn() { return appGet('maintenance_all') === '1'; }
 function maintenanceBlock(req, res) {
-  if (appGet('maintenance') !== '1' || isOwnerId(req.userId)) return false;
+  const on = appGet('maintenance') === '1' || maintenanceAllOn();
+  if (!on || isOwnerId(req.userId)) return false;
   res.status(503).json({ error: appGet('maintenance_msg') || 'Estamos en mantenimiento. Vuelve en unos minutos.', code: 'MAINTENANCE' });
   return true;
 }
@@ -1578,7 +1581,8 @@ function maintenanceBlock(req, res) {
 app.get('/api/status', (req, res) => {
   // servers: solo el número de servidores donde está el bot (público, sin nombres)
   const servers = discordBot?.guilds?.cache ? discordBot.guilds.cache.size : null;
-  res.json({ maintenance: appGet('maintenance') === '1', message: appGet('maintenance_msg'), banner: appGet('banner'), servers });
+  const maintenance = appGet('maintenance') === '1' || maintenanceAllOn();
+  res.json({ maintenance, maintenanceAll: maintenanceAllOn(), message: appGet('maintenance_msg'), banner: appGet('banner'), servers });
 });
 
 // ---- Panel del dueño: solo DISCORD_OWNER_ID ----
@@ -1708,6 +1712,7 @@ app.get('/api/owner/overview', requireOwnerApi, (req, res) => {
     },
     settings: {
       maintenance: appGet('maintenance') === '1',
+      maintenanceAll: maintenanceAllOn(),
       maintenanceMsg: appGet('maintenance_msg'),
       banner: appGet('banner'),
     },
@@ -1751,10 +1756,12 @@ app.post('/api/owner/settings', requireOwnerApi, (req, res) => {
   const banner = String(b.banner ?? '').trim();
   if (msg.length > 200 || banner.length > 200) return res.status(400).json({ error: 'El mensaje y el banner deben tener máximo 200 caracteres' });
   const on = b.maintenance === true;
+  const all = on && b.maintenanceAll === true;
   appSet('maintenance', on ? '1' : '0');
+  appSet('maintenance_all', all ? '1' : '0');
   appSet('maintenance_msg', msg);
   appSet('banner', banner);
-  auditLog(req.userId, 'settings', on ? 'mantenimiento activado' : 'mantenimiento desactivado', banner ? `banner: ${banner}` : 'sin banner');
+  auditLog(req.userId, 'settings', on ? (all ? 'mantenimiento total activado' : 'mantenimiento activado') : 'mantenimiento desactivado', banner ? `banner: ${banner}` : 'sin banner');
   res.json({ ok: true });
 });
 

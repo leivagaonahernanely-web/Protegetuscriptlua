@@ -164,6 +164,12 @@ pre{white-space:pre-wrap;word-break:break-all;background:#040407;border:1px soli
         <span>Activar mantenimiento</span>
       </label>
 
+      <label class="mt-switch" style="margin-top:10px">
+        <input type="checkbox" id="mtAll">
+        <span class="mt-track"><span class="mt-knob"></span></span>
+        <span>Mantenimiento total: también corta loaders y bot (los scripts de tu cuenta siguen)</span>
+      </label>
+
       <div class="mt-field">
         <div class="mt-label"><span>Mensaje de mantenimiento</span><span class="muted" id="mtMsgCount">0/200</span></div>
         <input class="field" id="mtMsg" maxlength="200" placeholder="Volvemos en unos minutos" style="width:100%">
@@ -283,27 +289,28 @@ document.querySelectorAll('.tab').forEach(t => t.addEventListener('click', () =>
 }));
 
 // ---- Mantenimiento y banner ----
-let mtSaved = { on: false, msg: '', banner: '' };
-const mtCurrent = () => ({ on: $('mtOn').checked, msg: $('mtMsg').value.trim(), banner: $('mtBanner').value.trim() });
+let mtSaved = { on: false, all: false, msg: '', banner: '' };
+const mtCurrent = () => ({ on: $('mtOn').checked, all: $('mtAll').checked, msg: $('mtMsg').value.trim(), banner: $('mtBanner').value.trim() });
 function mtRender() {
   const c = mtCurrent();
   $('mtStatus').classList.toggle('maint', mtSaved.on);
   $('mtTitle').textContent = mtSaved.on ? 'En mantenimiento' : 'Abierto';
-  $('mtSub').textContent = mtSaved.on ? 'Compras, canjes y scripts nuevos pausados' : 'Todo funciona con normalidad';
+  $('mtSub').textContent = mtSaved.on ? (mtSaved.all ? 'Todo pausado: web, loaders y bot' : 'Compras, canjes y scripts nuevos pausados') : 'Todo funciona con normalidad';
   $('mtMsgCount').textContent = `${$('mtMsg').value.length}/200`;
   $('mtBannerCount').textContent = `${$('mtBanner').value.length}/200`;
   const prev = $('mtPreview');
   prev.classList.toggle('maint', c.on);
   prev.textContent = c.on ? 'Mantenimiento: ' + (c.msg || 'Estamos en mantenimiento. Vuelve en unos minutos.') : c.banner;
-  const dirty = c.on !== mtSaved.on || c.msg !== mtSaved.msg || c.banner !== mtSaved.banner;
+  const dirty = c.on !== mtSaved.on || c.all !== mtSaved.all || c.msg !== mtSaved.msg || c.banner !== mtSaved.banner;
   $('mtDirty').textContent = dirty ? 'Cambios sin guardar' : '';
   $('mtSave').disabled = !dirty;
 }
 async function loadSite() {
   try {
     const o = await api('GET', '/admin/api/overview');
-    mtSaved = { on: !!o.settings.maintenance, msg: o.settings.maintenanceMsg || '', banner: o.settings.banner || '' };
+    mtSaved = { on: !!o.settings.maintenance, all: !!o.settings.maintenanceAll, msg: o.settings.maintenanceMsg || '', banner: o.settings.banner || '' };
     $('mtOn').checked = mtSaved.on;
+    $('mtAll').checked = mtSaved.all;
     $('mtMsg').value = mtSaved.msg;
     $('mtBanner').value = mtSaved.banner;
     const last = (o.audit || []).find(a => a.action === 'settings');
@@ -311,19 +318,20 @@ async function loadSite() {
     mtRender();
   } catch (err) { toast(err.message); }
 }
-['mtOn', 'mtMsg', 'mtBanner'].forEach(id => $(id).addEventListener('input', mtRender));
+['mtOn', 'mtAll', 'mtMsg', 'mtBanner'].forEach(id => $(id).addEventListener('input', mtRender));
 $('mtOn').addEventListener('change', mtRender);
+$('mtAll').addEventListener('change', mtRender);
 document.querySelectorAll('[data-preset]').forEach(b => b.addEventListener('click', () => {
   $('mtMsg').value = b.dataset.preset;
   mtRender();
 }));
 $('mtSave').addEventListener('click', async () => {
   const c = mtCurrent();
-  if (c.on && !mtSaved.on && !confirm('¿Activar mantenimiento? Nadie podrá comprar, canjear ni crear scripts nuevos.')) return;
+  if (c.on && !mtSaved.on && !confirm(c.all ? '¿Activar mantenimiento total? Se cortan la web, los loaders y el bot.' : '¿Activar mantenimiento? Nadie podrá comprar, canjear ni crear scripts nuevos.')) return;
   $('mtSave').disabled = true;
   try {
-    await api('POST', '/admin/api/settings', { maintenance: c.on, maintenanceMsg: c.msg, banner: c.banner });
-    toast(c.on ? 'Mantenimiento activado' : 'Ajustes guardados');
+    await api('POST', '/admin/api/settings', { maintenance: c.on, maintenanceAll: c.on && c.all, maintenanceMsg: c.msg, banner: c.banner });
+    toast(c.on ? (c.all ? 'Mantenimiento total activado' : 'Mantenimiento activado') : 'Ajustes guardados');
     await loadSite();
   } catch (err) {
     toast(err.message);

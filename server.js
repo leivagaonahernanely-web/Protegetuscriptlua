@@ -283,6 +283,13 @@ function snapshotVersion(scriptId, { name, obfuscator, ffa, source }) {
     .run(scriptId, String(name ?? ''), String(obfuscator ?? ''), ffa ? 1 : 0, hash, String(source ?? ''), Math.floor(Date.now() / 1000));
   db.prepare('DELETE FROM script_versions WHERE script_id = ? AND id NOT IN (SELECT id FROM script_versions WHERE script_id = ? ORDER BY id DESC LIMIT 10)').run(scriptId, scriptId);
 }
+// Soporte web: tickets y mensajes (el dueño responde como soporte)
+db.exec(`CREATE TABLE IF NOT EXISTS support_tickets (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, user_id TEXT NOT NULL, username TEXT, category TEXT NOT NULL,
+  subject TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'open', script_id INTEGER, created_at INTEGER, updated_at INTEGER)`);
+db.exec(`CREATE TABLE IF NOT EXISTS support_messages (
+  id INTEGER PRIMARY KEY AUTOINCREMENT, ticket_id INTEGER NOT NULL, author_id TEXT, is_staff INTEGER DEFAULT 0, body TEXT NOT NULL, created_at INTEGER)`);
+db.exec('CREATE INDEX IF NOT EXISTS support_messages_by_ticket ON support_messages(ticket_id)');
 db.exec('CREATE TABLE IF NOT EXISTS admin_audit (id INTEGER PRIMARY KEY AUTOINCREMENT, actor_id TEXT, action TEXT, target TEXT, detail TEXT, created_at INTEGER)');
 const appGet = (name, def = '') => db.prepare('SELECT value FROM app_settings WHERE name = ?').get(name)?.value ?? def;
 const appSet = (name, value) => db.prepare('INSERT INTO app_settings (name, value) VALUES (?, ?) ON CONFLICT(name) DO UPDATE SET value = excluded.value').run(name, String(value));
@@ -1717,6 +1724,75 @@ app.put('/api/scripts/:id', requireAuth, async (req, res) => {
     console.error('Update script error:', err);
     res.status(err.status || 500).json({ error: err.status ? err.message : 'Error del servidor' });
   }
+});
+
+// ---- Soporte ----
+const SUPPORT_CATEGORIES = ['key', 'hwid', 'loader', 'plan', 'ofuscador', 'otro'];
+const SUPPORT_LIST_COLS = 'id, user_id, username, category, subject, status, script_id, created_at, updated_at';
+const supportLimit = rateLimit({
+  windowMs: 60_000,
+  max: 10,
+  onLimit: (req, res) => res.status(429).json({ error: 'Espera un minuto antes de enviar otro mensaje.' }),
+});
+// Un usuario solo ve sus tickets; el dueño ve todos. Devuelve null y responde 404 si no tiene acceso.
+function supportTicket(req, res) {
+  const t = db.prepare('SELECT * FROM support_tickets WHERE id = ?').get(Number(req.params.id));
+  if (!t || (t.user_id !== req.userId && !isOwnerId(req.userId))) {
+    res.status(404).json({ error: 'Ticket no encontrado' });
+    return null;
+  }
+  return t;
+}
+app.get('/api/support/tickets', requireAuth, (req, res) => {
+  if (req.query.all === '1' && isOwnerId(req.userId)) {
+    return res.json(db.prepare(`SELECT ${SUPPORT_LIST_COLS} FROM support_tickets ORDER BY updated_at DESC LIMIT 200`).all());
+  }
+  res.json(db.prepare(`SELECT ${SUPPORT_LIST_COLS} FROM support_tickets WHERE user_id = ? ORDER BY updated_at DESC LIMIT 100`).all(req.userId));
+});
+app.post('/api/support/tickets', requireAuth, supportLimit, (req, res) => {
+  const b = req.body || {};
+  if (!SUPPORT_CATEGORIES.includes(b.category)) return res.status(400).json({ error: 'Elige una categoría' });
+  const subject = String(b.subject ?? '').trim();
+  if (!subject || subject.length > 100) return res.status(400).json({ error: 'El asunto es obligatorio (máx. 100 caracteres)' });
+  const body = String(b.body ?? '').trim();
+  if (!body || body.length > 2000) return res.status(400).json({ error: 'Escribe tu mensaje (máx. 2000 caracteres)' });
+  let scriptId = null;
+  if (b.scriptId !== undefined && b.scriptId !== null && b.scriptId !== '') {
+    const owned = stmt.scriptOwned.get(Number(b.scriptId), req.userId);
+    if (!owned) return res.status(400).json({ error: 'Ese script no es tuyo' });
+    scriptId = owned.id;
+  }
+  const now = Math.floor(Date.now() / 1000);
+  const user = stmt.userById.get(req.userId);
+  const info = db.prepare('INSERT INTO support_tickets (user_id, username, category, subject, status, script_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+    .run(req.userId, user?.username || '', b.category, subject, 'open', scriptId, now, now);
+  db.prepare('INSERT INTO support_messages (ticket_id, author_id, is_staff, body, created_at) VALUES (?, ?, 0, ?, ?)').run(info.lastInsertRowid, req.userId, body, now);
+  res.status(201).json({ ok: true, id: Number(info.lastInsertRowid) });
+});
+app.get('/api/support/tickets/:id', requireAuth, (req, res) => {
+  const ticket = supportTicket(req, res);
+  if (!ticket) return;
+  const messages = db.prepare('SELECT id, author_id, is_staff, body, created_at FROM support_messages WHERE ticket_id = ? ORDER BY id').all(ticket.id);
+  res.json({ ticket: { ...ticket, mine: ticket.user_id === req.userId }, messages });
+});
+app.post('/api/support/tickets/:id/messages', requireAuth, supportLimit, (req, res) => {
+  const ticket = supportTicket(req, res);
+  if (!ticket) return;
+  if (ticket.status === 'closed') return res.status(409).json({ error: 'Este ticket está cerrado. Abre uno nuevo si necesitas más ayuda.' });
+  const body = String(req.body?.body ?? '').trim();
+  if (!body || body.length > 2000) return res.status(400).json({ error: 'Escribe tu mensaje (máx. 2000 caracteres)' });
+  const isStaff = isOwnerId(req.userId) && ticket.user_id !== req.userId;
+  const now = Math.floor(Date.now() / 1000);
+  db.prepare('INSERT INTO support_messages (ticket_id, author_id, is_staff, body, created_at) VALUES (?, ?, ?, ?, ?)')
+    .run(ticket.id, req.userId, isStaff ? 1 : 0, body, now);
+  db.prepare('UPDATE support_tickets SET status = ?, updated_at = ? WHERE id = ?').run(isStaff ? 'answered' : 'open', now, ticket.id);
+  res.status(201).json({ ok: true });
+});
+app.post('/api/support/tickets/:id/close', requireAuth, (req, res) => {
+  const ticket = supportTicket(req, res);
+  if (!ticket) return;
+  db.prepare("UPDATE support_tickets SET status = 'closed', updated_at = ? WHERE id = ?").run(Math.floor(Date.now() / 1000), ticket.id);
+  res.json({ ok: true });
 });
 
 // Versiones de un script: lista sin código y, al pedir una, su código fuente (solo del dueño del script)

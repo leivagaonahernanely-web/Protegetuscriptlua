@@ -874,7 +874,10 @@ local function enc(s) return (s:gsub("[^%w%-_%.~]", function(c) return string.fo
 local hwid = ""
 local okh, h = pcall(function() return game:GetService("RbxAnalyticsService"):GetClientId() end)
 if okh and h then hwid = h end
-local ok, body = pcall(function() return game:HttpGet(AUTH_URL .. "?key=" .. enc(key) .. "&hwid=" .. enc(hwid)) end)
+local rbxid = ""
+local okr, rid = pcall(function() return tostring(Players.LocalPlayer.UserId) end)
+if okr and rid then rbxid = rid end
+local ok, body = pcall(function() return game:HttpGet(AUTH_URL .. "?key=" .. enc(key) .. "&hwid=" .. enc(hwid) .. "&rbxid=" .. enc(rbxid)) end)
 script_key = nil
 if not ok or type(body) ~= "string" then kick("SERVER_UNREACHABLE") end
 local code = body:match("^!VANTARMOR:(%u[%u_]*)$")
@@ -982,8 +985,16 @@ app.get('/scripts/hosted/:slug/auth', loaderLimit, (req, res) => {
 
   const script = stmt.scriptBySlug.get(req.params.slug);
   if (!script) return reply('SCRIPT_NOT_FOUND');
+  // ID de Roblox de quien ejecuta (lo manda el loader desde el juego; vacío si no llegó)
+  const rbxid = /^\d{1,20}$/.test(String(req.query.rbxid || '')) ? String(req.query.rbxid) : '';
   if (script.ffa) {
-    logUse(script.id, '🟢 Script ejecutado (FFA)');
+    const ffaHwid = String(req.query.hwid || '').slice(0, 128);
+    logUse(script.id, [
+      '🟢 Script ejecutado (FFA)',
+      `• HWID: \`${/^[\x21-\x7E]{8,128}$/.test(ffaHwid) ? ffaHwid : 'sin dato'}\``,
+      `• ID de Roblox: ${rbxid ? `\`${rbxid}\`` : 'sin dato'}`,
+      `• ID del script: \`${script.loader_id || script.id}\``,
+    ].join('\n'));
     return reply(`OK:${issuePayloadToken(script.id, req.ip)}`);
   }
 
@@ -1020,6 +1031,7 @@ app.get('/scripts/hosted/:slug/auth', loaderLimit, (req, res) => {
     `• Key: \`${key}\``,
     `• HWID: \`${hwid}\``,
     `• Discord ID: ${k.discord_id ? `\`${k.discord_id}\`` : 'sin vincular'}`,
+    `• ID de Roblox: ${rbxid ? `\`${rbxid}\`` : 'sin dato'}`,
     `• ID del script: \`${script.loader_id || script.id}\``,
     `• Veces que esta key ejecutó este script: ${run?.exec_count ?? 1}`,
   ].join('\n'), k.discord_id);

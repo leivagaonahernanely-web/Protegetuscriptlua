@@ -600,6 +600,21 @@ async function obfuscateLuau(source) {
 
 // La tabla debe existir antes de preparar las consultas.
 db.exec(`CREATE TABLE IF NOT EXISTS obf_cache (hash TEXT PRIMARY KEY, content TEXT NOT NULL, created_at INTEGER NOT NULL)`);
+// Validación de sintaxis Luau con luau-compile (si está instalado en la imagen). Sin el binario, no valida.
+const LUAU_COMPILE = process.env.LUAU_COMPILE_BIN || 'luau-compile';
+function checkLuauSyntax(code) {
+  return new Promise(resolve => {
+    const tmp = path.join(os.tmpdir(), `vm-check-${crypto.randomBytes(8).toString('hex')}.lua`);
+    try { fs.writeFileSync(tmp, String(code)); } catch { return resolve(null); }
+    execFile(LUAU_COMPILE, ['--text', tmp], { timeout: 15_000, maxBuffer: 32 * 1024 * 1024 }, (err, stdout, stderr) => {
+      fs.rm(tmp, () => {});
+      // Sin binario, timeout o salida demasiado grande: no bloqueamos al creador
+      if (!err || err.code === 'ENOENT' || err.killed || err.code === 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER') return resolve(null);
+      const msg = String(stderr || stdout || err.message).split('\n').find(l => l.trim()) || 'error de sintaxis';
+      resolve(msg.trim().slice(0, 300));
+    });
+  });
+}
 const obfCacheGet = db.prepare('SELECT content FROM obf_cache WHERE hash = ?');
 const obfCachePut = db.prepare('INSERT OR REPLACE INTO obf_cache (hash, content, created_at) VALUES (?, ?, ?)');
 async function obfuscate(source, obfuscator, opts = {}) {
@@ -1902,7 +1917,11 @@ app.post('/api/scripts', requireAuth, async (req, res) => {
   }
 
   try {
+    const srcErr = await checkLuauSyntax(input.source);
+    if (srcErr) return res.status(422).json({ error: `Tu código no compila: ${srcErr}` });
     const content = input.obfuscator === 'none' ? input.source : await obfuscate(input.source, input.obfuscator, { vm: input.clydeVm === 1 });
+    const outErr = input.obfuscator === 'none' ? null : await checkLuauSyntax(content);
+    if (outErr) return res.status(422).json({ error: `La versión ofuscada no compila. Avisa al equipo con este mensaje: ${outErr}` });
     const info = stmt.scriptInsert.run(
       req.userId, input.name, uniqueSlug(input.name), input.isFfa ? 1 : 0,
       input.obfuscator, input.source, content, input.hwidResetHours, input.shareDetection, input.clydeVm, input.autoRevokeDump,
@@ -1949,7 +1968,11 @@ app.put('/api/scripts/:id', requireAuth, async (req, res) => {
   }
 
   try {
+    const srcErr = await checkLuauSyntax(input.source);
+    if (srcErr) return res.status(422).json({ error: `Tu código no compila: ${srcErr}` });
     const content = input.obfuscator === 'none' ? input.source : await obfuscate(input.source, input.obfuscator, { vm: input.clydeVm === 1 });
+    const outErr = input.obfuscator === 'none' ? null : await checkLuauSyntax(content);
+    if (outErr) return res.status(422).json({ error: `La versión ofuscada no compila. Avisa al equipo con este mensaje: ${outErr}` });
     stmt.scriptUpdate.run(
       input.name, input.isFfa ? 1 : 0, input.obfuscator, input.source, content, input.hwidResetHours, input.shareDetection, input.clydeVm, input.autoRevokeDump,
       script.id, req.userId,

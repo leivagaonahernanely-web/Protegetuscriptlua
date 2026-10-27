@@ -1265,7 +1265,23 @@
   const chatAvatar = m => m.avatar
     ? `<img src="${esc(m.avatar)}" alt="" referrerpolicy="no-referrer">`
     : esc((m.username || '?').charAt(0).toUpperCase());
-  const chatTime = ts => new Date(ts * 1000).toLocaleTimeString('es-EC', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Guayaquil' });
+  const CHAT_TZ = 'America/Guayaquil';
+  const chatDayKey = ts => new Date(ts * 1000).toLocaleDateString('en-CA', { timeZone: CHAT_TZ }); // AAAA-MM-DD
+  const chatTime = ts => new Date(ts * 1000).toLocaleTimeString('es-EC', { hour: '2-digit', minute: '2-digit', timeZone: CHAT_TZ });
+  // "Hoy 14:20", "Ayer 14:20" o "27 oct 14:20"
+  const chatWhen = ts => {
+    const now = Date.now() / 1000;
+    const d = chatDayKey(ts);
+    if (d === chatDayKey(now)) return `Hoy ${chatTime(ts)}`;
+    if (d === chatDayKey(now - 86400)) return `Ayer ${chatTime(ts)}`;
+    const day = new Date(ts * 1000).toLocaleDateString('es-EC', { day: '2-digit', month: 'short', timeZone: CHAT_TZ });
+    return `${day} ${chatTime(ts)}`;
+  };
+  // Separador con el día cuando cambia (como en las apps de mensajes)
+  const chatDaySeparator = ts => {
+    const label = chatWhen(ts).replace(/ \d{1,2}:\d{2}.*$/, '');
+    return `<div class="chat-day"><span>${esc(label)}</span></div>`;
+  };
   // Te mencionan si aparece @tuNombre (sin distinguir mayúsculas)
   const chatMentionsMe = text => {
     if (!user?.username) return false;
@@ -1290,6 +1306,8 @@
       const rs = ROLE_STYLE[m.role] || ROLE_STYLE.free;
       // Mensajes seguidos del mismo usuario (sin respuesta y con menos de 5 min): se agrupan
       const grouped = !!prev && prev.user_id === m.user_id && !m.reply && (m.created_at - prev.created_at) < 300;
+      const newDay = !prev || chatDayKey(prev.created_at) !== chatDayKey(m.created_at);
+      const daySep = newDay ? chatDaySeparator(m.created_at) : '';
       prev = m;
       const mention = !mine && chatMentionsMe(m.text);
       const chips = (m.reactions || []).filter(r => r.count > 0).map(r =>
@@ -1298,10 +1316,10 @@
         ? `<span class="chat-picker">${CHAT_REACTION_EMOJIS.map(e => `<button type="button" data-react="${m.id}" data-emoji="${e}">${e}</button>`).join('')}</span>`
         : '';
       const flag = canModerateChat && m.reports ? `<button class="chat-flag" data-clear-reports="${m.id}" type="button" title="Descartar reportes">🚩 ${m.reports}</button>` : '';
-      return `<div class="chat-msg${mine ? ' mine' : ''}${grouped ? ' grouped' : ''}" data-id="${m.id}">
+      return `${daySep}<div class="chat-msg${mine ? ' mine' : ''}${grouped ? ' grouped' : ''}" data-id="${m.id}">
         <div class="chat-av">${grouped ? '' : chatAvatar(m)}</div>
         <div class="chat-bubble${mention ? ' mention' : ''}" style="flex:1;min-width:0">
-          ${grouped ? '' : `<div class="chat-head"><b style="color:${rs.color}">${esc(m.username)}</b><span class="chat-badge" style="color:${rs.color}">${rs.label}</span><span>${chatTime(m.created_at)}</span></div>`}
+          ${grouped ? '' : `<div class="chat-head"><b style="color:${rs.color}">${esc(m.username)}</b><span class="chat-badge" style="color:${rs.color}">${rs.label}</span><span title="${esc(new Date(m.created_at * 1000).toLocaleString('es-EC', { dateStyle: 'full', timeStyle: 'short', timeZone: CHAT_TZ }))}">${chatWhen(m.created_at)}</span></div>`}
           ${m.reply ? `<div class="chat-quote">↪ <b>${esc(m.reply.username)}</b>: ${esc(m.reply.text)}</div>` : ''}
           <div class="chat-text">${esc(m.text)}</div>
           <div class="chat-foot">

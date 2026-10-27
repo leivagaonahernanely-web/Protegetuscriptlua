@@ -411,11 +411,11 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
     const embed = new EmbedBuilder()
       .setColor(0xed4245)
       .setTitle('🔒 No tienes acceso')
-      .setDescription(`Para usar **${script.name}** necesitas una **script key** o estar en la **whitelist** del creador.`)
+      .setDescription(`Necesitas una **key** o estar en la **whitelist** de **${script.name}**.`)
       .addFields(
-        { name: '🔑 Tienes una key', value: 'Pulsa **Redeem Key** de abajo y pégala. Se activa al instante.' },
-        { name: '📋 Estás en la whitelist', value: 'Pulsa **Get Script** otra vez. Tu acceso se activa solo.' },
-        { name: '❔ No tienes ninguna', value: 'Pídesela al creador de este script.' },
+        { name: '🔑 Tienes una key', value: 'Pulsa **Redeem Key** y pégala.' },
+        { name: '📋 Estás en la whitelist', value: 'Pulsa **Get Script** otra vez.' },
+        { name: '❔ No tienes ninguna', value: 'Pídesela al creador.' },
       )
       .setFooter({ text: 'Vantarmor · acceso por key o whitelist' })
       .setTimestamp();

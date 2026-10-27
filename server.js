@@ -881,6 +881,14 @@ local function kick(code)
   if lp then lp:Kick(msg) end
   error(msg, 0)
 end
+-- Si loadstring fue reemplazado por una función de Lua (un volcador que intercepta el código), se corta
+local function loaderTampered()
+  local ls = loadstring
+  if type(ls) ~= "function" then return true end
+  local okI, info = pcall(function() return debug.getinfo(ls, "S") end)
+  return okI and type(info) == "table" and info.what ~= "C"
+end
+if loaderTampered() then kick("TAMPERING") end
 local key = ""
 if type(script_key) == "string" then key = (script_key:gsub("^%s+", ""):gsub("%s+$", "")) end
 if key == "" and not FFA then kick("KEY_REQUIRED") end
@@ -902,6 +910,7 @@ local ok2, payload = pcall(function() return game:HttpGet(PAYLOAD_URL .. "?token
 if not ok2 or type(payload) ~= "string" then kick("CONNECTION_FAILED") end
 local pcode = payload:match("^!VANTARMOR:(%u[%u_]*)$")
 if pcode then kick(pcode) end
+if loaderTampered() then kick("TAMPERING") end
 local fn = loadstring(payload)
 if not fn then kick("VERIFY_FAILED") end
 fn()

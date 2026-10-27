@@ -367,6 +367,7 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
 
   // Mensaje para quien no tiene whitelist ni key (estilo Luarmor)
   const NO_ACCESS_MSG = 'You need to be whitelisted to get this script.\nIf you have a script key, click on the Redeem button below to redeem it';
+  const BUY_URL = 'https://discord.gg/FUjbTN69';
   const KEY_LIMIT_MSG = '⛔ El creador de este script alcanzó el límite de keys de su plan en este periodo. Vuelve a intentar cuando se reinicie.';
 
   // Bloqueo: blacklist o key baneada en ese script
@@ -406,6 +407,26 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
     return false;
   }
 
+  // Tarjeta para quien no tiene acceso: explica cómo conseguirlo y trae los botones correspondientes
+  function noAccessCard(script) {
+    const embed = new EmbedBuilder()
+      .setColor(0x5865f2)
+      .setTitle('🔒 Acceso restringido')
+      .setDescription(`Todavía no tienes acceso a **${script.name}**.`)
+      .addFields(
+        { name: '🔑 Ya tienes una key', value: 'Canjéala con el botón **Redeem Key**.' },
+        { name: '🛒 No tienes key', value: 'Cómprala en nuestro Discord con el botón **Comprar key**.' },
+        { name: '📋 Te añadieron a la whitelist', value: 'Usa **Get Script** otra vez.' },
+      )
+      .setFooter({ text: 'Vantarmor · acceso por key o whitelist' })
+      .setTimestamp();
+    const row = new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId(`vanta:redeem:${script.id}`).setLabel('🔑 Redeem Key').setStyle(ButtonStyle.Success),
+      new ButtonBuilder().setLabel('🛒 Comprar key').setStyle(ButtonStyle.Link).setURL(BUY_URL),
+    );
+    return { embeds: [embed], components: [row] };
+  }
+
   // Lógica compartida entre comandos y botones del panel
   function getScriptReply(script, userId, roleIds) {
     if (script.ffa) return `\`\`\`lua\n${loaderText(script)}\n\`\`\``;
@@ -414,7 +435,7 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
     if (access.status === 'limit') return KEY_LIMIT_MSG;
     if (access.status === 'none') {
       console.log(`[Bot] Sin acceso: script ${script.id} (${script.name}), usuario ${userId}, roles vistos ${roleIds.length}`);
-      return NO_ACCESS_MSG;
+      return noAccessCard(script);
     }
     logScriptEvent(script, `📜 <@${userId}> obtuvo el loader`);
     return `\`\`\`lua\n${loaderText(script, access.key)}\n\`\`\``;
@@ -464,7 +485,7 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
     const granted = resolveAccess(script, userId, roleIds);
     if (granted.status === 'blacklisted') return `⛔ Estás bloqueado para **${script.name}**.`;
     if (granted.status === 'limit') return KEY_LIMIT_MSG;
-    if (granted.status === 'none') return NO_ACCESS_MSG;
+    if (granted.status === 'none') return noAccessCard(script);
     const k = q.keyForScriptUser.get(script.id, userId);
     const lines = [`📊 **Tu estado en ${script.name}**`, 'Acceso: ✅ Key activa'];
     if (k) {
@@ -1306,19 +1327,20 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
 
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
     await loadRoles(interaction);
-    const reply = content => interaction.editReply({ content });
+    // Acepta texto o un payload con tarjetas (embeds y botones)
+    const reply = payload => interaction.editReply(typeof payload === 'string' ? { content: payload } : payload);
     const actor = interaction.user.id;
 
     if (action === 'script') return reply(getScriptReply(script, actor, memberRoleIds(interaction)));
     if (action === 'stats') return reply(statsReply(actor, script, memberRoleIds(interaction)));
     if (action === 'role') {
       const access = resolveAccess(script, actor, memberRoleIds(interaction));
-      if (access.status !== 'ok') return reply(access.status === 'limit' ? KEY_LIMIT_MSG : NO_ACCESS_MSG);
+      if (access.status !== 'ok') return reply(access.status === 'limit' ? KEY_LIMIT_MSG : noAccessCard(script));
       return reply(await giveBuyerRole(interaction, script));
     }
     if (action === 'hwid') {
       const access = resolveAccess(script, actor, memberRoleIds(interaction));
-      if (access.status !== 'ok') return reply(access.status === 'limit' ? KEY_LIMIT_MSG : NO_ACCESS_MSG);
+      if (access.status !== 'ok') return reply(access.status === 'limit' ? KEY_LIMIT_MSG : noAccessCard(script));
       return reply(resetHwid(script, actor, actor, false));
     }
     return reply('❌ Acción no disponible.');

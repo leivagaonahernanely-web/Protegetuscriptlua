@@ -1056,7 +1056,7 @@
     const o = ownerData.overview;
     if (!o) {
       $('ownLuau').innerHTML = '<p class="hint">No pude cargar el resumen. Recarga la página.</p>';
-      $('ownSettings').innerHTML = $('ownSales').innerHTML = $('ownAudit').innerHTML = '';
+      $('ownBot').innerHTML = $('ownSettings').innerHTML = $('ownSales').innerHTML = $('ownAudit').innerHTML = '';
       return;
     }
     const l = o.luau;

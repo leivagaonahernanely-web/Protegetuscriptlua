@@ -39,6 +39,7 @@ details[open] summary::after{content:"–"}
 .answer p{margin:0 0 10px}
 .answer p:last-child{margin-bottom:0}
 .answer code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:13px;color:var(--text);background:#0c0c10;border:1px solid var(--line);padding:1px 6px;border-radius:6px}
+.answer pre{margin:12px 0 0;padding:14px 16px;background:#0c0c10;border:1px solid var(--line);border-radius:10px;overflow-x:auto;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:13px;line-height:1.6;color:var(--text)}
 .answer a{color:var(--text);text-decoration:underline;text-decoration-color:var(--muted);text-underline-offset:3px}
 .empty{display:none;padding:24px;text-align:center;color:var(--muted);border:1px dashed var(--line);border-radius:14px}
 .empty.show{display:block}
@@ -73,6 +74,7 @@ footer a:hover{color:var(--text)}
   <div class="cats">
     <a class="cat" href="#keys"><b>Keys y HWID</b><span>Activación, cambio de equipo y compartir keys</span></a>
     <a class="cat" href="#loader"><b>Loader y errores</b><span>Qué hacer cuando el script no carga</span></a>
+    <a class="cat" href="#macros"><b>Macros (Ofuscador 3)</b><span>Cómo marcar funciones para más rendimiento</span></a>
     <a class="cat" href="#planes"><b>Planes</b><span>Canje, vencimiento y funciones</span></a>
     <a class="cat" href="#cuenta"><b>Cuenta y panel</b><span>Acceso con Discord y uso del panel</span></a>
   </div>
@@ -122,6 +124,38 @@ footer a:hover{color:var(--text)}
     <details data-faq>
       <summary>¿Qué incluye Premium Plus?</summary>
       <div class="answer"><p>Premium Plus incluye todas las funciones de Premium, más el Ofuscador 3 (LuaUObfuscator) y el mensaje de bienvenida en tu servidor de Discord. Los detalles completos están en la sección de planes del inicio.</p></div>
+    </details>
+
+    <h2 id="macros">Macros de rendimiento (Ofuscador 3)</h2>
+    <details data-faq>
+      <summary>¿Qué hacen las macros?</summary>
+      <div class="answer"><p>Las macros marcan funciones de tu script para que corran fuera de la máquina virtual del Ofuscador 3. Esas funciones se ejecutan más rápido, pero quedan menos protegidas.</p></div>
+    </details>
+    <details data-faq>
+      <summary>¿Cuándo conviene usarlas?</summary>
+      <div class="answer"><p>En funciones grandes que se ejecutan muchas veces, como bucles o cálculos que corren cada frame, donde el rendimiento importa. Para lógica sensible, como validaciones, mejor déjalas protegidas.</p></div>
+    </details>
+    <details data-faq>
+      <summary>¿Cómo las aplico paso a paso?</summary>
+      <div class="answer">
+        <p>1. Al crear o editar un script, elige <b>Ofuscador 3</b>. Aparece el botón <b>Macros de rendimiento (Ofuscador 3)</b>.</p>
+        <p>2. Pulsa el botón. El panel busca las funciones de tu código y te las muestra con su número de línea y cuántas líneas tienen.</p>
+        <p>3. Marca las funciones que quieras. Las de 30 líneas o más vienen marcadas por defecto; puedes cambiarlo.</p>
+        <p>4. Pulsa <b>Aplicar al código</b>. Se agrega <code>LUO_NO_VIRTUALIZE()</code> justo encima de cada función marcada.</p>
+        <p>5. Guarda el script para aplicar los cambios.</p>
+        <pre>LUO_NO_VIRTUALIZE()
+local function calcularRuta(puntos)
+  -- tu código
+end</pre>
+      </div>
+    </details>
+    <details data-faq>
+      <summary>Marqué una función por error. ¿Cómo la quito?</summary>
+      <div class="answer"><p>Abre el script en el editor, borra la línea <code>LUO_NO_VIRTUALIZE()</code> que está encima de esa función y guarda. Al guardar, la función vuelve a quedar protegida por la VM.</p></div>
+    </details>
+    <details data-faq>
+      <summary>No aparece el botón de macros</summary>
+      <div class="answer"><p>El botón solo aparece cuando eliges <b>Ofuscador 3</b>. Ese ofuscador es exclusivo del plan Premium Plus. También puedes usarlo hasta 2 veces al día; cada guardado con Ofuscador 3 cuenta como una compilación.</p></div>
     </details>
 
     <h2 id="cuenta">Cuenta y panel</h2>

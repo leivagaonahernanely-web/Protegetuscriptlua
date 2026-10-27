@@ -410,16 +410,14 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
   function noAccessCard(script) {
     const embed = new EmbedBuilder()
       .setColor(0x2b2d31)
-      .setAuthor({ name: 'Vantarmor', iconURL: client.user.displayAvatarURL() })
       .setTitle('Acceso restringido')
-      .setDescription(`**${script.name}** requiere una key o acceso por whitelist.`)
-      .addFields(
-        { name: 'Tienes una key', value: 'Canjéala con **Redeem Key**.' },
-        { name: 'Estás en la whitelist', value: 'Vuelve a pulsar **Get Script**.' },
-        { name: 'No tienes acceso', value: 'Solicítalo al creador del script.' },
-      )
-      .setFooter({ text: 'Vantarmor · Protección de scripts', iconURL: client.user.displayAvatarURL() })
-      .setTimestamp();
+      .setDescription([
+        `**${script.name}** requiere una key o acceso por whitelist.`,
+        '',
+        '🔑 Tienes una key → **Redeem Key**',
+        '📋 Estás en la whitelist → **Get Script**',
+        '❔ Sin acceso → pídelo al creador',
+      ].join('\n'));
     const row = new ActionRowBuilder().addComponents(
       new ButtonBuilder().setCustomId(`vanta:redeem:${script.id}`).setLabel('🔑 Redeem Key').setStyle(ButtonStyle.Success),
     );

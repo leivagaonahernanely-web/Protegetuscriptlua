@@ -367,7 +367,6 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
 
   // Mensaje para quien no tiene whitelist ni key (estilo Luarmor)
   const NO_ACCESS_MSG = 'You need to be whitelisted to get this script.\nIf you have a script key, click on the Redeem button below to redeem it';
-  const BUY_URL = 'https://discord.gg/FUjbTN69';
   const KEY_LIMIT_MSG = '⛔ El creador de este script alcanzó el límite de keys de su plan en este periodo. Vuelve a intentar cuando se reinicie.';
 
   // Bloqueo: blacklist o key baneada en ese script
@@ -415,14 +414,13 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
       .setDescription(`Todavía no tienes acceso a **${script.name}**.`)
       .addFields(
         { name: '🔑 Ya tienes una key', value: 'Canjéala con el botón **Redeem Key**.' },
-        { name: '🛒 No tienes key', value: 'Cómprala en nuestro Discord con el botón **Comprar key**.' },
+        { name: '🛒 No tienes key', value: 'Pídela al creador de este script o en su panel de compra.' },
         { name: '📋 Te añadieron a la whitelist', value: 'Usa **Get Script** otra vez.' },
       )
       .setFooter({ text: 'Vantarmor · acceso por key o whitelist' })
       .setTimestamp();
     const row = new ActionRowBuilder().addComponents(
       new ButtonBuilder().setCustomId(`vanta:redeem:${script.id}`).setLabel('🔑 Redeem Key').setStyle(ButtonStyle.Success),
-      new ButtonBuilder().setLabel('🛒 Comprar key').setStyle(ButtonStyle.Link).setURL(BUY_URL),
     );
     return { embeds: [embed], components: [row] };
   }

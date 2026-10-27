@@ -1058,7 +1058,7 @@
     const o = ownerData.overview;
     if (!o) {
       $('ownLuau').innerHTML = '<p class="hint">No pude cargar el resumen. Recarga la página.</p>';
-      $('ownSettings').innerHTML = $('ownSales').innerHTML = $('ownAudit').innerHTML = '';
+      $('ownSales').innerHTML = $('ownAudit').innerHTML = '';
       return;
     }
     const l = o.luau;
@@ -1075,14 +1075,6 @@
       <p class="hint">La API no informa el saldo de tokens. Aquí ves las compilaciones hechas y si hubo falta de créditos.</p>`;
 
     const s = o.settings;
-    $('ownSettings').innerHTML = `
-      <label class="toggle-row"><input type="checkbox" id="ownMaint" ${s.maintenance ? 'checked' : ''}> <span>Mantenimiento: pausa compras, canjes y scripts nuevos</span></label>
-      <div class="input-group" style="margin:14px 0 0"><label for="ownMaintMsg">Mensaje de mantenimiento</label>
-        <input id="ownMaintMsg" class="field block" maxlength="200" value="${esc(s.maintenanceMsg)}" placeholder="Volvemos en unos minutos"></div>
-      <div class="input-group" style="margin:14px 0 0"><label for="ownBanner">Banner informativo (opcional)</label>
-        <input id="ownBanner" class="field block" maxlength="200" value="${esc(s.banner)}" placeholder="Nuevo: ..."></div>
-      <div style="margin-top:16px"><button class="btn" id="ownSave" type="button">Guardar cambios</button></div>
-      <p class="hint">Los loaders de tus scripts siguen funcionando durante el mantenimiento.</p>`;
 
     const sa = o.sales;
     const planName = p => PLAN_OPTIONS.find(([v]) => v === p)?.[1] || p;
@@ -1100,25 +1092,6 @@
       <div class="owner-audit-row"><span class="hint">${fmtWhen(a.created_at)}</span><b>${esc(AUDIT_LABELS[a.action] || a.action)}</b><span>${esc(a.target)}${a.detail ? ` <span class="hint">· ${esc(a.detail)}</span>` : ''}</span></div>`).join('')}</div>`
       : '<p class="hint">Aún no hay acciones registradas.</p>';
   }
-  $('ownSettings').addEventListener('click', async e => {
-    const b = e.target.closest('#ownSave');
-    if (!b) return;
-    setBusy(b, true);
-    try {
-      await api('/api/owner/settings', { method: 'POST', body: JSON.stringify({
-        maintenance: $('ownMaint').checked,
-        maintenanceMsg: $('ownMaintMsg').value,
-        banner: $('ownBanner').value,
-      }) });
-      toast('Ajustes guardados');
-      await loadOwnerData();
-      loadSiteStatus();
-    } catch (err) {
-      toast(err.message, 'error');
-      setBusy(b, false);
-    }
-  });
-
   $('maintRetry').addEventListener('click', () => location.reload());
   // Banner y aviso de mantenimiento visibles para todos
   async function loadSiteStatus() {

@@ -1071,7 +1071,7 @@ app.get('/scripts/hosted/:slug/auth', loaderLimit, (req, res) => {
     `• Key: \`${key}\``,
     `• HWID: \`${hwid}\``,
     `• Discord ID: ${k.discord_id ? `\`${k.discord_id}\`` : 'sin vincular'}`,
-    `• ID del script: \`${script.id}\``,
+    `• ID del script: \`${script.loader_id || script.id}\``,
     `• Veces que esta key ejecutó este script: ${run?.exec_count ?? 1}`,
   ].join('\n'), k.discord_id);
   reply(`OK:${issuePayloadToken(script.id, req.ip)}`);

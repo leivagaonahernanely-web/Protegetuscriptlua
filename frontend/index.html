@@ -947,9 +947,9 @@
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 0 0 5.4-5.4l-2.5 2.5-2.4-.6-.6-2.4z"/></svg>
     </div>
     <p class="maint-eyebrow">VANTARMOR</p>
-    <h1 class="maint-title">Estamos en mantenimiento</h1>
+    <h1 class="maint-title">La web está en mantenimiento</h1>
     <p class="maint-msg" id="maintMsg">Volvemos en unos minutos.</p>
-    <p class="maint-note">Tus scripts y loaders siguen funcionando. Las compras y los canjes se reanudan en cuanto terminemos.</p>
+    <p class="maint-note" id="maintNote">Tus scripts y loaders siguen funcionando. Las compras y los canjes se reanudan en cuanto terminemos.</p>
     <div class="maint-actions">
       <button class="maint-btn primary" type="button" id="maintRetry">Reintentar</button>
       <a class="maint-btn" href="https://discord.gg/FUjbTN69" target="_blank" rel="noopener">Novedades en Discord</a>
@@ -1349,6 +1349,7 @@
       try {
         const st = await fetch('/api/status', { credentials: 'include', cache: 'no-store' }).then(r => r.json());
         msg.textContent = st.message || 'Volvemos en unos minutos.';
+        document.getElementById('maintNote').textContent = st.maintenanceAll ? "Todo está pausado mientras trabajamos: la web, los loaders y el bot. Volvemos pronto." : "Tus scripts y loaders siguen funcionando. Las compras y los canjes se reanudan en cuanto terminemos.";
         screen.hidden = !st.maintenance;
         document.body.style.overflow = st.maintenance ? 'hidden' : '';
       } catch (_) { /* sin cambios si no responde */ }

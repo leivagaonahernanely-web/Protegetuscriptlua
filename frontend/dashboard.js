@@ -1105,8 +1105,10 @@
       }
       const box = $('siteNotice');
       // Mantenimiento: pantalla completa para los usuarios; el dueño sigue entrando y ve el aviso normal
-      const fullScreen = !!st.maintenance && !(user && user.owner);
+      // Mantenimiento total: la web entera se muestra cerrada, también al dueño
+      const fullScreen = !!st.maintenance && (!(user && user.owner) || !!st.maintenanceAll);
       $('maintMsg').textContent = st.message || 'Volvemos en unos minutos.';
+      $('maintNote').textContent = st.maintenanceAll ? "Todo está pausado mientras trabajamos: la web, los loaders y el bot. Volvemos pronto." : "Tus scripts y loaders siguen funcionando. Las compras y los canjes se reanudan en cuanto terminemos.";
       $('maintScreen').hidden = !fullScreen;
       document.body.style.overflow = fullScreen ? 'hidden' : '';
       if (st.maintenance && !fullScreen) parts.unshift(`<strong>Mantenimiento:</strong> ${esc(st.message || 'Estamos en mantenimiento.')}`);

@@ -25,6 +25,7 @@
     chat:      { title: 'Chat',      sub: 'Chat de la comunidad de Vantarmor' },
     plans:     { title: 'Planes',    sub: 'Elige el plan que necesitas' },
     soporte:   { title: 'Soporte',   sub: 'Preguntas frecuentes y tus tickets' },
+    stats: { title: 'Estadísticas', sub: 'Ejecuciones de tus scripts y de dónde vienen' },
     ownerpanel: { title: 'Panel del dueño', sub: 'Ofuscador 3, ventas, mantenimiento y registro (solo dueño)' },
     planskeys: { title: 'Plans keys', sub: 'Keys de Premium y Premium Plus (solo dueño)' },
     publisher: { title: 'Publisher',  sub: 'Scripts subidos en formato source (solo dueño)' },
@@ -147,6 +148,7 @@
     });
     document.querySelectorAll('.view').forEach(v => v.classList.toggle('active', v.dataset.view === name));
     if (name === 'soporte') loadSupport();
+    if (name === 'stats') { loadExecStats(); }
     $('pageTitle').firstChild.textContent = NAV[name].title;
     $('pageSub').textContent = NAV[name].sub;
     if (name === 'bienvenida' && !hasPlusPlan()) {
@@ -1562,10 +1564,11 @@
   // ---------- ESTADÍSTICAS DE EJECUCIÓN ----------
   let execDays = 7;
   const dayKey = offset => new Date(Date.now() - offset * 86400000).toLocaleDateString('en-CA', { timeZone: 'America/Guayaquil' });
-  // ---- Ejecuciones por país: mapa D3 (zoom y arrastre) + ranking. Solo código de país. ----
+  // ---- Estadísticas: ejecuciones por país (mapa D3 con zoom, ranking y KPI). Solo código de país. ----
   const GEO_NAMES = typeof Intl.DisplayNames === 'function' ? new Intl.DisplayNames(['es'], { type: 'region' }) : null;
   const countryName = code => { try { return GEO_NAMES?.of(code) || code; } catch { return code; } };
-  let geoMapState = null; // { g, zoom, paths, alphaByNum, svg }
+  const flagOf = code => /^[A-Z]{2}$/.test(code || '') ? String.fromCodePoint(...[...code].map(c => 127397 + c.charCodeAt(0))) : '';
+  let geoMapState = null; // { g, zoom, svg, path, features, alphaByNum, byCode }
 
   async function buildGeoMap() {
     const d3 = window.d3;
@@ -1576,36 +1579,44 @@
     ]);
     const alphaByNum = new Map(meta.map(c => [String(c.ccn3 || '').padStart(3, '0'), c.cca2]));
     const features = window.topojson.feature(world, world.objects.countries).features;
-    const width = 960, height = 500;
+    const width = 960, height = 470;
     svg.attr('viewBox', `0 0 ${width} ${height}`).attr('preserveAspectRatio', 'xMidYMid meet');
     svg.selectAll('*').remove();
-    const projection = d3.geoNaturalEarth1().fitSize([width, height], { type: 'Sphere' });
+    const projection = d3.geoNaturalEarth1().fitSize([width - 20, height - 20], { type: 'Sphere' }).translate([width / 2, height / 2]);
     const path = d3.geoPath(projection);
     const g = svg.append('g');
     g.append('path').attr('class', 'sphere').attr('d', path({ type: 'Sphere' }));
+    g.append('path').attr('class', 'grat').attr('d', path(d3.geoGraticule10()));
     const paths = g.selectAll('path.country').data(features).join('path')
       .attr('class', 'country').attr('d', path);
+    g.append('g').attr('class', 'labels');
     const zoom = d3.zoom().scaleExtent([1, 8]).translateExtent([[0, 0], [width, height]])
       .on('zoom', e => g.attr('transform', e.transform));
     svg.call(zoom);
-    geoMapState = { g, zoom, paths, alphaByNum, svg };
+    geoMapState = { g, zoom, svg, path, paths, features, alphaByNum, byCode: new Map() };
+    paths.each(function (f) {
+      const code = alphaByNum.get(String(f.id).padStart(3, '0'));
+      if (code) geoMapState.byCode.set(code, { el: this, f });
+    });
   }
 
   function colorGeoMap(counts, max) {
     const d3 = window.d3;
-    const { paths, alphaByNum } = geoMapState;
-    const scale = d3.scaleSqrt().domain([0, Math.max(1, max)]).range(['#2c2c36', '#f5f5f8']);
+    const { g, path, byCode } = geoMapState;
+    const top = Math.max(2, max);
+    // Escala logarítmica: los países pequeños en volumen también se distinguen
+    const scale = d3.scaleSequentialLog(d3.interpolateRgb('#3d3d4f', '#ffffff')).domain([1, top]).clamp(true);
     const tip = $('geoTip');
     const wrap = $('geoMap').parentNode;
-    paths.each(function (f) {
-      const code = alphaByNum.get(String(f.id).padStart(3, '0'));
+    geoMapState.paths.each(function (f) {
+      const code = geoMapState.alphaByNum.get(String(f.id).padStart(3, '0'));
       const n = code ? counts.get(code) || 0 : 0;
       const el = d3.select(this);
       el.classed('has', n > 0).attr('fill', n ? scale(n) : null);
       el.on('mouseenter', null).on('mousemove', null).on('mouseleave', null);
       if (!n) return;
-      el.on('mouseenter', event => {
-        tip.innerHTML = `<b>${esc(countryName(code))}</b>${n.toLocaleString('es-EC')} ejecuciones`;
+      el.on('mouseenter', () => {
+        tip.innerHTML = `<b>${flagOf(code)} ${esc(countryName(code))}</b>${n.toLocaleString('es-EC')} ejecuciones`;
         tip.hidden = false;
       }).on('mousemove', event => {
         const [x, y] = d3.pointer(event, wrap);
@@ -1613,6 +1624,23 @@
         tip.style.top = `${y}px`;
       }).on('mouseleave', () => { tip.hidden = true; });
     });
+    // Etiquetas de los 5 países con más ejecuciones
+    const labels = g.select('g.labels');
+    labels.selectAll('*').remove();
+    const topFive = [...counts.entries()].sort((x, y) => y[1] - x[1]).slice(0, 5);
+    topFive.forEach(([code]) => {
+      const hit = byCode.get(code);
+      if (!hit) return;
+      const [x, y] = path.centroid(hit.f);
+      if (!Number.isFinite(x)) return;
+      labels.append('text').attr('class', 'lbl').attr('x', x).attr('y', y).attr('text-anchor', 'middle').text(code);
+    });
+    // Resalta el país al pasar el cursor sobre la lista
+    $('geoList').querySelectorAll('[data-code]').forEach(li => {
+      li.onmouseenter = () => { const hit = byCode.get(li.dataset.code); if (hit) d3.select(hit.el).classed('hl', true); };
+      li.onmouseleave = () => { const hit = byCode.get(li.dataset.code); if (hit) d3.select(hit.el).classed('hl', false); };
+    });
+    $('geoMax').textContent = max.toLocaleString('es-EC');
   }
 
   async function loadGeoStats() {
@@ -1622,12 +1650,22 @@
       const data = await api('/api/stats/countries?days=30');
       const counts = new Map(data.countries.map(c => [c.country, c.n]));
       const max = Math.max(1, ...data.countries.map(c => c.n));
+      const top = data.countries[0];
       sub.textContent = data.total
         ? `${data.total.toLocaleString('es-EC')} ejecuciones · últimos ${data.days} días`
         : `Últimos ${data.days} días`;
+      $('kpiTotal').textContent = data.total.toLocaleString('es-EC');
+      $('kpiTotalSub').textContent = data.total ? 'De todos tus scripts' : 'Aún sin ejecuciones';
+      $('kpiCountries').textContent = data.countries.length;
+      $('kpiTop').textContent = top ? `${flagOf(top.country)} ${countryName(top.country)}` : '—';
+      $('kpiTopSub').textContent = top ? `${Math.round(top.n / data.total * 100)}% de las ejecuciones` : '';
+      $('kpiAvg').textContent = Math.round(data.total / data.days).toLocaleString('es-EC');
       list.innerHTML = data.countries.length
-        ? data.countries.slice(0, 8).map(c => `
-          <li class="geo-row"><b>${esc(countryName(c.country))}</b><span>${c.n.toLocaleString('es-EC')}</span>
+        ? data.countries.slice(0, 10).map((c, i) => `
+          <li class="geo-row" data-code="${esc(c.country)}">
+            <span class="geo-rank">${i + 1}</span>
+            <span class="geo-name">${flagOf(c.country)} ${esc(countryName(c.country))}</span>
+            <span class="geo-num">${c.n.toLocaleString('es-EC')}<small>${Math.round(c.n / data.total * 100)}%</small></span>
             <div class="geo-bar"><i style="width:${Math.round(c.n / max * 100)}%"></i></div></li>`).join('')
         : '<li class="geo-empty">Aún no hay ejecuciones con país registrado.</li>';
       if (!window.d3 || !window.topojson) {

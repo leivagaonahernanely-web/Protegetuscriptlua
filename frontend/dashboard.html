@@ -45,6 +45,10 @@
           Scripts
           <span class="nav-count" id="navScripts">0</span>
         </button>
+        <button class="nav-item" data-nav="stats">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+          Estadísticas
+        </button>
         <button class="nav-item" data-nav="keys">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="7.5" cy="15.5" r="5.5"/><path d="m21 2-9.6 9.6"/></svg>
           Keys
@@ -204,6 +208,17 @@
           </div>
         </div>
 
+      </section>
+
+      <!-- ESTADÍSTICAS -->
+      <section class="view" data-view="stats">
+        <div class="kpi-row" id="stKpis">
+          <div class="kpi"><span class="kpi-label">Ejecuciones (30 días)</span><strong id="kpiTotal">—</strong><span class="kpi-sub" id="kpiTotalSub"></span></div>
+          <div class="kpi"><span class="kpi-label">Países alcanzados</span><strong id="kpiCountries">—</strong><span class="kpi-sub">con al menos una ejecución</span></div>
+          <div class="kpi"><span class="kpi-label">País principal</span><strong id="kpiTop" class="kpi-text">—</strong><span class="kpi-sub" id="kpiTopSub"></span></div>
+          <div class="kpi"><span class="kpi-label">Promedio diario</span><strong id="kpiAvg">—</strong><span class="kpi-sub">ejecuciones por día</span></div>
+        </div>
+
         <div class="panel">
           <div class="panel-head">
             <h3>Ejecuciones de tus scripts</h3>
@@ -227,6 +242,7 @@
             <div class="geo-map-wrap">
               <svg id="geoMap" class="geo-map" role="img" aria-label="Mapa del mundo con las ejecuciones por país"></svg>
               <div class="geo-tip" id="geoTip" hidden></div>
+              <div class="geo-legend" aria-hidden="true"><span>1</span><i></i><span id="geoMax">0</span></div>
               <div class="geo-zoom">
                 <button class="btn ghost sm" type="button" id="geoZoomIn" aria-label="Acercar">+</button>
                 <button class="btn ghost sm" type="button" id="geoZoomOut" aria-label="Alejar">−</button>

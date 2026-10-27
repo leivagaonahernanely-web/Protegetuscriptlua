@@ -1133,6 +1133,11 @@
     try {
       const st = await api('/api/status');
       const parts = [];
+      const bs = $('botServers');
+      if (bs) {
+        bs.hidden = typeof st.servers !== 'number';
+        bs.textContent = `Bot en ${st.servers} ${st.servers === 1 ? 'servidor' : 'servidores'}`;
+      }
       const box = $('siteNotice');
       // Mantenimiento: pantalla completa para los usuarios; el dueño sigue entrando y ve el aviso normal
       const fullScreen = !!st.maintenance && !(user && user.owner);

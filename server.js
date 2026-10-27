@@ -1576,7 +1576,9 @@ function maintenanceBlock(req, res) {
 }
 // Estado público del sitio (banner y mantenimiento)
 app.get('/api/status', (req, res) => {
-  res.json({ maintenance: appGet('maintenance') === '1', message: appGet('maintenance_msg'), banner: appGet('banner') });
+  // servers: solo el número de servidores donde está el bot (público, sin nombres)
+  const servers = discordBot?.guilds?.cache ? discordBot.guilds.cache.size : null;
+  res.json({ maintenance: appGet('maintenance') === '1', message: appGet('maintenance_msg'), banner: appGet('banner'), servers });
 });
 
 // ---- Panel del dueño: solo DISCORD_OWNER_ID ----

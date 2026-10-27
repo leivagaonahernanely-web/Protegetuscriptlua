@@ -705,3 +705,22 @@ tbody tr:hover td { background: rgba(255,255,255,.025); }
 .chat-day { display: flex; align-items: center; gap: 12px; margin: 14px 0 8px; color: var(--text-dim); font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
 .chat-day::before, .chat-day::after { content: ''; flex: 1; height: 1px; background: linear-gradient(90deg, transparent, rgba(255,255,255,.12), transparent); }
 .chat-day span { padding: 4px 10px; border-radius: 999px; background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.07); }
+
+/* Estadísticas: gráfico de ejecuciones */
+.exec-chart { position: relative; }
+.exec-svg .grid { stroke: rgba(255,255,255,.07); stroke-width: 1; }
+.exec-svg .axis { fill: var(--text-dim); font-size: 11px; font-variant-numeric: tabular-nums; }
+.exec-svg .val { fill: var(--text-soft); font-size: 11px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.exec-svg .avg { stroke: rgba(255,255,255,.45); stroke-width: 1; stroke-dasharray: 4 4; }
+.exec-svg .avg-lbl { fill: var(--text-dim); font-size: 10.5px; }
+.exec-svg .bar { transition: opacity .2s var(--ease); }
+.exec-svg:hover .bar:not(.bar-last) { opacity: .55; }
+.exec-svg .bar:hover, .exec-svg .bar.bar-last { opacity: 1; }
+.exec-svg .hit { fill: transparent; cursor: crosshair; }
+.chart-tip {
+  position: absolute; transform: translate(-50%, calc(-100% - 12px)); pointer-events: none; z-index: 3;
+  padding: 8px 11px; border-radius: 10px; background: rgba(12,12,16,.94); border: 1px solid var(--border-strong);
+  box-shadow: 0 12px 30px -12px rgba(0,0,0,.8); font-size: 12px; color: var(--text-soft); white-space: nowrap;
+}
+.chart-tip b { display: block; color: #fff; font-size: 12px; margin-bottom: 2px; }
+.btn.ghost.on { background: rgba(255,255,255,.1); border-color: rgba(255,255,255,.3); color: #fff; }

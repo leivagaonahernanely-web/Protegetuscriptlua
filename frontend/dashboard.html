@@ -223,11 +223,11 @@
           <div class="panel-head">
             <h3>Ejecuciones de tus scripts</h3>
             <div style="display:flex;gap:6px">
-              <button class="btn ghost sm" data-exec-days="7">7 días</button>
-              <button class="btn ghost sm" data-exec-days="30">30 días</button>
+              <button class="btn ghost sm on" data-exec-days="7" aria-pressed="true">7 días</button>
+              <button class="btn ghost sm" data-exec-days="30" aria-pressed="false">30 días</button>
             </div>
           </div>
-          <div id="execChart" style="min-height:170px"></div>
+          <div id="execChart" class="exec-chart" style="min-height:170px"></div>
           <div id="execTop" class="muted" style="margin-top:10px;font-size:13px"></div>
         </div>
 

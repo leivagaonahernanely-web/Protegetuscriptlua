@@ -1736,29 +1736,87 @@
       $('execChart').innerHTML = '<div class="empty-line">No se pudieron cargar las estadísticas.</div>';
     }
   }
+  // Redondea el máximo del eje a un valor "bonito" (1, 2, 5 × 10^n)
+  function niceMax(v) {
+    if (v <= 4) return 4;
+    const p = Math.pow(10, Math.floor(Math.log10(v)));
+    const f = v / p;
+    return (f <= 1 ? 1 : f <= 2 ? 2 : f <= 5 ? 5 : 10) * p;
+  }
+  let execSeries = null;
   function renderExecChart(series) {
-    const W = 600, H = 160, pad = 22;
-    const max = Math.max(1, ...series.map(s => s.n));
-    const slot = W / series.length;
-    const bw = Math.max(4, slot * 0.6);
-    const bars = series.map((s, i) => {
-      const h = Math.round((s.n / max) * (H - pad - 14));
-      const x = i * slot + (slot - bw) / 2;
-      const y = H - pad - h;
-      const label = series.length <= 7 || i % 5 === 0 || i === series.length - 1 ? `${s.day.slice(8, 10)}/${s.day.slice(5, 7)}` : '';
-      const isLast = i === series.length - 1;
-      return `<rect class="bar${isLast ? ' bar-last' : ''}" x="${x.toFixed(1)}" y="${y}" width="${bw.toFixed(1)}" height="${h}" rx="6" fill="${isLast ? 'url(#barHot)' : 'url(#barSilver)'}"><title>${s.day}: ${s.n}</title></rect>
-        <text x="${(x + bw / 2).toFixed(1)}" y="${Math.max(10, y - 4)}" text-anchor="middle" font-size="11" fill="currentColor">${s.n || ''}</text>
-        <text x="${(x + bw / 2).toFixed(1)}" y="${H - 6}" text-anchor="middle" font-size="10" fill="currentColor" opacity=".7">${label}</text>`;
+    execSeries = series;
+    // Se dibuja con el ancho real del contenedor para que los textos no se encojan en móvil
+    const host = $('execChart');
+    const W = Math.max(300, Math.round(host.clientWidth || 640));
+    const small = W < 520;
+    const H = small ? 190 : 210, L = small ? 34 : 40, R = 10, T = 22, B = 28;
+    const plotW = W - L - R, plotH = H - T - B;
+    const n = series.length;
+    const max = niceMax(Math.max(1, ...series.map(s => s.n)));
+    const total = series.reduce((acc, s) => acc + s.n, 0);
+    const avg = total / n;
+    const peak = Math.max(...series.map(s => s.n));
+    const slot = plotW / n;
+    const bw = Math.max(3, slot * 0.62);
+    const y = v => T + plotH - (v / max) * plotH;
+    const short = day => `${day.slice(8, 10)}/${day.slice(5, 7)}`;
+    const grid = [0, 0.25, 0.5, 0.75, 1].map(f => {
+      const v = f * max, yy = y(v).toFixed(1);
+      return `<line class="grid" x1="${L}" x2="${W - R}" y1="${yy}" y2="${yy}"/>
+        <text class="axis" x="${L - 8}" y="${(Number(yy) + 4).toFixed(1)}" text-anchor="end">${Math.round(v).toLocaleString('es-EC')}</text>`;
     }).join('');
+    const showAllValues = n <= 7;
+    const bars = series.map((s, i) => {
+      const x = L + i * slot + (slot - bw) / 2;
+      const h = (s.n / max) * plotH;
+      const top = T + plotH - h;
+      const isLast = i === n - 1;
+      const cx = (x + bw / 2).toFixed(1);
+      const val = (showAllValues || (s.n === peak && s.n > 0))
+        ? `<text class="val" x="${cx}" y="${Math.max(12, top - 6).toFixed(1)}" text-anchor="middle">${s.n.toLocaleString('es-EC')}</text>` : '';
+      const dayLabel = (n <= 7 || i % 5 === 0 || isLast)
+        ? `<text class="axis" x="${cx}" y="${H - 8}" text-anchor="middle">${short(s.day)}</text>` : '';
+      return `<rect class="bar${isLast ? ' bar-last' : ''}" x="${x.toFixed(1)}" y="${top.toFixed(1)}" width="${bw.toFixed(1)}" height="${Math.max(h, s.n ? 2 : 0).toFixed(1)}" rx="5" fill="url(#${isLast ? 'barHot' : 'barSilver'})"/>${val}${dayLabel}
+        <rect class="hit" data-i="${i}" x="${(L + i * slot).toFixed(1)}" y="${T}" width="${slot.toFixed(1)}" height="${plotH}"/>`;
+    }).join('');
+    const avgLine = avg > 0
+      ? `<line class="avg" x1="${L}" x2="${W - R}" y1="${y(avg).toFixed(1)}" y2="${y(avg).toFixed(1)}"/>
+         <text class="avg-lbl" x="${W - R}" y="${(y(avg) - 6).toFixed(1)}" text-anchor="end">${small ? 'prom.' : 'promedio'} ${Math.round(avg).toLocaleString('es-EC')}</text>` : '';
     const defs = `<defs>
       <linearGradient id="barSilver" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#c9c9d4"/><stop offset="1" stop-color="#3a3a46"/></linearGradient>
       <linearGradient id="barHot" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffffff"/><stop offset="1" stop-color="#9a9aaa"/></linearGradient>
     </defs>`;
-    $('execChart').innerHTML = `<svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="Ejecuciones por día">${defs}${bars}</svg>`;
+    host.innerHTML = `<svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="Ejecuciones por día" class="exec-svg">${defs}${grid}${avgLine}${bars}</svg>
+      <div class="chart-tip" id="execTip" hidden></div>`;
+    const svg = host.querySelector('svg');
+    const tip = $('execTip');
+    const show = e => {
+      const hit = e.target.closest && e.target.closest('.hit');
+      if (!hit) { tip.hidden = true; return; }
+      const s = series[Number(hit.dataset.i)];
+      tip.innerHTML = `<b>${short(s.day)}</b>${s.n.toLocaleString('es-EC')} ejecuciones`;
+      tip.hidden = false;
+      const box = host.getBoundingClientRect();
+      tip.style.left = `${Math.min(e.clientX - box.left, box.width - 12)}px`;
+      tip.style.top = `${e.clientY - box.top}px`;
+    };
+    svg.addEventListener('pointermove', show);
+    svg.addEventListener('pointerdown', show);
+    svg.addEventListener('pointerleave', () => { tip.hidden = true; });
   }
+  let execResizeTimer = null;
+  window.addEventListener('resize', () => {
+    clearTimeout(execResizeTimer);
+    execResizeTimer = setTimeout(() => { if (execSeries && $('execChart').clientWidth) renderExecChart(execSeries); }, 150);
+  });
   document.querySelectorAll('[data-exec-days]').forEach(b => b.addEventListener('click', () => {
     execDays = Number(b.dataset.execDays);
+    document.querySelectorAll('[data-exec-days]').forEach(x => {
+      const on = x === b;
+      x.classList.toggle('on', on);
+      x.setAttribute('aria-pressed', String(on));
+    });
     loadExecStats();
   }));
 

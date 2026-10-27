@@ -466,7 +466,7 @@
           Usuarios
         </button>
         <div class="nav-label">Comunidad</div>
-        <a class="nav-item" href="/soporte.html" style="text-decoration:none;color:inherit">
+        <a class="nav-item" href="/soporte" style="text-decoration:none;color:inherit">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3M12 17h.01"/></svg>
           Soporte
         </a>
@@ -522,7 +522,7 @@
           </div>
           <div class="auth-actions">
             <button class="btn" id="retryAuth">Reintentar</button>
-            <a class="btn ghost" href="/login.html">Ir a iniciar sesión</a>
+            <a class="btn ghost" href="/login">Ir a iniciar sesión</a>
           </div>
         </div>
       </section>
@@ -2131,7 +2131,7 @@
 
   // ---------- SESIÓN ----------
   // Evita el bucle: si /api/me falla varias veces seguidas, se muestra un aviso
-  // en vez de volver a /login.html una y otra vez.
+  // en vez de volver a /login una y otra vez.
   function authLoopCount() {
     try {
       const now = Date.now();
@@ -2837,7 +2837,7 @@
           return;
         }
         recordAuthRedirect();
-        location.href = '/login.html';
+        location.href = '/login';
         return;
       }
       $('userName').textContent = 'Sin conexión';

@@ -352,16 +352,31 @@ const stmt = {
 // ==========================================
 // 2. FRONTEND (carpeta 'frontend')
 // ==========================================
+// Páginas con URL limpia (sin .html). Las direcciones antiguas con .html redirigen a la limpia.
+const CLEAN_PAGES = {
+  '/': 'index.html',
+  '/login': 'login.html',
+  '/dashboard': 'dashboard.html',
+  '/terminos': 'terminos.html',
+  '/privacidad': 'privacidad.html',
+  '/soporte': 'soporte.html',
+};
+const LEGACY_HTML = /^\/(index|login|dashboard|terminos|privacidad|soporte)\.html$/;
+app.use((req, res, next) => {
+  const m = LEGACY_HTML.exec(req.path);
+  if (!m) return next();
+  res.redirect(301, m[1] === 'index' ? '/' : `/${m[1]}`);
+});
 // Si ya hay sesión, la portada y el login llevan directo al dashboard.
-// Va ANTES de express.static (que serviría index.html sin mirar la sesión).
-app.get(['/', '/index.html', '/login.html'], (req, res, next) => {
-  if (getSession(req)) return res.redirect('/dashboard.html');
+// Va ANTES de servir las páginas (que no miran la sesión).
+app.get(['/', '/login'], (req, res, next) => {
+  if (getSession(req)) return res.redirect('/dashboard');
   next();
 });
 app.use(express.static(path.join(__dirname, 'frontend'), { index: false }));
-app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'frontend', 'index.html')));
-app.get('/login.html', (req, res) => res.sendFile(path.join(__dirname, 'frontend', 'login.html')));
-app.get('/dashboard.html', (req, res) => res.sendFile(path.join(__dirname, 'frontend', 'dashboard.html')));
+for (const [route, file] of Object.entries(CLEAN_PAGES)) {
+  app.get(route, (req, res) => res.sendFile(path.join(__dirname, 'frontend', file)));
+}
 
 // ==========================================
 // 3. HELPERS DE SESIÓN
@@ -635,8 +650,8 @@ app.get('/auth/discord/callback', jsonLimit, async (req, res) => {
   const expectedState = req.cookies[STATE_COOKIE];
   res.clearCookie(STATE_COOKIE);
 
-  if (!code) return res.redirect('/login.html?error=no_code');
-  if (!state || !expectedState || state !== expectedState) return res.redirect('/login.html?error=state');
+  if (!code) return res.redirect('/login?error=no_code');
+  if (!state || !expectedState || state !== expectedState) return res.redirect('/login?error=state');
 
   try {
     const tokenRes = await fetch('https://discord.com/api/oauth2/token', {
@@ -653,7 +668,7 @@ app.get('/auth/discord/callback', jsonLimit, async (req, res) => {
     const tokenData = await tokenRes.json();
     if (!tokenRes.ok) {
       console.error('Token error:', tokenData);
-      return res.redirect('/login.html?error=token_failed');
+      return res.redirect('/login?error=token_failed');
     }
 
     const userRes = await fetch('https://discord.com/api/users/@me', {
@@ -662,7 +677,7 @@ app.get('/auth/discord/callback', jsonLimit, async (req, res) => {
     const dUser = await userRes.json();
     if (!userRes.ok || !dUser.id) {
       console.error('User error:', dUser);
-      return res.redirect('/login.html?error=token_failed');
+      return res.redirect('/login?error=token_failed');
     }
 
     // Upsert: conserva el plan del usuario al volver a iniciar sesión
@@ -670,10 +685,10 @@ app.get('/auth/discord/callback', jsonLimit, async (req, res) => {
 
     const session = jwt.sign({ id: dUser.id, username: dUser.username }, SESSION_SECRET, { expiresIn: '7d' });
     res.cookie(SESSION_COOKIE, session, sessionCookieOpts);
-    res.redirect('/dashboard.html');
+    res.redirect('/dashboard');
   } catch (err) {
     console.error('OAuth error:', err);
-    res.redirect('/login.html?error=server');
+    res.redirect('/login?error=server');
   }
 });
 
@@ -815,7 +830,7 @@ pre{margin:0;padding:22px 24px;background:#040407;font-family:ui-monospace,SFMon
       <span>El código del script solo se entrega al ejecutarlo con una key válida.</span>
     </footer>
   </section>
-  <p class="legal"><a href="/terminos.html">Términos</a> · <a href="/privacidad.html">Privacidad</a></p>
+  <p class="legal"><a href="/terminos">Términos</a> · <a href="/privacidad">Privacidad</a></p>
 </main>
 <script>${LOADER_COPY_JS}</script>
 </body>
@@ -1013,7 +1028,7 @@ app.get('/scripts/hosted/:slug/auth', loaderLimit, (req, res) => {
 
 app.get('/auth/logout', (req, res) => {
   res.clearCookie(SESSION_COOKIE);
-  res.redirect('/login.html');
+  res.redirect('/login');
 });
 
 // ==========================================

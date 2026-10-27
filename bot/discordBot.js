@@ -1346,7 +1346,7 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
           .setTitle(`⏳ Tu key de ${r.script_name} está por vencer`)
           .setDescription(`Vence <t:${r.expires_at}:R> (<t:${r.expires_at}:f>).`);
         const row = new ActionRowBuilder().addComponents(
-          new ButtonBuilder().setLabel('Ver mi cuenta').setStyle(ButtonStyle.Link).setURL(`${publicUrl}/dashboard.html`));
+          new ButtonBuilder().setLabel('Ver mi cuenta').setStyle(ButtonStyle.Link).setURL(`${publicUrl}/dashboard`));
         await user.send({ embeds: [embed], components: [row] });
       } catch (err) {
         console.warn('[Bot] No se pudo enviar el aviso de vencimiento:', err.message);

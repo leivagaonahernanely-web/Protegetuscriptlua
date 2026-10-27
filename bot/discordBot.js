@@ -1498,12 +1498,12 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
     )] : [];
     await logScriptEvent(script, text, discordId, {
       color: 0xed4245,
-      title: `🚨 Intento de volcado · ${script.name}`,
-      content: `<@${script.user_id}> alguien intentó volcar **${script.name}**.`,
+      title: `🚨 Intento de dump · ${script.name}`,
+      content: `<@${script.user_id}> alguien intentó hacer dump de **${script.name}**.`,
       components,
     });
     const owner = await client.users.fetch(script.user_id).catch(() => null);
-    if (owner) await owner.send(`🚨 Intento de volcado en **${script.name}**. Revisa el canal de logs o el panel.`).catch(() => {});
+    if (owner) await owner.send(`🚨 Intento de dump en **${script.name}**. Revisa el canal de logs o el panel.`).catch(() => {});
   };
 
   client.notifyKeyShare = async ({ scriptId, key, discordId, strikes, removed, hwid, boundHwid }) => {

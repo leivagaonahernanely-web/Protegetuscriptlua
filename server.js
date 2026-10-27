@@ -1100,7 +1100,7 @@ app.get('/scripts/hosted/:slug/auth', loaderLimit, (req, res) => {
     if (Date.now() - last > 10 * 60 * 1000) { // un aviso cada 10 min por key y HWID
       tamperSeen.set(seenKey, Date.now());
       logWithRoblox(script.id, [
-        '🚨 Intento de volcado: loadstring fue interceptado',
+        '🚨 Intento de dump: loadstring fue interceptado',
         `• Key: \`${tKey || 'sin key'}\``,
         `• HWID: \`${tHwid || 'sin dato'}\``,
         `• Discord: ${tDiscord ? `<@${tDiscord}>` : 'sin vincular'}`,

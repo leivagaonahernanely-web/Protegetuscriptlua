@@ -237,6 +237,8 @@ for (const sql of [
   "ALTER TABLE users ADD COLUMN plan_expires_at INTEGER",
   "ALTER TABLE users ADD COLUMN plan_expired_at INTEGER",
   "ALTER TABLE users ADD COLUMN quota_reset_at INTEGER",
+  "ALTER TABLE users ADD COLUMN scripts_period INTEGER DEFAULT 0",
+  "ALTER TABLE users ADD COLUMN keys_period INTEGER DEFAULT 0",
   "ALTER TABLE scripts ADD COLUMN loader_id TEXT",
 ]) { try { db.exec(sql); } catch { /* ya existe */ } }
 // Identificador estable del loader: 40 caracteres aleatorios que se crean una vez y no cambian al editar el script
@@ -250,7 +252,8 @@ const MONTH_SECONDS = PLAN_DAYS_DEFAULT * 86400;
 // El contador Free se reinicia cada 15 días; los planes pagos cada mes
 const FREE_RESET_SECONDS = 15 * 86400;
 const quotaDueStmt = db.prepare('SELECT plan, quota_reset_at FROM users WHERE id = ?');
-const quotaResetStmt = db.prepare('UPDATE users SET obf_used = 0, quota_reset_at = ? WHERE id = ?');
+// Al reiniciarse el periodo se ponen en cero todos los contadores: ofuscaciones, scripts creados y keys generadas
+const quotaResetStmt = db.prepare('UPDATE users SET obf_used = 0, scripts_period = 0, keys_period = 0, quota_reset_at = ? WHERE id = ?');
 function resetQuotaIfDue(userId) {
   const row = quotaDueStmt.get(userId);
   if (!row) return;
@@ -311,6 +314,24 @@ const PLAN_QUOTAS = {
   plus:    { scripts: Infinity, obfuscations: Infinity, keys: Infinity },
 };
 const keyCapFor = userId => (isPaidPlanId(userId) ? Infinity : PLAN_QUOTAS.free.keys);
+// Cuota por periodo compartida con el bot: reserva keys (comprueba y suma en una sola operación)
+const quotaApi = {
+  reserveKeys(userId, amount) {
+    resetQuotaIfDue(userId);
+    const cap = keyCapFor(userId);
+    if (cap === Infinity) return true;
+    const used = db.prepare('SELECT keys_period FROM users WHERE id = ?').get(userId)?.keys_period ?? 0;
+    if (used + amount > cap) return false;
+    db.prepare('UPDATE users SET keys_period = COALESCE(keys_period, 0) + ? WHERE id = ?').run(amount, userId);
+    return true;
+  },
+  keysLeft(userId) {
+    resetQuotaIfDue(userId);
+    const cap = keyCapFor(userId);
+    if (cap === Infinity) return Infinity;
+    return Math.max(0, cap - (db.prepare('SELECT keys_period FROM users WHERE id = ?').get(userId)?.keys_period ?? 0));
+  },
+};
 const quotaFor = userId => PLAN_QUOTAS[stmt.userById.get(userId)?.plan] ?? PLAN_QUOTAS.free;
 
 const scriptBanStmt = db.prepare('SELECT 1 FROM script_bans WHERE script_id = ? AND kind = ? AND value = ?');
@@ -1702,8 +1723,10 @@ app.get('/api/scripts', requireAuth, (req, res) => {
 // Cuotas del plan: scripts creados y ofuscaciones usadas (borrar un script no devuelve la cuota)
 function quotaError(userId, { isNewScript, isFfa }) {
   const quota = quotaFor(userId);
-  if (isNewScript && stmt.scriptCount.get(userId).n >= quota.scripts) {
-    return `Tu plan permite ${quota.scripts} scripts. Mejora tu plan para crear más.`;
+  resetQuotaIfDue(userId);
+  const scriptsUsed = db.prepare('SELECT scripts_period FROM users WHERE id = ?').get(userId)?.scripts_period ?? 0;
+  if (isNewScript && scriptsUsed >= quota.scripts) {
+    return `Tu plan permite ${quota.scripts} scripts por periodo. Mejora tu plan para crear más.`;
   }
   if (!isFfa && (stmt.obfUsed.get(userId)?.obf_used ?? 0) >= quota.obfuscations) {
     return `Ya usaste tus ${quota.obfuscations} ofuscaciones del plan. Mejora tu plan para seguir.`;
@@ -1742,6 +1765,7 @@ app.post('/api/scripts', requireAuth, async (req, res) => {
     snapshotVersion(info.lastInsertRowid, { name: input.name, obfuscator: input.obfuscator, ffa: input.isFfa, source: input.source });
     if (!input.isFfa) stmt.obfIncrement.run(req.userId);
     if (input.obfuscator === 'luau') luauBumpStmt.run(req.userId, luauDay());
+    db.prepare('UPDATE users SET scripts_period = COALESCE(scripts_period, 0) + 1 WHERE id = ?').run(req.userId);
     res.status(201).json({ ok: true, id: info.lastInsertRowid });
   } catch (err) {
     console.error('Create script error:', err);
@@ -2017,10 +2041,8 @@ app.post('/api/keys', requireAuth, (req, res) => {
 
   const expiresAt = days ? Math.floor(Date.now() / 1000) + days * 86400 : null;
 
-  const cap = keyCapFor(req.userId);
-  if (cap !== Infinity) {
-    const used = db.prepare('SELECT COUNT(*) AS n FROM keys k JOIN scripts s ON s.id = k.script_id WHERE s.user_id = ?').get(req.userId).n;
-    if (used + amount > cap) return res.status(403).json({ error: `Tu plan Free permite ${cap} keys en total. Te quedan ${Math.max(0, cap - used)}.` });
+  if (!quotaApi.reserveKeys(req.userId, amount)) {
+    return res.status(403).json({ error: `Tu plan Free permite ${keyCapFor(req.userId)} keys cada 15 días. Te quedan ${quotaApi.keysLeft(req.userId)}.` });
   }
 
   try {
@@ -2049,6 +2071,7 @@ app.post('/api/keys', requireAuth, (req, res) => {
 if (process.env.DISCORD_BOT_TOKEN && DISCORD_CLIENT_ID) {
   startDiscordBot({
     db,
+    quota: quotaApi,
     token: process.env.DISCORD_BOT_TOKEN,
     clientId: DISCORD_CLIENT_ID,
     guildId: process.env.DISCORD_GUILD_ID || undefined,

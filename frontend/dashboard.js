@@ -1728,11 +1728,16 @@
       const x = i * slot + (slot - bw) / 2;
       const y = H - pad - h;
       const label = series.length <= 7 || i % 5 === 0 || i === series.length - 1 ? `${s.day.slice(8, 10)}/${s.day.slice(5, 7)}` : '';
-      return `<rect x="${x.toFixed(1)}" y="${y}" width="${bw.toFixed(1)}" height="${h}" rx="3" fill="${i === series.length - 1 ? '#ffffff' : '#a0a0ac'}"><title>${s.day}: ${s.n}</title></rect>
+      const isLast = i === series.length - 1;
+      return `<rect class="bar${isLast ? ' bar-last' : ''}" x="${x.toFixed(1)}" y="${y}" width="${bw.toFixed(1)}" height="${h}" rx="6" fill="${isLast ? 'url(#barHot)' : 'url(#barSilver)'}"><title>${s.day}: ${s.n}</title></rect>
         <text x="${(x + bw / 2).toFixed(1)}" y="${Math.max(10, y - 4)}" text-anchor="middle" font-size="11" fill="currentColor">${s.n || ''}</text>
         <text x="${(x + bw / 2).toFixed(1)}" y="${H - 6}" text-anchor="middle" font-size="10" fill="currentColor" opacity=".7">${label}</text>`;
     }).join('');
-    $('execChart').innerHTML = `<svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="Ejecuciones por día">${bars}</svg>`;
+    const defs = `<defs>
+      <linearGradient id="barSilver" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#c9c9d4"/><stop offset="1" stop-color="#3a3a46"/></linearGradient>
+      <linearGradient id="barHot" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#ffffff"/><stop offset="1" stop-color="#9a9aaa"/></linearGradient>
+    </defs>`;
+    $('execChart').innerHTML = `<svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="Ejecuciones por día">${defs}${bars}</svg>`;
   }
   document.querySelectorAll('[data-exec-days]').forEach(b => b.addEventListener('click', () => {
     execDays = Number(b.dataset.execDays);

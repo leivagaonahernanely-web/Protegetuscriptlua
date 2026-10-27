@@ -537,3 +537,166 @@ html { scroll-behavior: smooth; }
 .ts-row { display: grid; grid-template-columns: 22px minmax(0, 1fr) auto; gap: 4px 10px; align-items: center; }
 .ts-row .geo-bar { grid-column: 2 / -1; }
 .ts-row .geo-num { font-size: 13px; }
+
+/* =========================================================
+   Rediseño visual v2: superficies de cristal, acentos plata,
+   jerarquía tipográfica y micro-interacciones. Solo CSS.
+   ========================================================= */
+:root {
+  --glass: linear-gradient(160deg, rgba(38,38,46,.62), rgba(12,12,16,.92));
+  --glass-hi: rgba(255,255,255,.14);
+  --silver-grad: linear-gradient(135deg, #ffffff 0%, #d7d7df 45%, #a6a6b2 100%);
+  --ring: 0 0 0 4px rgba(214,214,224,.14);
+  --shadow-lg: 0 30px 80px -30px rgba(0,0,0,.9), 0 0 0 1px rgba(255,255,255,.02) inset;
+}
+
+/* Fondo con halos suaves y grano */
+body {
+  background-color: #050507;
+  background-image:
+    radial-gradient(900px 500px at 12% -10%, rgba(200,200,215,.09), transparent 60%),
+    radial-gradient(800px 600px at 100% 0%, rgba(160,160,180,.07), transparent 55%),
+    radial-gradient(700px 500px at 50% 120%, rgba(120,120,140,.06), transparent 60%);
+  background-attachment: fixed;
+}
+body::after {
+  content: ''; position: fixed; inset: 0; pointer-events: none; z-index: 0; opacity: .035;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
+}
+
+/* Barra lateral */
+.sidebar {
+  background: linear-gradient(180deg, rgba(14,14,18,.92), rgba(7,7,10,.96));
+  border-right: 1px solid rgba(255,255,255,.06);
+  backdrop-filter: blur(18px);
+}
+.nav-item {
+  position: relative; border-radius: 11px; letter-spacing: .1px;
+  transition: background .25s var(--ease), color .25s var(--ease), transform .25s var(--ease);
+}
+.nav-item:hover { background: rgba(255,255,255,.05); color: var(--text); transform: translateX(2px); }
+.nav-item:hover svg { transform: scale(1.08); }
+.nav-item svg { transition: transform .25s var(--ease); }
+.nav-item.active {
+  background: linear-gradient(90deg, rgba(255,255,255,.12), rgba(255,255,255,.04));
+  color: #fff; box-shadow: inset 0 1px 0 rgba(255,255,255,.08);
+}
+.nav-item.active::before {
+  content: ''; position: absolute; left: -10px; top: 9px; bottom: 9px; width: 3px; border-radius: 3px;
+  background: var(--silver-grad); box-shadow: 0 0 12px rgba(255,255,255,.5);
+}
+
+/* Títulos de página */
+.page-title { letter-spacing: -.03em; }
+.page-title small { font-size: 13px; font-weight: 500; color: var(--text-dim); }
+
+/* Superficies */
+.card, .panel {
+  background: var(--glass); border: 1px solid rgba(255,255,255,.07);
+  border-radius: 18px; box-shadow: 0 1px 0 rgba(255,255,255,.04) inset, 0 20px 50px -30px rgba(0,0,0,.8);
+  transition: border-color .3s var(--ease), transform .3s var(--ease), box-shadow .3s var(--ease);
+}
+.card::before, .panel::before {
+  content: ''; position: absolute; left: 0; right: 0; top: 0; height: 1px; pointer-events: none;
+  background: linear-gradient(90deg, transparent, var(--glass-hi), transparent);
+}
+.card:hover, .panel:hover { border-color: rgba(255,255,255,.12); }
+.card:hover { transform: translateY(-1px); }
+.panel { position: relative; }
+.card-label, .kpi-label { letter-spacing: .09em; }
+.card-value { font-weight: 800; letter-spacing: -.03em; }
+
+/* Botones */
+.btn {
+  background: var(--silver-grad); color: #0a0a0d; border-radius: 11px;
+  box-shadow: 0 1px 0 rgba(255,255,255,.7) inset, 0 8px 24px -10px rgba(255,255,255,.35);
+  transition: transform .2s var(--ease), box-shadow .25s var(--ease), filter .2s;
+}
+.btn:hover { transform: translateY(-1px); box-shadow: 0 1px 0 rgba(255,255,255,.7) inset, 0 14px 32px -12px rgba(255,255,255,.45); filter: brightness(1.03); }
+.btn:active { transform: translateY(0) scale(.985); }
+.btn:disabled { opacity: .45; transform: none; box-shadow: none; }
+.btn.ghost {
+  background: rgba(255,255,255,.035); color: var(--text); border: 1px solid rgba(255,255,255,.1);
+  box-shadow: none;
+}
+.btn.ghost:hover { background: rgba(255,255,255,.08); border-color: rgba(255,255,255,.2); box-shadow: none; }
+.btn:focus-visible { outline: none; box-shadow: var(--ring); }
+
+/* Campos */
+.field {
+  background: rgba(255,255,255,.03); border: 1px solid rgba(255,255,255,.09); border-radius: 11px;
+  transition: border-color .2s var(--ease), box-shadow .2s var(--ease), background .2s;
+}
+.field:hover { border-color: rgba(255,255,255,.16); }
+.field:focus { border-color: rgba(230,230,240,.5); box-shadow: var(--ring); background: rgba(255,255,255,.045); }
+
+/* Tablas */
+table { border-spacing: 0; }
+th { position: sticky; top: 0; z-index: 1; background: rgba(12,12,16,.95); backdrop-filter: blur(8px); }
+td { border-bottom: 1px solid rgba(255,255,255,.05); }
+tbody tr { transition: background .18s var(--ease); }
+tbody tr:hover td { background: rgba(255,255,255,.025); }
+
+/* Insignias con punto de color */
+.badge { display: inline-flex; align-items: center; gap: 6px; border-radius: 999px; padding: 4px 10px 4px 8px; }
+.badge.ok::before, .badge.bad::before, .badge.warn::before, .badge.neutral::before {
+  content: ''; width: 6px; height: 6px; border-radius: 50%; background: currentColor; box-shadow: 0 0 8px currentColor;
+}
+
+/* Estados vacíos y avisos */
+.empty-line { color: var(--text-dim); padding: 36px 24px; }
+
+/* Modales y avisos flotantes */
+.modal, .toast { backdrop-filter: blur(18px) saturate(1.2); }
+.modal { background: linear-gradient(160deg, rgba(26,26,32,.96), rgba(10,10,13,.98)); border: 1px solid rgba(255,255,255,.1); box-shadow: var(--shadow-lg); }
+
+/* Entrada escalonada de tarjetas */
+@keyframes riseIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+.view.active .card, .view.active .panel, .view.active .kpi { animation: riseIn .5s var(--ease) both; }
+.view.active .card:nth-child(2), .view.active .kpi:nth-child(2) { animation-delay: .05s; }
+.view.active .card:nth-child(3), .view.active .kpi:nth-child(3) { animation-delay: .1s; }
+.view.active .card:nth-child(4), .view.active .kpi:nth-child(4) { animation-delay: .15s; }
+
+@media (prefers-reduced-motion: reduce) {
+  .view.active .card, .view.active .panel, .view.active .kpi { animation: none; }
+  .nav-item:hover, .card:hover, .btn:hover { transform: none; }
+}
+
+
+/* ---- Rediseño v2 de Estadísticas ---- */
+.view[data-view="stats"] .page-title small { color: var(--text-soft); }
+.kpi-row { gap: 16px; }
+.kpi {
+  position: relative; overflow: hidden; padding: 20px 22px;
+  background: var(--glass); border: 1px solid rgba(255,255,255,.08); border-radius: 18px;
+  transition: transform .3s var(--ease), border-color .3s var(--ease);
+}
+.kpi::after {
+  content: ''; position: absolute; right: -40px; top: -40px; width: 130px; height: 130px; border-radius: 50%;
+  background: radial-gradient(circle, rgba(255,255,255,.10), transparent 70%); pointer-events: none;
+}
+.kpi:hover { transform: translateY(-2px); border-color: rgba(255,255,255,.16); }
+.kpi strong { font-size: 30px; }
+.kpi-text { font-size: 19px !important; }
+.kpi-sub.up { color: #4ade80; }
+.kpi-sub.down { color: #f87171; }
+.panel-head { padding: 18px 22px; }
+.panel-head h3 { font-size: 15px; letter-spacing: -.01em; }
+
+/* Gráfico: barras con degradado y brillo en el día actual */
+#execChart svg { overflow: visible; }
+#execChart .bar { transition: opacity .2s var(--ease), filter .2s var(--ease); }
+#execChart .bar:hover { opacity: .85; filter: drop-shadow(0 0 10px rgba(255,255,255,.35)); }
+#execChart .bar-last { filter: drop-shadow(0 0 14px rgba(255,255,255,.35)); }
+#execChart text { font-family: 'Inter', system-ui, sans-serif; }
+
+/* Ranking de scripts y países con barras finas y brillo */
+.geo-bar, .ts-row .geo-bar { height: 5px; background: rgba(255,255,255,.06); }
+.geo-bar i { background: linear-gradient(90deg, rgba(200,200,215,.5), #ffffff); box-shadow: 0 0 10px rgba(255,255,255,.25); }
+.ts-row .geo-num, .geo-row .geo-num { font-size: 14px; }
+.geo-name, .ts-row .geo-name { font-weight: 700; }
+.top-scripts h4, .geo-panel .geo-note { letter-spacing: .08em; }
+
+/* Mapa: cristal con borde iluminado */
+.geo-map-wrap { border-color: rgba(255,255,255,.08); box-shadow: inset 0 1px 0 rgba(255,255,255,.05); }
+.geo-legend { backdrop-filter: blur(8px); }

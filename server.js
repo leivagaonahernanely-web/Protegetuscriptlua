@@ -870,6 +870,7 @@ local MSG = {
   REAUTH = HEAD .. "Please re-authenticate.",
   BLACKLISTED = HEAD .. "Access denied.",
   MAINTENANCE = HEAD .. "This script is under maintenance.\\nPlease try again in a few minutes.",
+  MAINTENANCE_ALL = HEAD .. "Vantarmor is under maintenance.\\nPlease try again in a few minutes.",
   SERVER_UNREACHABLE = HEAD .. "Server unreachable. Please try later.",
 }
 local Players = game:GetService("Players")
@@ -1057,7 +1058,8 @@ app.get('/scripts/hosted/:slug/auth', loaderLimit, (req, res) => {
 
   const script = stmt.scriptBySlug.get(req.params.slug);
   if (!script) return reply('SCRIPT_NOT_FOUND');
-  if (script.maintenance || (maintenanceAllOn() && !isOwnerId(script.user_id))) return reply('MAINTENANCE');
+  if (maintenanceAllOn() && !isOwnerId(script.user_id)) return reply('MAINTENANCE_ALL');
+  if (script.maintenance) return reply('MAINTENANCE');
   // ID de Roblox de quien ejecuta (lo manda el loader desde el juego; vacío si no llegó)
   const rbxid = /^\d{1,20}$/.test(String(req.query.rbxid || '')) ? String(req.query.rbxid) : '';
   if (script.ffa) {

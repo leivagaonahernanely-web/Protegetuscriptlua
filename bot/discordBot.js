@@ -1583,6 +1583,17 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
 
   client.on('interactionCreate', async interaction => {
     try {
+      // Mantenimiento total: slash, botones y modales quedan pausados para todos menos el dueño
+      if (!interaction.isAutocomplete() && maintenanceAllOn() && interaction.user?.id !== ownerId) {
+        if (interaction.isRepliable?.()) {
+          const embed = new EmbedBuilder()
+            .setColor(0xfaa61a)
+            .setTitle('Vantarmor en mantenimiento')
+            .setDescription('El bot y los loaders están pausados mientras trabajamos. Vuelve en unos minutos.');
+          return await interaction.reply({ embeds: [embed], flags: MessageFlags.Ephemeral }).catch(() => {});
+        }
+        return;
+      }
       if (interaction.isAutocomplete()) {
         // Sin esperas aquí: Discord solo da 3 s para responder el autocompletado
         const focused = interaction.options.getFocused().toLowerCase();

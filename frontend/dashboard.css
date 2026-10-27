@@ -761,3 +761,8 @@ tbody tr:hover td { background: rgba(255,255,255,.025); }
   #keysTable { display: block; width: 100%; }
   #keysTable tr { width: 100%; box-sizing: border-box; }
 }
+
+/* Scripts: botones de acción en cuadrícula (no queda ninguno suelto en otra línea) */
+.script-card > .row:last-child { display: grid; grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); gap: 8px; }
+.script-card > .row:last-child .btn { justify-content: center; text-align: center; }
+.script-card > .row:last-child .btn { white-space: normal; line-height: 1.25; min-height: 38px; padding-left: 10px; padding-right: 10px; }

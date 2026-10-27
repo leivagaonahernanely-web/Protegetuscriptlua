@@ -18,12 +18,12 @@
     document.cookie = `googtrans=${value}; path=/; ${age}`;
     document.cookie = `googtrans=${value}; path=/; domain=${location.hostname}; ${age}`;
   };
-  // Cambia el idioma sin recargar: usa el selector interno que crea Google Translate.
-  // Volver al español sí recarga, porque el original solo se restaura al cargar la página.
+  // Cambia el idioma usando el selector interno de Google Translate (también para volver al español,
+  // que es el idioma original de la página). Si el traductor aún no cargó, recarga la página.
   const setLang = code => {
     saveCookie(code);
     const combo = document.querySelector('.goog-te-combo');
-    if (combo && code !== 'es') {
+    if (combo) {
       combo.value = code;
       combo.dispatchEvent(new Event('change'));
     } else {
@@ -65,7 +65,7 @@
   const slot = document.getElementById('langSlot');
   if (slot) slot.appendChild(sel);
 
-  document.documentElement.lang = current();
+  // El <html> queda en español: así Chrome no ofrece traducir la página "del chino al español".
 
   window.vmGtInit = () => {
     if (!window.google || !google.translate) return;

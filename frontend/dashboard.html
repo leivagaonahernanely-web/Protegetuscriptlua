@@ -912,7 +912,7 @@
             <div class="card-value">$0</div>
             <ul>
               <li>✓ 2 scripts</li>
-              <li>✓ 5 ofuscaciones</li>
+              <li>✓ 5 ofuscaciones cada 15 días</li>
               <li>✓ 100 keys</li>
             </ul>
             <button class="btn ghost block" data-plan-btn disabled>Plan actual</button>
@@ -923,7 +923,7 @@
             <div class="card-value">$3</div>
             <ul>
               <li>✓ 10 scripts</li>
-              <li>✓ 30 ofuscaciones</li>
+              <li>✓ 30 ofuscaciones al mes</li>
               <li>✓ Keys ilimitadas</li>
             </ul>
             <button class="btn block" data-plan-btn data-label="Mejorar a Premium">Mejorar a Premium</button>
@@ -1670,6 +1670,7 @@
           <div class="row">
             <h4 class="script-name" title="${esc(s.name)}">${esc(s.name)}</h4>
             <span class="badge ${isFfa ? 'bad' : 'ok'}">${isFfa ? 'FFA' : 'Protegido'}</span>
+            ${s.maintenance ? '<span class="badge bad">En mantenimiento</span>' : ''}
           </div>
           <div class="script-meta">${esc(meta)}</div>
           <div class="script-stats">
@@ -1681,6 +1682,7 @@
           </button>
           <div class="row">
             <button class="btn ghost sm" data-edit="${esc(s.id)}">Editar</button>
+            <button class="btn ghost sm" data-maint="${esc(s.id)}" data-on="${s.maintenance ? 1 : 0}">${s.maintenance ? 'Quitar mantenimiento' : 'Poner en mantenimiento'}</button>
             <button class="btn ghost sm" data-delete="${esc(s.id)}" data-name="${esc(s.name)}">Eliminar</button>
             <button class="btn ghost sm" data-view-keys="${esc(s.id)}">Ver keys</button>
             <button class="btn sm" data-gen="${esc(s.id)}">+ Keys</button>
@@ -2883,6 +2885,15 @@
     if (open) {
       if (open.dataset.open === 'script') openScriptModal();
       else openKeysModal();
+      return;
+    }
+
+    const maint = t.closest('[data-maint]');
+    if (maint) {
+      const on = maint.dataset.on !== '1';
+      api(`/api/scripts/${encodeURIComponent(maint.dataset.maint)}/maintenance`, { method: 'POST', body: JSON.stringify({ on }) })
+        .then(() => { toast(on ? 'Script en mantenimiento' : 'Mantenimiento quitado'); return loadData(); })
+        .catch(err => toast(err.message, 'error'));
       return;
     }
 

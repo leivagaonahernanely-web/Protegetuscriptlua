@@ -217,6 +217,7 @@ db.exec(`
   if (!cols.includes('hwid_reset_hours')) db.exec('ALTER TABLE scripts ADD COLUMN hwid_reset_hours INTEGER DEFAULT 24');
   // Detección de keys compartidas (1 = activa)
   if (!cols.includes('share_detection')) db.exec('ALTER TABLE scripts ADD COLUMN share_detection INTEGER DEFAULT 1');
+  if (!cols.includes('maintenance')) db.exec('ALTER TABLE scripts ADD COLUMN maintenance INTEGER DEFAULT 0');
 
   // Columnas de keys para el bot y el control de HWID
   const keyCols = db.prepare('PRAGMA table_info(keys)').all().map(c => c.name);
@@ -326,7 +327,7 @@ const stmt = {
   `),
   // Nunca se seleccionan source ni content aquí
   scriptsByUser: db.prepare(`
-    SELECT id, user_id, name, slug, loader_id, ffa, obfuscator, hwid_reset_hours, share_detection FROM scripts
+    SELECT id, user_id, name, slug, loader_id, ffa, obfuscator, hwid_reset_hours, share_detection, maintenance FROM scripts
     WHERE user_id = ? ORDER BY id DESC
   `),
   scriptOwned: db.prepare('SELECT * FROM scripts WHERE id = ? AND user_id = ?'),
@@ -858,6 +859,7 @@ local MSG = {
   SCRIPT_NOT_FOUND = "📋 Script ID not found",
   REAUTH = "🔄 Please re-authenticate",
   BLACKLISTED = "🛡️ Blacklisted",
+  MAINTENANCE = "🛠️ Script under maintenance, try again later",
   SERVER_UNREACHABLE = "📡 Server unreachable",
 }
 local Players = game:GetService("Players")
@@ -1013,6 +1015,7 @@ app.get('/scripts/hosted/:slug/auth', loaderLimit, (req, res) => {
 
   const script = stmt.scriptBySlug.get(req.params.slug);
   if (!script) return reply('SCRIPT_NOT_FOUND');
+  if (script.maintenance) return reply('MAINTENANCE');
   // ID de Roblox de quien ejecuta (lo manda el loader desde el juego; vacío si no llegó)
   const rbxid = /^\d{1,20}$/.test(String(req.query.rbxid || '')) ? String(req.query.rbxid) : '';
   if (script.ffa) {
@@ -1590,11 +1593,13 @@ app.post('/api/owner/users/:id/staff', requireOwnerApi, (req, res) => {
   res.json({ ok: true, staff_role: role });
 });
 
+// Foto por defecto de Discord (la misma que muestra Discord cuando el usuario no tiene avatar)
+const defaultDiscordAvatar = id => { try { return `https://cdn.discordapp.com/embed/avatars/${Number((BigInt(id) >> 22n) % 6n)}.png`; } catch { return null; } };
 app.get('/api/owner/publisher', requireOwnerApi, (req, res) => {
   res.json(db.prepare(`SELECT s.id, s.name, s.slug, s.ffa, s.obfuscator, s.source, s.user_id, u.username, u.avatar, u.custom_avatar
     FROM scripts s LEFT JOIN users u ON u.id = s.user_id ORDER BY s.id DESC`).all().map(({ avatar, custom_avatar, ...s }) => ({
       ...s,
-      avatar_url: custom_avatar || (avatar ? `https://cdn.discordapp.com/avatars/${s.user_id}/${avatar}.png?size=64` : null),
+      avatar_url: custom_avatar || (avatar ? `https://cdn.discordapp.com/avatars/${s.user_id}/${avatar}.png?size=64` : defaultDiscordAvatar(s.user_id)),
     })));
 });
 
@@ -1852,6 +1857,15 @@ app.post('/api/support/tickets/:id/close', requireAuth, (req, res) => {
 });
 
 // Versiones de un script: lista sin código y, al pedir una, su código fuente (solo del dueño del script)
+// Mantenimiento de un script: los loaders reciben MAINTENANCE y no se ejecuta nada
+app.post('/api/scripts/:id/maintenance', requireAuth, (req, res) => {
+  const script = stmt.scriptOwned.get(Number(req.params.id), req.userId);
+  if (!script) return res.status(404).json({ error: 'Script no encontrado' });
+  const on = req.body?.on === true ? 1 : 0;
+  db.prepare('UPDATE scripts SET maintenance = ? WHERE id = ? AND user_id = ?').run(on, script.id, req.userId);
+  res.json({ ok: true, maintenance: on === 1 });
+});
+
 app.get('/api/scripts/:id/versions', requireAuth, (req, res) => {
   const script = stmt.scriptOwned.get(Number(req.params.id), req.userId);
   if (!script) return res.status(404).json({ error: 'Script no encontrado' });

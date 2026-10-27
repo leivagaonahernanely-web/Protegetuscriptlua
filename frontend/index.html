@@ -1102,6 +1102,8 @@
     <p class="hero-sub">
       Protege tus scripts, genera y administra keys vinculadas a HWID, y controla el acceso desde un <strong>panel web</strong> y un <strong>bot de Discord</strong>.
     </p>
+      <style>.bot-live{display:inline-flex;align-items:center;gap:8px;margin:16px 0 22px;padding:7px 14px;border-radius:999px;font-size:13px;color:#bcbcc4;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.12)}.bot-live .bdot{width:7px;height:7px;border-radius:50%;background:#4ade80;box-shadow:0 0 10px #4ade80}</style>
+      <p class="bot-live" id="botLive" hidden><span class="bdot"></span><span id="botLiveText"></span></p>
 
     <div class="hero-cta">
       <a href="/login" class="btn btn-primary btn-lg">
@@ -1500,6 +1502,11 @@
     async function check() {
       try {
         const st = await fetch('/api/status', { credentials: 'include', cache: 'no-store' }).then(r => r.json());
+        const live = document.getElementById('botLive');
+        if (live && typeof st.servers === 'number') {
+          document.getElementById('botLiveText').textContent = `Bot en ${st.servers} ${st.servers === 1 ? 'servidor' : 'servidores'}`;
+          live.hidden = false;
+        }
         msg.textContent = st.message || 'Volvemos en unos minutos.';
         document.getElementById('maintNote').textContent = st.maintenanceAll ? "Todo está pausado mientras trabajamos: la web, los loaders y el bot. Volvemos pronto." : "Tus scripts y loaders siguen funcionando. Las compras y los canjes se reanudan en cuanto terminemos.";
         screen.hidden = !st.maintenance;

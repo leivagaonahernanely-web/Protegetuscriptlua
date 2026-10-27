@@ -1899,14 +1899,32 @@
   }
   const inHot = (line, ranges) => ranges.some(([a, b]) => line >= a && line <= b);
 
-  // Busca funciones en el código (por texto). Las macros van justo encima de la función.
+  // Profundidad de { ( al inicio de cada línea (aprox.: ignora comentarios y textos).
+  // Dentro de una tabla o de unos paréntesis no se puede poner una sentencia como la macro.
+  function bracketDepths(lines) {
+    let depth = 0;
+    return lines.map(ln => {
+      const at = depth;
+      const clean = ln.replace(/--.*$/, '').replace(/"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'/g, '""');
+      for (const ch of clean) {
+        if (ch === '{' || ch === '(') depth++;
+        else if (ch === '}' || ch === ')') depth = Math.max(0, depth - 1);
+      }
+      return at;
+    });
+  }
+
+  // Busca funciones en el código (por texto). Las macros van justo encima de la función,
+  // solo donde una sentencia es válida (fuera de tablas y de paréntesis).
   function findLuauFunctions(code) {
     const lines = code.split('\n');
+    const depths = bracketDepths(lines);
     const re = /^(\s*)(?:local\s+)?function\s+([\w.:]+)\s*\(|^(\s*)(?:local\s+)?([\w.]+)\s*=\s*function\s*\(/;
     const out = [];
     lines.forEach((ln, i) => {
       const m = ln.match(re);
       if (!m) return;
+      if (depths[i] > 0) return; // dentro de una tabla o de paréntesis: la macro rompería el código
       if (i > 0 && /LUO_/.test(lines[i - 1])) return; // ya tiene una macro
       const indent = m[1] ?? m[3] ?? '';
       const name = m[2] ?? m[4];

@@ -374,7 +374,7 @@ function renderUsers() {
   const rows = cache.users.filter(u => (u.username || u.id).toLowerCase().includes(q) && (!roleF || u.role === roleF));
   $('usersBody').innerHTML = rows.length ? rows.map(u => `
     <tr>
-      <td>${esc(u.username || u.id)} <span class="muted">· ${esc(ROLE_NAMES[u.role] || 'Free')}</span><div class="muted"><code>${esc(u.id)}</code></div></td>
+      <td><div class="who">${u.avatar_url ? `<img class="av" src="${esc(u.avatar_url)}" alt="" loading="lazy">` : '<span class="av-empty"></span>'}<div>${esc(u.username || u.id)} <span class="muted">· ${esc(ROLE_NAMES[u.role] || 'Free')}</span><div class="muted"><code>${esc(u.id)}</code></div></div></div></td>
       <td>${u.scripts}</td>
       <td>${u.obf_used || 0}</td>
       <td>

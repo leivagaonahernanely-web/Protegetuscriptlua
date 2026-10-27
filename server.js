@@ -936,57 +936,6 @@ function issuePayloadToken(scriptId, ip) {
 }
 
 // Entrega el código con un token válido. El token se gasta aunque falle.
-// Premio ganado en un juego: el script del juego manda su slug, una key válida y los datos del jugador.
-// Solo se publica si el creador activó /win logs para ese script.
-const winLimit = rateLimit({
-  windowMs: 60_000,
-  max: 30,
-  onLimit: (req, res) => res.status(429).json({ error: 'Demasiados premios en poco tiempo.' }),
-});
-async function robloxHeadshot(userId) {
-  try {
-    const r = await fetch(`https://thumbnails.roblox.com/v1/users/avatar-headshot?userIds=${userId}&size=150x150&format=Png&isCircular=false`, { signal: AbortSignal.timeout(4000) });
-    const url = (await r.json())?.data?.[0]?.imageUrl;
-    return typeof url === 'string' && url.startsWith('https://') ? url : null;
-  } catch { return null; }
-}
-app.post('/api/win', winLimit, async (req, res) => {
-  const body = req.body || {};
-  const slug = String(body.slug || '').slice(0, 100);
-  const key = String(body.key || '').trim().slice(0, 64);
-  const userId = String(body.userId || '').trim();
-  const playerName = String(body.playerName || '').replace(/[\x00-\x1F\x7F]/g, '').trim().slice(0, 40);
-  const prize = String(body.prize || '').replace(/[\x00-\x1F\x7F]/g, '').trim().slice(0, 60);
-  const amount = String(body.amount || '').replace(/[\x00-\x1F\x7F]/g, '').trim().slice(0, 40);
-  if (!slug) return res.status(400).json({ error: 'Falta el script' });
-  if (userId && !/^\d{1,20}$/.test(userId)) return res.status(400).json({ error: 'userId inválido' });
-
-  const script = stmt.scriptBySlug.get(slug);
-  if (!script) return res.status(404).json({ error: 'Script no encontrado' });
-  let discordId = null;
-  let hwid = '';
-  if (!script.ffa) {
-    const k = key && db.prepare('SELECT * FROM keys WHERE key = ? AND script_id = ?').get(key, script.id);
-    if (!k || k.banned || (k.expires_at && k.expires_at * 1000 < Date.now())) return res.status(403).json({ error: 'Key inválida' });
-    discordId = k.discord_id || null;
-  } else {
-    // FFA no tiene key: el HWID lo manda el script del juego (mismo formato que el loader)
-    const rawHwid = String(body.hwid || '').slice(0, 128);
-    hwid = /^[\x21-\x7E]{8,128}$/.test(rawHwid) ? rawHwid : '';
-  }
-  if (!discordBot?.notifyWin) return res.status(503).json({ error: 'El bot todavía no está conectado' });
-
-  const image = userId ? await robloxHeadshot(userId) : null;
-  logUse(script.id, `🏆 ${playerName || 'Jugador'} ganó ${prize || 'un premio'}${amount ? ` (${amount})` : ''}`);
-  try {
-    const posted = await discordBot.notifyWin({ scriptId: script.id, playerName, userId, prize, amount, image, hwid, discordId });
-    res.json({ ok: true, posted });
-  } catch (err) {
-    console.warn('[Premios] No se pudo publicar:', err.message);
-    res.status(500).json({ error: 'No se pudo publicar el premio' });
-  }
-});
-
 app.get('/scripts/hosted/:slug/payload', loaderLimit, (req, res) => {
   if (/text\/html/.test(req.get('accept') || '')) return res.status(403).type('text/plain').send('!VANTARMOR:FORBIDDEN');
   const token = String(req.query.token || '');

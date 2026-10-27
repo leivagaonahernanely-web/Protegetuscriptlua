@@ -55,9 +55,6 @@ export function ensureBotSchema(db) {
     CREATE TABLE IF NOT EXISTS bot_settings (
       owner TEXT, name TEXT, value TEXT, PRIMARY KEY (owner, name)
     );
-    CREATE TABLE IF NOT EXISTS bot_win_logs (
-      script_id INTEGER PRIMARY KEY, guild_id TEXT, channel_id TEXT
-    );
     CREATE TABLE IF NOT EXISTS plan_keys (
       key TEXT PRIMARY KEY, plan TEXT NOT NULL,
       used_by TEXT, used_at INTEGER, created_at INTEGER
@@ -116,10 +113,6 @@ export const commands = [
     .addIntegerOption(o => o.setName('amount').setDescription('Cantidad de keys (1-50)').setMinValue(1).setMaxValue(50).setRequired(true)),
   new SlashCommandBuilder().setName('logs').setDescription('Elige el canal donde se registran los usos de tus scripts')
     .addChannelOption(o => o.setName('canal').setDescription('Canal de logs (opcional: si no eliges, uso o creo #logs-bot)').setRequired(false)),
-  new SlashCommandBuilder().setName('win').setDescription('Registro de premios ganados con tus scripts')
-    .addSubcommand(s => s.setName('logs').setDescription('Activa el canal de premios de un script (crea #win-logs si no eliges uno)')
-      .addStringOption(o => scriptOpt(o))
-      .addChannelOption(o => o.setName('canal').setDescription('Canal (opcional: si no eliges, uso o creo #win-logs)').addChannelTypes([ChannelType.GuildText]).setRequired(false))),
   new SlashCommandBuilder().setName('addtime').setDescription('Añade tiempo a una key (dueño o gestor)')
     .addStringOption(o => o.setName('key').setDescription('Key').setRequired(true))
     .addStringOption(o => durationOpt(o, true)),
@@ -204,8 +197,6 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
     scriptsOfUser: db.prepare('SELECT 1 FROM scripts WHERE user_id = ? LIMIT 1'),
     userPlan: db.prepare('SELECT plan FROM users WHERE id = ?'),
     settingDel: db.prepare('DELETE FROM bot_settings WHERE owner = ? AND name = ?'),
-    winSet: db.prepare('INSERT INTO bot_win_logs (script_id, guild_id, channel_id) VALUES (?, ?, ?) ON CONFLICT(script_id) DO UPDATE SET guild_id = excluded.guild_id, channel_id = excluded.channel_id'),
-    winGet: db.prepare('SELECT * FROM bot_win_logs WHERE script_id = ?'),
     userById: db.prepare('SELECT id, username, avatar, custom_avatar FROM users WHERE id = ?'),
     keyByCode: db.prepare('SELECT * FROM keys WHERE key = ?'),
     keysByDiscord: db.prepare('SELECT * FROM keys WHERE discord_id = ?'),
@@ -646,40 +637,6 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
           return out;
         })();
         return reply(`✅ ${list.length} key(s) para **${script.name}**:\n\`\`\`\n${list.join('\n')}\n\`\`\``);
-      }
-
-      case 'win': {
-        if (interaction.options.getSubcommand() !== 'logs') return reply('❌ Subcomando no válido.');
-        const script = findScript(interaction.options.getString('script', true));
-        if (!script) return reply('❌ Script no encontrado.');
-        if (!isPlatformOwner(actor) && script.user_id !== actor) return reply('⛔ Solo el creador del script puede activar los premios.');
-        if (!interaction.inGuild()) return reply('❌ Usa /win logs dentro de tu servidor de Discord.');
-        let channel = interaction.options.getChannel('canal');
-        if (!channel) {
-          // Sin canal: usa #win-logs si ya existe, o lo crea. Todos pueden leerlo, nadie escribir salvo el bot
-          const guild = interaction.guild;
-          await guild.channels.fetch();
-          channel = guild.channels.cache.find(c => c.name === 'win-logs' && c.type === ChannelType.GuildText) || null;
-          if (!channel) {
-            try {
-              channel = await guild.channels.create({
-                name: 'win-logs',
-                type: ChannelType.GuildText,
-                topic: 'Premios ganados con los scripts de Vantarmor',
-                permissionOverwrites: [
-                  { id: guild.roles.everyone.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory], deny: [PermissionFlagsBits.SendMessages] },
-                  { id: interaction.client.user.id, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.EmbedLinks] },
-                ],
-                reason: `/win logs por ${interaction.user.tag}`,
-              });
-            } catch (err) {
-              console.error('[Bot] No se pudo crear #win-logs:', err.message);
-              return reply('❌ No pude crear #win-logs. Dale al bot el permiso "Gestionar canales" o elige un canal con la opción canal.');
-            }
-          }
-        }
-        q.winSet.run(script.id, interaction.guildId, channel.id);
-        return reply(`✅ Los premios de **${script.name}** se registrarán en <#${channel.id}>.`);
       }
 
       case 'logs': {
@@ -1483,36 +1440,6 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
       if (err.code === 50013) throw new Error(BOT_PERMS_HELP);
       throw err;
     });
-  };
-
-  // Premio ganado en un juego: embed en el canal que activó el creador con /win logs
-  client.notifyWin = async ({ scriptId, playerName, userId, prize, amount, image, hwid, discordId }) => {
-    const script = q.scriptById.get(scriptId);
-    const row = q.winGet.get(scriptId);
-    if (!script || !row) return false;
-    const channel = await client.channels.fetch(row.channel_id).catch(() => null);
-    if (!channel?.isTextBased()) return false;
-    const fields = [
-      { name: 'Script', value: script.name.slice(0, 256), inline: true },
-      { name: 'Jugador', value: String(playerName || 'Desconocido').slice(0, 256), inline: true },
-      { name: 'ID de Roblox', value: userId ? `\`${userId}\`` : 'sin dato', inline: true },
-    ];
-    // FFA muestra el HWID; con key muestra el Discord de quien tiene la key (si lo vinculó)
-    if (hwid) fields.push({ name: 'HWID', value: `\`${hwid}\``, inline: false });
-    if (discordId) fields.push({ name: 'Discord', value: `<@${discordId}>\n\`${discordId}\``, inline: false });
-    fields.push(
-      { name: 'Premio', value: String(prize || '—').slice(0, 256), inline: true },
-      { name: 'Monto', value: String(amount || '—').slice(0, 256), inline: true },
-    );
-    const embed = new EmbedBuilder()
-      .setColor(0xf1c40f)
-      .setTitle('🏆 Nuevo premio')
-      .addFields(fields)
-      .setFooter({ text: 'logs by Vantarmor', iconURL: client.user.displayAvatarURL() })
-      .setTimestamp();
-    if (image) embed.setThumbnail(image);
-    await channel.send({ embeds: [embed], allowedMentions: { parse: [] } });
-    return true;
   };
 
   // Expuesto al servidor para registrar cuando se ejecuta un loader

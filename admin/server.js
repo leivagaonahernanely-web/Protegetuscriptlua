@@ -109,6 +109,22 @@ async function forward(res, method, route, body) {
   }
 }
 
+// Respaldo de la base: se reenvía el archivo tal cual (no como JSON)
+app.get('/admin/api/backup', requireSession, async (req, res) => {
+  try {
+    const out = await fetch(`${MAIN_API_URL}/api/owner/backup`, {
+      headers: { Authorization: `Bearer ${ADMIN_API_TOKEN}` },
+      signal: AbortSignal.timeout(60_000),
+    });
+    if (!out.ok) return res.status(out.status).json({ error: 'No se pudo crear el respaldo' });
+    res.set('Content-Type', 'application/octet-stream');
+    res.set('Content-Disposition', out.headers.get('content-disposition') || 'attachment; filename="vantarmor.db"');
+    res.send(Buffer.from(await out.arrayBuffer()));
+  } catch {
+    res.status(502).json({ error: 'Could not reach the main server' });
+  }
+});
+
 app.get('/admin/api/:resource', requireSession, (req, res) => {
   const route = ALLOWED[req.params.resource]?.GET;
   if (!route) return res.status(404).json({ error: 'No existe' });

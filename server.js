@@ -1631,6 +1631,21 @@ app.post('/api/owner/users/:id/staff', requireOwnerApi, (req, res) => {
 
 // Foto por defecto de Discord (la misma que muestra Discord cuando el usuario no tiene avatar)
 const defaultDiscordAvatar = id => { try { return `https://cdn.discordapp.com/embed/avatars/${Number((BigInt(id) >> 22n) % 6n)}.png`; } catch { return null; } };
+// Respaldo descargable para el dueño: copia en vivo de la base (se borra después de enviarla)
+app.get('/api/owner/backup', requireOwnerApi, async (req, res) => {
+  const file = path.join(BACKUP_DIR, `manual-${Date.now()}.db`);
+  try {
+    fs.mkdirSync(BACKUP_DIR, { recursive: true });
+    await db.backup(file);
+    auditLog(req.userId, 'settings', 'respaldo descargado', '');
+    res.download(file, `vantarmor-${ecuadorDay(Date.now())}.db`, () => fs.rmSync(file, { force: true }));
+  } catch (err) {
+    fs.rmSync(file, { force: true });
+    console.error('[Respaldo] Descarga fallida:', err.message);
+    res.status(500).json({ error: 'No se pudo crear el respaldo' });
+  }
+});
+
 app.get('/api/owner/publisher', requireOwnerApi, (req, res) => {
   res.json(db.prepare(`SELECT s.id, s.name, s.slug, s.ffa, s.obfuscator, s.source, s.user_id, u.username, u.avatar, u.custom_avatar
     FROM scripts s LEFT JOIN users u ON u.id = s.user_id ORDER BY s.id DESC`).all().map(({ avatar, custom_avatar, ...s }) => ({

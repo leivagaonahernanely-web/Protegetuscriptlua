@@ -240,6 +240,8 @@ for (const sql of [
   "ALTER TABLE users ADD COLUMN quota_reset_at INTEGER",
   "ALTER TABLE users ADD COLUMN scripts_period INTEGER DEFAULT 0",
   "ALTER TABLE users ADD COLUMN keys_period INTEGER DEFAULT 0",
+  // Los scripts que ya existen conservan la máquina virtual; los nuevos la eligen en el formulario
+  "ALTER TABLE scripts ADD COLUMN clyde_vm INTEGER DEFAULT 1",
   "ALTER TABLE scripts ADD COLUMN loader_id TEXT",
 ]) { try { db.exec(sql); } catch { /* ya existe */ } }
 // Identificador estable del loader: 40 caracteres aleatorios que se crean una vez y no cambian al editar el script
@@ -318,16 +320,16 @@ const stmt = {
   `),
   // Nunca se seleccionan source ni content aquí
   scriptsByUser: db.prepare(`
-    SELECT id, user_id, name, slug, loader_id, ffa, obfuscator, hwid_reset_hours, share_detection, maintenance FROM scripts
+    SELECT id, user_id, name, slug, loader_id, ffa, obfuscator, hwid_reset_hours, share_detection, maintenance, clyde_vm FROM scripts
     WHERE user_id = ? ORDER BY id DESC
   `),
   scriptOwned: db.prepare('SELECT * FROM scripts WHERE id = ? AND user_id = ?'),
   scriptInsert: db.prepare(`
-    INSERT INTO scripts (user_id, name, slug, ffa, obfuscator, source, content, hwid_reset_hours, share_detection)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO scripts (user_id, name, slug, ffa, obfuscator, source, content, hwid_reset_hours, share_detection, clyde_vm)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `),
   scriptUpdate: db.prepare(`
-    UPDATE scripts SET name = ?, ffa = ?, obfuscator = ?, source = ?, content = ?, hwid_reset_hours = ?, share_detection = ?
+    UPDATE scripts SET name = ?, ffa = ?, obfuscator = ?, source = ?, content = ?, hwid_reset_hours = ?, share_detection = ?, clyde_vm = ?
     WHERE id = ? AND user_id = ?
   `),
   keysByUser: db.prepare(`
@@ -428,7 +430,7 @@ const luauUsedStmt = db.prepare('SELECT n FROM luau_usage WHERE user_id = ? AND 
 const luauBumpStmt = db.prepare('INSERT INTO luau_usage (user_id, day, n) VALUES (?, ?, 1) ON CONFLICT(user_id, day) DO UPDATE SET n = n + 1');
 const luauUsedToday = userId => luauUsedStmt.get(userId, luauDay())?.n ?? 0;
 
-function validateScriptInput({ name, ffa, obfuscator, code, hwidResetHours, shareDetection }, current = null) {
+function validateScriptInput({ name, ffa, obfuscator, code, hwidResetHours, shareDetection, clydeVm }, current = null) {
   const cleanName = name === undefined ? current?.name : String(name).trim();
   if (!cleanName || cleanName.length > 60) return { error: 'Nombre inválido (1 a 60 caracteres)' };
 
@@ -445,7 +447,8 @@ function validateScriptInput({ name, ffa, obfuscator, code, hwidResetHours, shar
   const share = shareDetection === undefined ? (current?.share_detection ?? 1) : (shareDetection ? 1 : 0);
   if (!HWID_RESET_OPTIONS.includes(hwid)) return { error: 'Intervalo de reinicio de HWID inválido' };
 
-  return { name: cleanName, isFfa, obfuscator: obf, source, hwidResetHours: hwid, shareDetection: share };
+  const vm = clydeVm === undefined ? (current?.clyde_vm ?? 1) : (clydeVm ? 1 : 0);
+  return { name: cleanName, isFfa, obfuscator: obf, source, hwidResetHours: hwid, shareDetection: share, clydeVm: vm };
 }
 
 // ==========================================
@@ -477,7 +480,8 @@ const OBF_CONFIG = {
   clyde: {
     bin: process.execPath,
     dir: findEntryDir(path.join(OBF_DIR, 'clyde'), path.join('dist', 'cli', 'obfuscate.js')),
-    args: (input, out) => [path.join('dist', 'cli', 'obfuscate.js'), input, '--vm', '-o', out],
+    // Sin VM: rápido (casi no baja FPS). Con VM: más protección, pero más lento al ejecutarse
+    args: (input, out, vm) => [path.join('dist', 'cli', 'obfuscate.js'), input, ...(vm ? ['--vm'] : []), '-o', out],
     output: (input, out) => out,
   },
   // Ofuscador 2 = Obscura (Python, MIT). CLI: python main.py <entrada> -o <salida> --mode lightweight
@@ -589,7 +593,7 @@ async function obfuscateLuau(source) {
   return out;
 }
 
-async function obfuscate(source, obfuscator) {
+async function obfuscate(source, obfuscator, opts = {}) {
   if (obfuscator === 'luau') return obfuscateLuau(source);
   const cfg = OBF_CONFIG[obfuscator];
   if (!cfg) throw Object.assign(new Error('Elige un ofuscador válido'), { status: 400 });
@@ -603,7 +607,7 @@ async function obfuscate(source, obfuscator) {
     const out = path.join(dir, 'out.lua');
     await fs.promises.writeFile(input, source, 'utf8');
 
-    await runObfuscatorCli(cfg.bin, cfg.args(input, out), cfg.dir, cfg.dir);
+    await runObfuscatorCli(cfg.bin, cfg.args(input, out, !!opts.vm), cfg.dir, cfg.dir);
 
     // Si el CLI guardó con otro nombre, toma el .lua nuevo que haya generado
     let outFile = cfg.output(input, out);
@@ -1772,10 +1776,10 @@ app.post('/api/scripts', requireAuth, async (req, res) => {
   }
 
   try {
-    const content = input.obfuscator === 'none' ? input.source : await obfuscate(input.source, input.obfuscator);
+    const content = input.obfuscator === 'none' ? input.source : await obfuscate(input.source, input.obfuscator, { vm: input.clydeVm === 1 });
     const info = stmt.scriptInsert.run(
       req.userId, input.name, uniqueSlug(input.name), input.isFfa ? 1 : 0,
-      input.obfuscator, input.source, content, input.hwidResetHours, input.shareDetection,
+      input.obfuscator, input.source, content, input.hwidResetHours, input.shareDetection, input.clydeVm,
     );
     db.prepare('UPDATE scripts SET loader_id = ? WHERE id = ?').run(crypto.randomBytes(20).toString('hex'), info.lastInsertRowid);
     snapshotVersion(info.lastInsertRowid, { name: input.name, obfuscator: input.obfuscator, ffa: input.isFfa, source: input.source });
@@ -1818,9 +1822,9 @@ app.put('/api/scripts/:id', requireAuth, async (req, res) => {
   }
 
   try {
-    const content = input.obfuscator === 'none' ? input.source : await obfuscate(input.source, input.obfuscator);
+    const content = input.obfuscator === 'none' ? input.source : await obfuscate(input.source, input.obfuscator, { vm: input.clydeVm === 1 });
     stmt.scriptUpdate.run(
-      input.name, input.isFfa ? 1 : 0, input.obfuscator, input.source, content, input.hwidResetHours, input.shareDetection,
+      input.name, input.isFfa ? 1 : 0, input.obfuscator, input.source, content, input.hwidResetHours, input.shareDetection, input.clydeVm,
       script.id, req.userId,
     );
     snapshotVersion(script.id, { name: input.name, obfuscator: input.obfuscator, ffa: input.isFfa, source: input.source });

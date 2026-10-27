@@ -307,6 +307,10 @@
             `<option value="${val}" ${val === currentObf ? 'selected' : ''} ${val === 'luau' && !hasPlusPlan() ? 'disabled' : ''}>${label}</option>`).join('')}
         </select>
         <div class="hint">Se aplica en el servidor al guardar el script. Para Roblox (Luau) recomendamos el Ofuscador 1.</div>
+        <label id="vmGroup" style="display:flex;gap:10px;align-items:flex-start;margin-top:12px;cursor:pointer">
+          <input type="checkbox" name="clydeVm" ${s.clyde_vm ? 'checked' : ''} style="margin-top:3px">
+          <span><b>Máquina virtual</b><small style="display:block;color:var(--text-soft)">Más protección, pero puede bajar los FPS del juego. Solo aplica al Ofuscador 1.</small></span>
+        </label>
         <button type="button" class="btn ghost sm" id="macroBtn" hidden style="margin-top:8px">Macros de rendimiento (Ofuscador 3)</button>
       </div>
 
@@ -334,6 +338,7 @@
       // El ofuscador se elige en FFA y en protegido; el reinicio de HWID solo aplica a protegido
       $('hwidGroup').hidden = !isProtected;
       $('macroBtn').hidden = $('fObf').value !== 'luau';
+      $('vmGroup').hidden = $('fObf').value !== 'clyde';
     };
     document.querySelectorAll('input[name="protection"]').forEach(r => r.addEventListener('change', sync));
     $('fObf').addEventListener('change', sync);
@@ -550,6 +555,7 @@
       obfuscator,
       hwidResetHours: Number(fd.get('hwidReset') ?? 24),
       shareDetection: fd.get('shareDetection') === 'on',
+      clydeVm: fd.get('clydeVm') === 'on',
     };
     if (code.trim()) body.code = code;
 
@@ -696,7 +702,8 @@
       const act = mine.filter(k => keyStatus(k).id === 'active').length;
       const loader = loaderFor(s);
       const isFfa = protectionOf(s) === 'ffa';
-      const meta = isFfa ? `FFA · sin key · ${OBFUSCATORS[obfuscatorOf(s)] ?? ''}` : `Protegido · ${OBFUSCATORS[obfuscatorOf(s)]}`;
+      const vmTag = obfuscatorOf(s) === 'clyde' && s.clyde_vm ? ' · VM' : '';
+      const meta = isFfa ? `FFA · sin key · ${OBFUSCATORS[obfuscatorOf(s)] ?? ''}` : `Protegido · ${OBFUSCATORS[obfuscatorOf(s)]}${vmTag}`;
       return `
         <article class="card script-card">
           <div class="row">

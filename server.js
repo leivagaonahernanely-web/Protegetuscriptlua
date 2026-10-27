@@ -934,14 +934,20 @@ async function robloxInfo(userId) {
   const hit = robloxCache.get(userId);
   if (hit && hit.exp > Date.now()) return hit.value;
   const getJson = url => fetch(url, { signal: AbortSignal.timeout(4000) }).then(r => (r.ok ? r.json() : null)).catch(() => null);
-  const [u, t] = await Promise.all([
-    getJson(`https://users.roblox.com/v1/users/${userId}`),
-    getJson(`https://thumbnails.roblox.com/v1/users/avatar-headshot?userIds=${userId}&size=150x150&format=Png&isCircular=false`),
-  ]);
-  const avatar = t?.data?.[0]?.imageUrl;
-  const value = { name: u?.name || null, avatar: typeof avatar === 'string' && avatar.startsWith('https://') ? avatar : null };
+  const load = async () => {
+    const [u, t] = await Promise.all([
+      getJson(`https://users.roblox.com/v1/users/${userId}`),
+      getJson(`https://thumbnails.roblox.com/v1/users/avatar-headshot?userIds=${userId}&size=150x150&format=Png&isCircular=false`),
+    ]);
+    const avatar = t?.data?.[0]?.imageUrl;
+    return { name: u?.name || null, avatar: typeof avatar === 'string' && avatar.startsWith('https://') ? avatar : null };
+  };
+  let value = await load();
+  // Roblox genera la miniatura la primera vez y responde sin imagen mientras tanto: se reintenta una vez
+  if (!value.avatar) { await new Promise(r => setTimeout(r, 2500)); value = await load(); }
   if (robloxCache.size > 5000) robloxCache.clear();
-  robloxCache.set(userId, { value, exp: Date.now() + 3600_000 });
+  // Sin foto no se guarda una hora: se vuelve a consultar pronto
+  robloxCache.set(userId, { value, exp: Date.now() + (value.avatar ? 3600_000 : 60_000) });
   return value;
 }
 // Registro de ejecución con la línea de Roblox (nombre + ID) y la foto de avatar como miniatura.

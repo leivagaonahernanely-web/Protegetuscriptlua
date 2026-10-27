@@ -1251,7 +1251,6 @@
     if (!s) { toast('No se pudo cargar ese script. Recarga la página e inténtalo de nuevo.', 'error'); return; }
     openModal(`Editar ${s.name}`, `
       <form id="formEditScript" novalidate>
-        <div class="inline-note">Subir una nueva versión reemplaza el código actual. El loader no cambia.</div>
         <div class="input-group">
           <label for="fName">Nombre</label>
           <input id="fName" name="name" class="field block" required maxlength="60" value="${esc(s.name)}" autocomplete="off">

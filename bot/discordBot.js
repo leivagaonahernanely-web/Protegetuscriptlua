@@ -348,6 +348,8 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
       // Usuario de Discord vinculado a la key: nombre y foto
       const user = userId ? await client.users.fetch(userId).catch(() => null) : null;
       if (user) embed.setAuthor({ name: user.username, iconURL: user.displayAvatarURL() }).setThumbnail(user.displayAvatarURL());
+      // Sin usuario de Discord (FFA): autor con el avatar de Roblox en chiquito
+      if (!user && opts.author) embed.setAuthor(opts.author);
       // Avatar de Roblox (si se pudo consultar) reemplaza la miniatura
       if (opts.thumbnail) embed.setThumbnail(opts.thumbnail);
       await channel.send({ embeds: [embed], components: opts.components ?? [] });

@@ -1127,7 +1127,7 @@
           ${PLAN_OPTIONS.map(([v, l]) => `<option value="${v}" ${v === (u.plan || 'free') ? 'selected' : ''}>${l}</option>`).join('')}
         </select>
         <button class="btn ghost sm" data-user-save="${esc(u.id)}" type="button">Guardar</button>
-      </div>`).join('') : '<p style="color:var(--text-soft);font-size:14px;">Aún no hay usuarios.</p>';
+      </div>`).join('') : '<p class="empty-line">Aún no hay usuarios.</p>';
   }
   $('userList').addEventListener('click', async e => {
     const b = e.target.closest('[data-user-save]');
@@ -1151,7 +1151,7 @@
         <span class="badge ${k.plan === 'plus' ? 'ok' : ''}">${k.plan === 'plus' ? 'Premium Plus' : 'Premium'}</span>
         <span class="badge ${k.used_by ? 'bad' : 'ok'}">${k.used_by ? 'Usada' : 'Disponible'}</span>
         <button class="btn ghost sm" data-pk-copy="${esc(k.key)}">Copiar</button>
-      </div>`).join('') : '<p style="color:var(--text-soft);font-size:14px;">Aún no hay keys de plan.</p>';
+      </div>`).join('') : '<p class="empty-line">Aún no hay keys de plan.</p>';
     $('pubList').innerHTML = ownerData.publisher.length ? ownerData.publisher.map(s => `
       <div style="padding:12px 0;border-top:1px solid var(--border);">
         <div class="row" style="gap:10px;flex-wrap:wrap;">
@@ -1161,7 +1161,7 @@
           <button class="btn ghost sm" data-pub-dl="${esc(s.id)}">Descargar .txt</button>
         </div>
         <pre style="margin:10px 0 0;max-height:180px;overflow:auto;background:#000;border:1px solid var(--border);border-radius:10px;padding:10px;font-size:12px;white-space:pre-wrap;">${esc(s.source || '')}</pre>
-      </div>`).join('') : '<p style="color:var(--text-soft);font-size:14px;">Aún no hay scripts.</p>';
+      </div>`).join('') : '<p class="empty-line">Aún no hay scripts.</p>';
   }
   $('pkGen').addEventListener('click', async e => {
     const btn = e.currentTarget;
@@ -1575,7 +1575,7 @@
         ? 'Top scripts: ' + data.byScript.map(s => `<b>${esc(s.name)}</b> (${s.n})`).join(' · ')
         : 'Sin ejecuciones en este período.';
     } catch (err) {
-      $('execChart').innerHTML = '<div class="muted">No se pudieron cargar las estadísticas.</div>';
+      $('execChart').innerHTML = '<div class="empty-line">No se pudieron cargar las estadísticas.</div>';
     }
   }
   function renderExecChart(series) {

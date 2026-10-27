@@ -429,3 +429,14 @@ html { scroll-behavior: smooth; }
 .perf-title { font-size: 13px; font-weight: 700; color: #fff; }
 .perf-line { font-family: 'JetBrains Mono', monospace; font-size: 11px; font-weight: 500; color: var(--text-dim); margin-left: 6px; }
 .perf-tip { font-size: 12px; color: var(--text-dim); margin-top: 3px; line-height: 1.5; }
+
+
+/* Mensaje vacío dentro de listas y paneles */
+.empty-line {
+  margin: 0;
+  padding: 28px 22px;
+  text-align: center;
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--text-dim);
+}

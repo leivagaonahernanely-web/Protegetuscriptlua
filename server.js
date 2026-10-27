@@ -976,10 +976,7 @@ async function robloxInfo(userId) {
 function logWithRoblox(scriptId, lines, userId, rbxid) {
   if (!rbxid) return logUse(scriptId, [...lines, '• Roblox: sin dato'].join('\n'), userId);
   robloxInfo(rbxid)
-    .then(rbx => logUse(scriptId, [...lines, `• Roblox: ${rbx.name ? `${rbx.name} · ` : ''}\`${rbxid}\``].join('\n'), userId, userId
-      // Con key: foto grande (la de Discord va como autor). FFA: avatar chiquito arriba, como el autor de Protected
-      ? { thumbnail: rbx.avatar }
-      : { author: { name: rbx.name || `Roblox ${rbxid}`, iconURL: rbx.avatar || undefined } }))
+    .then(rbx => logUse(scriptId, [...lines, `• Roblox: ${rbx.name ? `${rbx.name} · ` : ''}\`${rbxid}\``].join('\n'), userId, { thumbnail: rbx.avatar }))
     .catch(() => logUse(scriptId, [...lines, `• Roblox: \`${rbxid}\``].join('\n'), userId));
 }
 

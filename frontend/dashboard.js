@@ -256,11 +256,56 @@
         </div>
         <textarea id="fCode" class="textarea" spellcheck="false" placeholder="-- Pega aquí tu script Lua">${esc(initial)}</textarea>
         <div class="code-meta"><span id="fCodeSize">0 KB de 2 MB</span></div>
+        <div id="perfPanel" class="perf" hidden></div>
       </div>`;
+  }
+
+  // ---------- REVISIÓN DE RENDIMIENTO ----------
+  const PERF_LABEL = { alto: 'Alto', medio: 'Medio', bajo: 'Bajo' };
+  const SEV_LABEL = { high: 'Alto', medium: 'Medio', low: 'Bajo' };
+  const perfClass = l => (l === 'alto' ? 'bad' : l === 'medio' ? 'warn' : 'ok');
+  let perfTimer = null;
+  let perfSeq = 0;
+  function schedulePerf() { clearTimeout(perfTimer); perfTimer = setTimeout(runPerf, 450); }
+  async function runPerf() {
+    const panel = $('perfPanel');
+    if (!panel) return;
+    const source = $('fCode')?.value || '';
+    if (!source.trim()) { panel.hidden = true; return; }
+    const seq = ++perfSeq;
+    const body = {
+      source,
+      obfuscator: $('fObf')?.value || 'clyde',
+      clydeVm: $('vmGroup')?.querySelector('input')?.checked ?? true,
+    };
+    try {
+      const r = await api('/api/perf-check', { method: 'POST', body: JSON.stringify(body) });
+      if (seq !== perfSeq) return;
+      panel.hidden = false;
+      panel.innerHTML = perfHtml(r);
+    } catch (_) { /* el editor sigue funcionando aunque no haya revisión */ }
+  }
+  function perfHtml(r) {
+    const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
+    const head = `<div class="perf-head">
+        <span class="badge ${perfClass(r.level)}">Rendimiento ${PERF_LABEL[r.level]}</span>
+        <span class="perf-stats">${plural(r.loops, 'bucle', 'bucles')} · ${plural(r.hot, 'callback por frame', 'callbacks por frame')}</span>
+      </div>`;
+    if (!r.findings.length) return `${head}<p class="perf-ok">Sin problemas detectados en el código.</p>`;
+    const items = r.findings.map(f => `
+      <li>
+        <span class="perf-sev ${f.severity}">${SEV_LABEL[f.severity]}</span>
+        <div>
+          <div class="perf-title">${esc(f.title)} <span class="perf-line">línea ${f.line}</span></div>
+          <div class="perf-tip">${esc(f.tip)}</div>
+        </div>
+      </li>`).join('');
+    return `${head}<ul class="perf-list">${items}</ul>`;
   }
 
   function wireCodeField() {
     const ta = $('fCode');
+    ta.addEventListener('input', schedulePerf);
     const update = () => {
       const size = byteLen(ta.value);
       $('fCodeSize').innerHTML = `<span class="${size > MAX_CODE_BYTES ? 'over' : ''}">${fmtKB(size)} de 2 MB</span>`;
@@ -346,6 +391,7 @@
       const vmOn = $('vmGroup').querySelector('input')?.checked;
       const hot = hotRanges($('fCode')?.value || '').length > 0;
       $('vmWarn').hidden = !($('fObf').value === 'clyde' && vmOn && hot);
+      schedulePerf();
     };
     document.querySelectorAll('input[name="protection"]').forEach(r => r.addEventListener('change', sync));
     $('fObf').addEventListener('change', sync);
@@ -719,6 +765,7 @@
           <div class="row">
             <h4 class="script-name" title="${esc(s.name)}">${esc(s.name)}</h4>
             <span class="badge ${isFfa ? 'bad' : 'ok'}">${isFfa ? 'FFA' : 'Protegido'}</span>
+            ${s.perf_level ? `<span class="badge ${perfClass(s.perf_level)}">Rendimiento ${PERF_LABEL[s.perf_level] ?? ''}</span>` : ''}
             ${s.maintenance ? '<span class="badge bad">En mantenimiento</span>' : ''}
           </div>
           <div class="script-meta">${esc(meta)}</div>

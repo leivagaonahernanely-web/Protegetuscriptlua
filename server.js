@@ -10,6 +10,7 @@ import { execFile } from 'child_process';
 import { fileURLToPath } from 'url';
 import Database from 'better-sqlite3';
 import { createQuota, PLAN_DAYS_DEFAULT, MONTH_SECONDS, FREE_RESET_SECONDS } from './lib/quota.js';
+import { analyzePerf } from './lib/perf.js';
 import { startDiscordBot, ensureBotSchema } from './bot/discordBot.js';
 import 'dotenv/config';
 
@@ -242,6 +243,7 @@ for (const sql of [
   "ALTER TABLE users ADD COLUMN keys_period INTEGER DEFAULT 0",
   // Los scripts que ya existen conservan la máquina virtual; los nuevos la eligen en el formulario
   "ALTER TABLE scripts ADD COLUMN clyde_vm INTEGER DEFAULT 1",
+  "ALTER TABLE scripts ADD COLUMN perf_level TEXT",
   "ALTER TABLE scripts ADD COLUMN loader_id TEXT",
 ]) { try { db.exec(sql); } catch { /* ya existe */ } }
 // Identificador estable del loader: 40 caracteres aleatorios que se crean una vez y no cambian al editar el script
@@ -320,7 +322,7 @@ const stmt = {
   `),
   // Nunca se seleccionan source ni content aquí
   scriptsByUser: db.prepare(`
-    SELECT id, user_id, name, slug, loader_id, ffa, obfuscator, hwid_reset_hours, share_detection, maintenance, clyde_vm FROM scripts
+    SELECT id, user_id, name, slug, loader_id, ffa, obfuscator, hwid_reset_hours, share_detection, maintenance, clyde_vm, perf_level FROM scripts
     WHERE user_id = ? ORDER BY id DESC
   `),
   scriptOwned: db.prepare('SELECT * FROM scripts WHERE id = ? AND user_id = ?'),
@@ -593,7 +595,17 @@ async function obfuscateLuau(source) {
   return out;
 }
 
+const obfCacheGet = db.prepare('SELECT content FROM obf_cache WHERE hash = ?');
+const obfCachePut = db.prepare('INSERT OR REPLACE INTO obf_cache (hash, content, created_at) VALUES (?, ?, ?)');
 async function obfuscate(source, obfuscator, opts = {}) {
+  const hash = crypto.createHash('sha256').update(`${obfuscator}|${opts.vm ? 1 : 0}|${source}`).digest('hex');
+  const hit = obfCacheGet.get(hash);
+  if (hit) return hit.content;
+  const content = await obfuscateUncached(source, obfuscator, opts);
+  try { obfCachePut.run(hash, content, Math.floor(Date.now() / 1000)); } catch { /* la caché nunca rompe el guardado */ }
+  return content;
+}
+async function obfuscateUncached(source, obfuscator, opts = {}) {
   if (obfuscator === 'luau') return obfuscateLuau(source);
   const cfg = OBF_CONFIG[obfuscator];
   if (!cfg) throw Object.assign(new Error('Elige un ofuscador válido'), { status: 400 });
@@ -924,6 +936,8 @@ function discordJoinDone(userId) {
 }
 // Conteo diario de ejecuciones por script (hora de Ecuador). Las gráficas leen de aquí,
 // así que borrar los logs viejos no afecta a las estadísticas.
+// Caché de ofuscación: mismo código y mismo modo = mismo resultado, sin volver a ofuscar (ni gastar créditos)
+db.exec(`CREATE TABLE IF NOT EXISTS obf_cache (hash TEXT PRIMARY KEY, content TEXT NOT NULL, created_at INTEGER NOT NULL)`);
 db.exec(`CREATE TABLE IF NOT EXISTS execution_daily (script_id INTEGER NOT NULL, day TEXT NOT NULL, n INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (script_id, day))`);
 // Primera vez: se rellena con lo que quedaba en los logs
 if (!db.prepare('SELECT 1 FROM execution_daily LIMIT 1').get()) {
@@ -1760,6 +1774,19 @@ app.post('/api/discord/joined', requireAuth, (req, res) => {
   res.json({ ok: true });
 });
 
+// Revisión de rendimiento para el editor (no guarda nada)
+const perfLimit = rateLimit({
+  windowMs: 60_000,
+  max: 120,
+  onLimit: (req, res) => res.status(429).json({ error: 'Demasiadas revisiones seguidas. Espera un momento.' }),
+});
+app.post('/api/perf-check', requireAuth, perfLimit, (req, res) => {
+  const source = String(req.body?.source || '');
+  if (Buffer.byteLength(source) > MAX_CODE_BYTES) return res.status(400).json({ error: 'El código supera 2 MB' });
+  const obfuscator = OBFUSCATORS.includes(req.body?.obfuscator) ? req.body.obfuscator : 'clyde';
+  res.json(analyzePerf(source, { obfuscator, vm: req.body?.clydeVm !== false }));
+});
+
 app.post('/api/scripts', requireAuth, async (req, res) => {
   if (maintenanceBlock(req, res)) return;
   const input = validateScriptInput(req.body || {});
@@ -1782,6 +1809,7 @@ app.post('/api/scripts', requireAuth, async (req, res) => {
       input.obfuscator, input.source, content, input.hwidResetHours, input.shareDetection, input.clydeVm,
     );
     db.prepare('UPDATE scripts SET loader_id = ? WHERE id = ?').run(crypto.randomBytes(20).toString('hex'), info.lastInsertRowid);
+    db.prepare('UPDATE scripts SET perf_level = ? WHERE id = ?').run(analyzePerf(input.source, { obfuscator: input.obfuscator, vm: input.clydeVm === 1 }).level, info.lastInsertRowid);
     snapshotVersion(info.lastInsertRowid, { name: input.name, obfuscator: input.obfuscator, ffa: input.isFfa, source: input.source });
     if (!input.isFfa) stmt.obfIncrement.run(req.userId);
     if (input.obfuscator === 'luau') luauBumpStmt.run(req.userId, luauDay());
@@ -1827,6 +1855,7 @@ app.put('/api/scripts/:id', requireAuth, async (req, res) => {
       input.name, input.isFfa ? 1 : 0, input.obfuscator, input.source, content, input.hwidResetHours, input.shareDetection, input.clydeVm,
       script.id, req.userId,
     );
+    db.prepare('UPDATE scripts SET perf_level = ? WHERE id = ?').run(analyzePerf(input.source, { obfuscator: input.obfuscator, vm: input.clydeVm === 1 }).level, script.id);
     snapshotVersion(script.id, { name: input.name, obfuscator: input.obfuscator, ffa: input.isFfa, source: input.source });
     if (!input.isFfa) stmt.obfIncrement.run(req.userId);
     if (input.obfuscator === 'luau' && !input.isFfa) luauBumpStmt.run(req.userId, luauDay());
@@ -2105,6 +2134,7 @@ function pruneOldData() {
     const t = Math.floor(Date.now() / 1000);
     const logs = db.prepare('DELETE FROM script_logs WHERE created_at < ?').run(t - LOG_KEEP_SECONDS).changes;
     db.prepare('DELETE FROM execution_daily WHERE day < ?').run(ecuadorDay(Date.now() - 60 * 86400_000));
+    db.prepare('DELETE FROM obf_cache WHERE created_at < ?').run(Math.floor(Date.now() / 1000) - 30 * 86400);
     if (logs) console.log(`[Limpieza] ${logs} logs de scripts borrados (más de 1 día).`);
   } catch (err) { console.error('[Limpieza] Error:', err.message); }
 }

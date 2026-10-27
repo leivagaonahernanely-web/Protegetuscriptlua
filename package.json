@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": {
     "start": "node server.js",
-    "test": "node --test tests/quota.test.js"
+    "test": "node --test tests/quota.test.js tests/perf.test.js"
   },
   "dependencies": {
     "express": "^4.19.2",

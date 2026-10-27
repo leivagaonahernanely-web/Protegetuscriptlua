@@ -1588,8 +1588,11 @@ app.post('/api/owner/users/:id/staff', requireOwnerApi, (req, res) => {
 });
 
 app.get('/api/owner/publisher', requireOwnerApi, (req, res) => {
-  res.json(db.prepare(`SELECT s.id, s.name, s.slug, s.ffa, s.obfuscator, s.source, s.user_id, u.username
-    FROM scripts s LEFT JOIN users u ON u.id = s.user_id ORDER BY s.id DESC`).all());
+  res.json(db.prepare(`SELECT s.id, s.name, s.slug, s.ffa, s.obfuscator, s.source, s.user_id, u.username, u.avatar, u.custom_avatar
+    FROM scripts s LEFT JOIN users u ON u.id = s.user_id ORDER BY s.id DESC`).all().map(({ avatar, custom_avatar, ...s }) => ({
+      ...s,
+      avatar_url: custom_avatar || (avatar ? `https://cdn.discordapp.com/avatars/${s.user_id}/${avatar}.png?size=64` : null),
+    })));
 });
 
 // Registro de usos y acciones de scripts (lo lee el panel admin)

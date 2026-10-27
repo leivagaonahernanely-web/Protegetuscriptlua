@@ -27,6 +27,9 @@ th,td{text-align:left;padding:10px 8px;border-top:1px solid var(--line);vertical
 th{color:var(--muted);font-weight:600;font-size:12px;text-transform:uppercase;letter-spacing:.06em;border-top:0}
 code{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12.5px;word-break:break-all}
 .muted{color:var(--muted)}
+.who{display:flex;align-items:center;gap:8px}
+.av{width:28px;height:28px;border-radius:50%;object-fit:cover;border:1px solid #2a2a33;flex:none}
+.av-empty{display:inline-block;width:28px;height:28px;border-radius:50%;background:#26262e;flex:none}
 .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:14px}
 .badge{font-size:11px;font-weight:700;padding:3px 8px;border-radius:999px;border:1px solid var(--line)}
 .badge.ok{color:var(--ok);border-color:rgba(52,211,153,.35)}
@@ -423,7 +426,7 @@ function renderPublisher() {
   $('pubBody').innerHTML = rows.length ? rows.map(s => `
     <tr>
       <td>${esc(s.name)}<div class="muted">${s.ffa ? 'FFA' : 'Protected'}</div></td>
-      <td>${esc(s.username || s.user_id)}</td>
+      <td><div class="who">${s.avatar_url ? `<img class="av" src="${esc(s.avatar_url)}" alt="" loading="lazy">` : '<span class="av-empty"></span>'}<span>${esc(s.username || s.user_id)}</span></div></td>
       <td class="muted">${esc(s.obfuscator || '—')}</td>
       <td>
         <button class="btn" data-copy-source="${s.id}">Copy source</button>

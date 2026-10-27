@@ -882,11 +882,16 @@ local function kick(code)
   error(msg, 0)
 end
 -- Si loadstring fue reemplazado por una función de Lua (un volcador que intercepta el código), se corta
+local function nativeFn(f)
+  if type(f) ~= "function" then return false end
+  local okI, info = pcall(function() return debug.getinfo(f, "S") end)
+  return not (okI and type(info) == "table" and info.what ~= "C")
+end
 local function loaderTampered()
-  local ls = loadstring
-  if type(ls) ~= "function" then return true end
-  local okI, info = pcall(function() return debug.getinfo(ls, "S") end)
-  return okI and type(info) == "table" and info.what ~= "C"
+  -- loadstring es la vía del payload; load también puede usarse para volcar, así que se revisan los dos
+  if not nativeFn(loadstring) then return true end
+  if type(load) == "function" and not nativeFn(load) then return true end
+  return false
 end
 local key = ""
 if type(script_key) == "string" then key = (script_key:gsub("^%s+", ""):gsub("%s+$", "")) end

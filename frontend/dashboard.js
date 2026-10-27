@@ -1647,19 +1647,24 @@
     const list = $('geoList');
     const sub = $('geoSub');
     try {
-      const data = await api('/api/stats/countries?days=30');
+      const [data, ex] = await Promise.all([api('/api/stats/countries?days=30'), api('/api/stats/executions?days=30')]);
       const counts = new Map(data.countries.map(c => [c.country, c.n]));
       const max = Math.max(1, ...data.countries.map(c => c.n));
       const top = data.countries[0];
       sub.textContent = data.total
         ? `${data.total.toLocaleString('es-EC')} ejecuciones · últimos ${data.days} días`
         : `Últimos ${data.days} días`;
-      $('kpiTotal').textContent = data.total.toLocaleString('es-EC');
-      $('kpiTotalSub').textContent = data.total ? 'De todos tus scripts' : 'Aún sin ejecuciones';
+      $('kpiTotal').textContent = ex.total.toLocaleString('es-EC');
+      const delta = ex.prevTotal ? Math.round((ex.total - ex.prevTotal) / ex.prevTotal * 100) : null;
+      const subEl = $('kpiTotalSub');
+      subEl.className = 'kpi-sub' + (delta == null ? '' : delta >= 0 ? ' up' : ' down');
+      subEl.textContent = delta != null
+        ? `${delta >= 0 ? '▲' : '▼'} ${Math.abs(delta)}% vs. 30 días anteriores`
+        : (ex.total ? 'De todos tus scripts' : 'Aún sin ejecuciones');
       $('kpiCountries').textContent = data.countries.length;
       $('kpiTop').textContent = top ? `${flagOf(top.country)} ${countryName(top.country)}` : '—';
       $('kpiTopSub').textContent = top ? `${Math.round(top.n / data.total * 100)}% de las ejecuciones` : '';
-      $('kpiAvg').textContent = Math.round(data.total / data.days).toLocaleString('es-EC');
+      $('kpiAvg').textContent = Math.round(ex.total / 30).toLocaleString('es-EC');
       list.innerHTML = data.countries.length
         ? data.countries.slice(0, 10).map((c, i) => `
           <li class="geo-row" data-code="${esc(c.country)}">
@@ -1693,9 +1698,17 @@
         return { day, n: counts.get(day) || 0 };
       });
       renderExecChart(series);
+      const maxS = Math.max(1, ...data.byScript.map(s => s.n));
+      const totS = Math.max(1, data.byScript.reduce((a, s) => a + s.n, 0));
       $('execTop').innerHTML = data.byScript.length
-        ? 'Top scripts: ' + data.byScript.map(s => `<b>${esc(s.name)}</b> (${s.n})`).join(' · ')
-        : 'Sin ejecuciones en este período.';
+        ? `<div class="top-scripts"><h4>Scripts con más ejecuciones</h4>${data.byScript.map((s, i) => `
+            <div class="ts-row">
+              <span class="geo-rank">${i + 1}</span>
+              <span class="geo-name">${esc(s.name)}</span>
+              <span class="geo-num">${s.n.toLocaleString('es-EC')}<small>${Math.round(s.n / totS * 100)}%</small></span>
+              <div class="geo-bar"><i style="width:${Math.round(s.n / maxS * 100)}%"></i></div>
+            </div>`).join('')}</div>`
+        : '<p class="empty-line">Sin ejecuciones en este período.</p>';
     } catch (err) {
       $('execChart').innerHTML = '<div class="empty-line">No se pudieron cargar las estadísticas.</div>';
     }

@@ -528,3 +528,12 @@ html { scroll-behavior: smooth; }
 .geo-bar i { transition: width .6s cubic-bezier(.16,1,.3,1); }
 @media (max-width: 760px) { .geo-panel .geo-body { grid-template-columns: 1fr; } .geo-map-wrap { height: 260px; } }
 .kpi strong.kpi-text { font-size: 19px; line-height: 1.3; white-space: normal; }
+
+/* ---- Estadísticas: comparación y scripts ---- */
+.kpi-sub.up { color: var(--ok); }
+.kpi-sub.down { color: #f87171; }
+.top-scripts { padding: 16px 22px 20px; display: grid; gap: 12px; }
+.top-scripts h4 { margin: 0 0 4px; font-size: 12px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+.ts-row { display: grid; grid-template-columns: 22px minmax(0, 1fr) auto; gap: 4px 10px; align-items: center; }
+.ts-row .geo-bar { grid-column: 2 / -1; }
+.ts-row .geo-num { font-size: 13px; }

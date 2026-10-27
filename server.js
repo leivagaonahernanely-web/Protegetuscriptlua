@@ -2047,7 +2047,13 @@ app.get('/api/stats/executions', requireAuth, (req, res) => {
   const byScript = db.prepare(`
     SELECT s.id, s.name, SUM(e.n) AS n FROM execution_daily e JOIN scripts s ON s.id = e.script_id
     WHERE s.user_id = ? AND e.day >= ? GROUP BY s.id ORDER BY n DESC LIMIT 10`).all(req.userId, since);
-  res.json({ days, byDay, byScript });
+  // Total del período anterior (mismo largo) para comparar en las estadísticas
+  const prevSince = ecuadorDay(Date.now() - (days * 2 - 1) * 86400_000);
+  const prevTotal = db.prepare(`
+    SELECT COALESCE(SUM(e.n), 0) AS n FROM execution_daily e JOIN scripts s ON s.id = e.script_id
+    WHERE s.user_id = ? AND e.day >= ? AND e.day < ?`).get(req.userId, prevSince, since).n;
+  const total = byDay.reduce((a, r) => a + r.n, 0);
+  res.json({ days, total, prevTotal, byDay, byScript });
 });
 
 app.get('/api/keys', requireAuth, (req, res) => {

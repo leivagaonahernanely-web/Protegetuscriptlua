@@ -374,3 +374,42 @@
   .card:has(.card-ico) { transition: transform .2s var(--ease), border-color .2s var(--ease); }
   .card:has(.card-ico):hover { transform: translateY(-2px); border-color: var(--border-strong); }
   .card-value { font-variant-numeric: tabular-nums; }
+
+/* ---------- Transiciones y acabado ---------- */
+::selection { background: rgba(255,255,255,.22); color: #fff; }
+html { scroll-behavior: smooth; }
+
+/* Botones: retroalimentación al pulsar */
+.btn { transition: transform .18s var(--ease), box-shadow .2s var(--ease), opacity .2s, background .2s, color .2s; }
+.btn:active:not(:disabled) { transform: scale(.975); }
+
+/* Campos: anillo de enfoque suave */
+.field { transition: border-color .2s var(--ease), background .2s var(--ease), box-shadow .2s var(--ease); }
+.field:focus { box-shadow: 0 0 0 3px rgba(255,255,255,.08); }
+
+/* Menú lateral: transición suave del elemento activo */
+.nav-item { transition: background .25s var(--ease), color .25s var(--ease), transform .2s var(--ease); }
+.nav-item:active { transform: scale(.985); }
+
+/* Ventanas modales: entran con fundido y escala */
+.modal-overlay:not([hidden]) { animation: overlayIn .22s var(--ease) both; }
+.modal-overlay:not([hidden]) .modal { animation: modalIn .28s var(--ease) both; }
+@keyframes overlayIn { from { opacity: 0; } to { opacity: 1; } }
+@keyframes modalIn { from { opacity: 0; transform: translateY(10px) scale(.97); } to { opacity: 1; transform: none; } }
+
+/* Contenido de cada sección: aparece en cascada */
+.view.active > * { animation: rise .45s var(--ease) both; }
+.view.active > *:nth-child(2) { animation-delay: .05s; }
+.view.active > *:nth-child(3) { animation-delay: .1s; }
+.view.active > *:nth-child(4) { animation-delay: .15s; }
+@keyframes rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+
+/* Tarjetas: borde que se ilumina sutilmente al pasar el cursor */
+.card { transition: border-color .25s var(--ease), box-shadow .25s var(--ease); }
+.card:hover { border-color: rgba(255,255,255,.14); box-shadow: 0 12px 30px -18px rgba(0,0,0,.8); }
+
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  .view.active > *, .modal-overlay:not([hidden]), .modal-overlay:not([hidden]) .modal, .toast { animation: none !important; }
+  .btn, .field, .nav-item, .card { transition: none !important; }
+}

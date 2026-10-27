@@ -410,10 +410,8 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
   function noAccessCard(script) {
     const embed = new EmbedBuilder()
       .setColor(0x2b2d31)
-      .setTitle('Acceso restringido')
+      .setTitle(`Acceso restringido · ${script.name}`)
       .setDescription([
-        `**${script.name}** requiere una key o acceso por whitelist.`,
-        '',
         '🔑 Tienes una key → **Redeem Key**',
         '📋 Estás en la whitelist → **Get Script**',
         '❔ Sin acceso → pídelo al creador',

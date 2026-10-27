@@ -1719,13 +1719,30 @@ app.get('/api/owner/overview', requireOwnerApi, (req, res) => {
     audit: db.prepare('SELECT actor_id, action, target, detail, created_at FROM admin_audit ORDER BY id DESC LIMIT 100').all(),
   });
 });
-// Servidores donde está el bot (solo dueño; el panel admin lo reenvía)
-app.get('/api/owner/servers', requireOwnerApi, (req, res) => {
+// Servidores donde está el bot (solo dueño; el panel admin lo reenvía).
+// Muestra solo invitaciones que ya existen: nunca crea ninguna.
+const serverInviteCache = new Map(); // guildId -> { at, url }
+async function existingInvite(guild) {
+  const hit = serverInviteCache.get(guild.id);
+  if (hit && Date.now() - hit.at < 10 * 60 * 1000) return hit.url;
+  let url = null;
+  try {
+    const invites = await guild.invites.fetch();
+    const now = Date.now();
+    const valid = [...invites.values()].find(inv => !inv.temporary && (!inv.expiresTimestamp || inv.expiresTimestamp > now));
+    url = valid ? `https://discord.gg/${valid.code}` : null;
+  } catch {
+    url = null; // sin permiso de gestionar el servidor, o error de Discord
+  }
+  serverInviteCache.set(guild.id, { at: Date.now(), url });
+  return url;
+}
+app.get('/api/owner/servers', requireOwnerApi, async (req, res) => {
   const cache = discordBot?.guilds?.cache;
   if (!cache) return res.json({ online: false, servers: 0, list: [] });
-  const list = [...cache.values()]
-    .map(g => ({ id: g.id, name: g.name, members: g.memberCount ?? null }))
-    .sort((a, b) => (b.members ?? 0) - (a.members ?? 0));
+  const guilds = [...cache.values()].sort((a, b) => (b.memberCount ?? 0) - (a.memberCount ?? 0));
+  const invites = await Promise.all(guilds.map(existingInvite));
+  const list = guilds.map((g, i) => ({ id: g.id, name: g.name, members: g.memberCount ?? null, invite: invites[i] }));
   res.json({ online: Boolean(discordBot.isReady?.()), servers: list.length, list });
 });
 app.post('/api/owner/settings', requireOwnerApi, (req, res) => {

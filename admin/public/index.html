@@ -119,7 +119,7 @@ pre{white-space:pre-wrap;word-break:break-all;background:#040407;border:1px soli
 
     <section class="card hidden" data-panel="servers">
       <div class="row" style="justify-content:space-between"><strong id="srvCount">Cargando…</strong><button class="btn ghost sm" id="srvRefresh" type="button">Actualizar</button></div>
-      <table><thead><tr><th>Servidor</th><th>ID</th><th>Miembros</th></tr></thead><tbody id="srvBody"></tbody></table>
+      <table><thead><tr><th>Servidor</th><th>ID</th><th>Miembros</th><th>Invitación</th></tr></thead><tbody id="srvBody"></tbody></table>
     </section>
 
     <section class="card hidden" data-panel="publisher">
@@ -547,10 +547,10 @@ async function loadServers() {
     const s = await api('GET', '/admin/api/servers');
     $('srvCount').textContent = `${s.servers} ${s.servers === 1 ? 'servidor' : 'servidores'} · bot ${s.online ? 'en línea' : 'desconectado'}`;
     body.innerHTML = s.list.length
-      ? s.list.map(g => `<tr><td>${esc(g.name)}</td><td>${esc(g.id)}</td><td>${g.members ?? '—'}</td></tr>`).join('')
-      : '<tr><td colspan="3" class="muted">El bot no está en ningún servidor.</td></tr>';
+      ? s.list.map(g => `<tr><td>${esc(g.name)}</td><td>${esc(g.id)}</td><td>${g.members ?? '—'}</td><td>${g.invite ? `<a href="${esc(g.invite)}" target="_blank" rel="noopener">Abrir invitación</a>` : '<span class="muted">Sin invitación activa</span>'}</td></tr>`).join('')
+      : '<tr><td colspan="4" class="muted">El bot no está en ningún servidor.</td></tr>';
   } catch (err) {
-    body.innerHTML = `<tr><td colspan="3" class="muted">No se pudo cargar: ${esc(err.message)}</td></tr>`;
+    body.innerHTML = `<tr><td colspan="4" class="muted">No se pudo cargar: ${esc(err.message)}</td></tr>`;
   }
 }
 $('srvRefresh').addEventListener('click', loadServers);

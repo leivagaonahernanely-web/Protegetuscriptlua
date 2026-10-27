@@ -917,6 +917,20 @@ const DISCORD_JOIN_URL = 'https://discord.gg/FUjbTN69';
 function discordJoinDone(userId) {
   return isPaidPlanId(userId) || Boolean(stmt.userById.get(userId)?.discord_joined);
 }
+// Conteo diario de ejecuciones por script (hora de Ecuador). Las gráficas leen de aquí,
+// así que borrar los logs viejos no afecta a las estadísticas.
+db.exec(`CREATE TABLE IF NOT EXISTS execution_daily (script_id INTEGER NOT NULL, day TEXT NOT NULL, n INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (script_id, day))`);
+// Primera vez: se rellena con lo que quedaba en los logs
+if (!db.prepare('SELECT 1 FROM execution_daily LIMIT 1').get()) {
+  db.exec(`INSERT OR IGNORE INTO execution_daily (script_id, day, n)
+    SELECT script_id, strftime('%Y-%m-%d', created_at, 'unixepoch', '-5 hours'), COUNT(*) FROM script_logs
+    WHERE text LIKE '%Script ejecutado%' GROUP BY script_id, strftime('%Y-%m-%d', created_at, 'unixepoch', '-5 hours')`);
+}
+const ecuadorDay = ms => new Date(ms - 5 * 3600_000).toISOString().slice(0, 10);
+const countExecutionStmt = db.prepare(`INSERT INTO execution_daily (script_id, day, n) VALUES (?, ?, 1)
+  ON CONFLICT(script_id, day) DO UPDATE SET n = n + 1`);
+const countExecution = scriptId => { try { countExecutionStmt.run(scriptId, ecuadorDay(Date.now())); } catch { /* las estadísticas nunca rompen el loader */ } };
+
 const logUse = (scriptId, text, userId = null, opts = {}) => { try { discordBot?.logScriptEvent?.(scriptId, text, userId, opts); } catch { /* el log nunca rompe el loader */ } };
 
 // Nombre y foto de avatar de un usuario de Roblox (caché 1 h; si Roblox no responde, queda vacío)
@@ -1028,6 +1042,7 @@ app.get('/scripts/hosted/:slug/auth', loaderLimit, (req, res) => {
   const rbxid = /^\d{1,20}$/.test(String(req.query.rbxid || '')) ? String(req.query.rbxid) : '';
   if (script.ffa) {
     const ffaHwid = String(req.query.hwid || '').slice(0, 128);
+    countExecution(script.id);
     logWithRoblox(script.id, [
       '🟢 Script ejecutado (FFA)',
       `• HWID: \`${/^[\x21-\x7E]{8,128}$/.test(ffaHwid) ? ffaHwid : 'sin dato'}\``,
@@ -1064,6 +1079,7 @@ app.get('/scripts/hosted/:slug/auth', loaderLimit, (req, res) => {
   } else if (k.hwid !== hwid) return reportKeyShare(script, k, hwid, reply);
   const run = db.prepare('UPDATE keys SET last_ip = ?, exec_count = COALESCE(exec_count, 0) + 1 WHERE key = ? RETURNING exec_count')
     .get(req.ip || null, key);
+  countExecution(script.id);
   logWithRoblox(script.id, [
     '🟢 Script ejecutado',
     `• Key: \`${key}\``,
@@ -1911,17 +1927,13 @@ app.post('/api/keys/delete', requireAuth, (req, res) => {
 // Ejecuciones de tus scripts por día (hora de Ecuador) y por script
 app.get('/api/stats/executions', requireAuth, (req, res) => {
   const days = Math.min(Math.max(Number(req.query.days) || 7, 1), 60);
-  const since = Math.floor(Date.now() / 1000) - days * 86400;
+  const since = ecuadorDay(Date.now() - (days - 1) * 86400_000);
   const byDay = db.prepare(`
-    SELECT strftime('%Y-%m-%d', l.created_at, 'unixepoch', '-5 hours') AS day, COUNT(*) AS n
-    FROM script_logs l JOIN scripts s ON s.id = l.script_id
-    WHERE s.user_id = ? AND l.created_at >= ? AND l.text LIKE '%Script ejecutado%'
-    GROUP BY day ORDER BY day`).all(req.userId, since);
+    SELECT e.day, SUM(e.n) AS n FROM execution_daily e JOIN scripts s ON s.id = e.script_id
+    WHERE s.user_id = ? AND e.day >= ? GROUP BY e.day ORDER BY e.day`).all(req.userId, since);
   const byScript = db.prepare(`
-    SELECT s.id, s.name, COUNT(*) AS n
-    FROM script_logs l JOIN scripts s ON s.id = l.script_id
-    WHERE s.user_id = ? AND l.created_at >= ? AND l.text LIKE '%Script ejecutado%'
-    GROUP BY s.id ORDER BY n DESC LIMIT 10`).all(req.userId, since);
+    SELECT s.id, s.name, SUM(e.n) AS n FROM execution_daily e JOIN scripts s ON s.id = e.script_id
+    WHERE s.user_id = ? AND e.day >= ? GROUP BY s.id ORDER BY n DESC LIMIT 10`).all(req.userId, since);
   res.json({ days, byDay, byScript });
 });
 
@@ -2066,6 +2078,35 @@ if (process.env.DISCORD_BOT_TOKEN && DISCORD_CLIENT_ID) {
   console.warn('[Bot] DISCORD_BOT_TOKEN o DISCORD_CLIENT_ID no definidos: el bot no se inicia.');
 }
 // ==========================================
+// Limpieza: los logs de scripts solo se guardan 1 día; el conteo de ejecuciones queda en execution_daily (60 días)
+const LOG_KEEP_SECONDS = 86400;
+function pruneOldData() {
+  try {
+    const t = Math.floor(Date.now() / 1000);
+    const logs = db.prepare('DELETE FROM script_logs WHERE created_at < ?').run(t - LOG_KEEP_SECONDS).changes;
+    db.prepare('DELETE FROM execution_daily WHERE day < ?').run(ecuadorDay(Date.now() - 60 * 86400_000));
+    if (logs) console.log(`[Limpieza] ${logs} logs de scripts borrados (más de 1 día).`);
+  } catch (err) { console.error('[Limpieza] Error:', err.message); }
+}
+pruneOldData();
+setInterval(pruneOldData, 60 * 60_000).unref();
+
+// Respaldo diario de la base (copia en la misma carpeta de datos; se conservan los últimos 7)
+const BACKUP_DIR = path.join(path.dirname(DATABASE_PATH), 'backups');
+async function backupDb() {
+  try {
+    fs.mkdirSync(BACKUP_DIR, { recursive: true });
+    const file = path.join(BACKUP_DIR, `vantarmor-${ecuadorDay(Date.now())}.db`);
+    if (fs.existsSync(file)) return;
+    await db.backup(file);
+    const files = fs.readdirSync(BACKUP_DIR).filter(f => /^vantarmor-\d{4}-\d{2}-\d{2}\.db$/.test(f)).sort();
+    for (const old of files.slice(0, -7)) fs.rmSync(path.join(BACKUP_DIR, old), { force: true });
+    console.log(`[Respaldo] Copia guardada: ${file}`);
+  } catch (err) { console.error('[Respaldo] No se pudo respaldar:', err.message); }
+}
+backupDb();
+setInterval(backupDb, 6 * 60 * 60_000).unref();
+
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`✅ Servidor Vantarmor corriendo en el puerto ${PORT}`);
 });

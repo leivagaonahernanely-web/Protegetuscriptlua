@@ -1715,6 +1715,14 @@ app.get('/api/owner/overview', requireOwnerApi, (req, res) => {
       usersByPlan: db.prepare("SELECT COALESCE(plan, 'free') AS plan, COUNT(*) AS count FROM users GROUP BY plan").all(),
     },
     audit: db.prepare('SELECT actor_id, action, target, detail, created_at FROM admin_audit ORDER BY id DESC LIMIT 100').all(),
+    bot: discordBot?.guilds?.cache ? {
+      online: Boolean(discordBot.isReady?.() ?? discordBot.user),
+      servers: discordBot.guilds.cache.size,
+      list: [...discordBot.guilds.cache.values()]
+        .map(g => ({ name: g.name, members: g.memberCount ?? null }))
+        .sort((a, b) => (b.members ?? 0) - (a.members ?? 0))
+        .slice(0, 50),
+    } : { online: false, servers: 0, list: [] },
   });
 });
 app.post('/api/owner/settings', requireOwnerApi, (req, res) => {
@@ -2123,7 +2131,7 @@ if (process.env.DISCORD_BOT_TOKEN && DISCORD_CLIENT_ID) {
     guildId: process.env.DISCORD_GUILD_ID || undefined,
     publicUrl: process.env.PUBLIC_URL || FRONTEND_URL,
     ownerId: process.env.DISCORD_OWNER_ID || undefined, // tu ID de Discord (dueño del workspace)
-  }).then(bot => { discordBot = bot; }).catch(err => console.error('[Bot] No se pudo iniciar:', err.message));
+  }).then(client => { discordBot = client; }).catch(err => console.error('[Bot] No se pudo iniciar:', err.message));
 } else {
   console.warn('[Bot] DISCORD_BOT_TOKEN o DISCORD_CLIENT_ID no definidos: el bot no se inicia.');
 }

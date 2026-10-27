@@ -1082,6 +1082,14 @@
       <div style="margin-top:16px"><button class="btn" id="ownSave" type="button">Guardar cambios</button></div>
       <p class="hint">Los loaders de tus scripts siguen funcionando durante el mantenimiento.</p>`;
 
+    const b = o.bot || { online: false, servers: 0, list: [] };
+    $('ownBot').innerHTML = `
+      <span class="badge ${b.online ? 'ok' : 'bad'}">${b.online ? 'En línea' : 'Desconectado'}</span>
+      <div class="owner-stat" style="margin-top:14px">
+        <div><span class="card-label">Servidores</span><strong>${b.servers}</strong><span class="hint">donde está el bot</span></div>
+      </div>
+      ${b.list.length ? `<ul class="owner-list" style="margin-top:14px;padding:0;list-style:none">${b.list.map(g => `<li style="display:flex;justify-content:space-between;gap:10px;padding:6px 0;border-top:1px solid var(--line,#2a2a2a)"><span>${esc(g.name)}</span><span class="hint">${g.members != null ? g.members + ' miembros' : ''}</span></li>`).join('')}</ul>` : '<p class="hint">El bot no está en ningún servidor.</p>'}`;
+
     const sa = o.sales;
     const planName = p => PLAN_OPTIONS.find(([v]) => v === p)?.[1] || p;
     const maxM = Math.max(1, ...sa.byMonth.map(m => m.count));

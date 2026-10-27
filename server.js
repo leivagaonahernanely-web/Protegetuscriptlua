@@ -1757,15 +1757,15 @@ app.post('/api/owner/settings', requireOwnerApi, (req, res) => {
   if (msg.length > 200 || banner.length > 200) return res.status(400).json({ error: 'El mensaje y el banner deben tener máximo 200 caracteres' });
   // Solo cambia el mantenimiento si la petición lo trae: un guardado parcial no lo apaga
   const hasMaint = typeof b.maintenance === 'boolean';
-  const on = b.maintenance === true;
-  const all = on && b.maintenanceAll === true;
-  if (hasMaint) {
+  const all = b.maintenanceAll === true;   // el total implica el mantenimiento normal
+  const on = b.maintenance === true || all;
+  if (hasMaint || all) {
     appSet('maintenance', on ? '1' : '0');
     appSet('maintenance_all', all ? '1' : '0');
   }
   appSet('maintenance_msg', msg);
   appSet('banner', banner);
-  if (hasMaint) auditLog(req.userId, 'settings', on ? (all ? 'mantenimiento total activado' : 'mantenimiento activado') : 'mantenimiento desactivado', banner ? `banner: ${banner}` : 'sin banner');
+  if (hasMaint || all) auditLog(req.userId, 'settings', on ? (all ? 'mantenimiento total activado' : 'mantenimiento activado') : 'mantenimiento desactivado', banner ? `banner: ${banner}` : 'sin banner');
   res.json({ ok: true });
 });
 

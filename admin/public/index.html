@@ -320,17 +320,17 @@ async function loadSite() {
 }
 ['mtOn', 'mtAll', 'mtMsg', 'mtBanner'].forEach(id => $(id).addEventListener('input', mtRender));
 $('mtOn').addEventListener('change', mtRender);
-$('mtAll').addEventListener('change', mtRender);
+$('mtAll').addEventListener('change', () => { if ($('mtAll').checked) $('mtOn').checked = true; mtRender(); });
 document.querySelectorAll('[data-preset]').forEach(b => b.addEventListener('click', () => {
   $('mtMsg').value = b.dataset.preset;
   mtRender();
 }));
 $('mtSave').addEventListener('click', async () => {
   const c = mtCurrent();
-  if (c.on && !mtSaved.on && !confirm(c.all ? '¿Activar mantenimiento total? Se cortan la web, los loaders y el bot.' : '¿Activar mantenimiento? Nadie podrá comprar, canjear ni crear scripts nuevos.')) return;
+  if ((c.on || c.all) && !mtSaved.on && !confirm(c.all ? '¿Activar mantenimiento total? Se cortan la web, los loaders y el bot.' : '¿Activar mantenimiento? Nadie podrá comprar, canjear ni crear scripts nuevos.')) return;
   $('mtSave').disabled = true;
   try {
-    await api('POST', '/admin/api/settings', { maintenance: c.on, maintenanceAll: c.on && c.all, maintenanceMsg: c.msg, banner: c.banner });
+    await api('POST', '/admin/api/settings', { maintenance: c.on || c.all, maintenanceAll: c.all, maintenanceMsg: c.msg, banner: c.banner });
     toast(c.on ? (c.all ? 'Mantenimiento total activado' : 'Mantenimiento activado') : 'Ajustes guardados');
     await loadSite();
   } catch (err) {

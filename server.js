@@ -924,7 +924,32 @@ const DISCORD_JOIN_URL = 'https://discord.gg/FUjbTN69';
 function discordJoinDone(userId) {
   return isPaidPlanId(userId) || Boolean(stmt.userById.get(userId)?.discord_joined);
 }
-const logUse = (scriptId, text, userId = null) => { try { discordBot?.logScriptEvent?.(scriptId, text, userId); } catch { /* el log nunca rompe el loader */ } };
+const logUse = (scriptId, text, userId = null, opts = {}) => { try { discordBot?.logScriptEvent?.(scriptId, text, userId, opts); } catch { /* el log nunca rompe el loader */ } };
+
+// Nombre y foto de avatar de un usuario de Roblox (caché 1 h; si Roblox no responde, queda vacío)
+const robloxCache = new Map();
+async function robloxInfo(userId) {
+  const hit = robloxCache.get(userId);
+  if (hit && hit.exp > Date.now()) return hit.value;
+  const getJson = url => fetch(url, { signal: AbortSignal.timeout(4000) }).then(r => (r.ok ? r.json() : null)).catch(() => null);
+  const [u, t] = await Promise.all([
+    getJson(`https://users.roblox.com/v1/users/${userId}`),
+    getJson(`https://thumbnails.roblox.com/v1/users/avatar-headshot?userIds=${userId}&size=150x150&format=Png&isCircular=false`),
+  ]);
+  const avatar = t?.data?.[0]?.imageUrl;
+  const value = { name: u?.name || null, avatar: typeof avatar === 'string' && avatar.startsWith('https://') ? avatar : null };
+  if (robloxCache.size > 5000) robloxCache.clear();
+  robloxCache.set(userId, { value, exp: Date.now() + 3600_000 });
+  return value;
+}
+// Registro de ejecución con la línea de Roblox (nombre + ID) y la foto de avatar como miniatura.
+// No espera a Roblox para responderle al loader.
+function logWithRoblox(scriptId, lines, userId, rbxid) {
+  if (!rbxid) return logUse(scriptId, [...lines, '• Roblox: sin dato'].join('\n'), userId);
+  robloxInfo(rbxid)
+    .then(rbx => logUse(scriptId, [...lines, `• Roblox: ${rbx.name ? `${rbx.name} · ` : ''}\`${rbxid}\``].join('\n'), userId, { thumbnail: rbx.avatar }))
+    .catch(() => logUse(scriptId, [...lines, `• Roblox: \`${rbxid}\``].join('\n'), userId));
+}
 
 const payloadTokens = new Map(); // token -> { scriptId, expires }
 const PAYLOAD_TTL_MS = 30_000;
@@ -989,12 +1014,11 @@ app.get('/scripts/hosted/:slug/auth', loaderLimit, (req, res) => {
   const rbxid = /^\d{1,20}$/.test(String(req.query.rbxid || '')) ? String(req.query.rbxid) : '';
   if (script.ffa) {
     const ffaHwid = String(req.query.hwid || '').slice(0, 128);
-    logUse(script.id, [
+    logWithRoblox(script.id, [
       '🟢 Script ejecutado (FFA)',
       `• HWID: \`${/^[\x21-\x7E]{8,128}$/.test(ffaHwid) ? ffaHwid : 'sin dato'}\``,
-      `• ID de Roblox: ${rbxid ? `\`${rbxid}\`` : 'sin dato'}`,
       `• ID del script: \`${script.loader_id || script.id}\``,
-    ].join('\n'));
+    ], null, rbxid);
     return reply(`OK:${issuePayloadToken(script.id, req.ip)}`);
   }
 
@@ -1026,15 +1050,14 @@ app.get('/scripts/hosted/:slug/auth', loaderLimit, (req, res) => {
   } else if (k.hwid !== hwid) return reportKeyShare(script, k, hwid, reply);
   const run = db.prepare('UPDATE keys SET last_ip = ?, exec_count = COALESCE(exec_count, 0) + 1 WHERE key = ? RETURNING exec_count')
     .get(req.ip || null, key);
-  logUse(script.id, [
+  logWithRoblox(script.id, [
     '🟢 Script ejecutado',
     `• Key: \`${key}\``,
     `• HWID: \`${hwid}\``,
     `• Discord ID: ${k.discord_id ? `\`${k.discord_id}\`` : 'sin vincular'}`,
-    `• ID de Roblox: ${rbxid ? `\`${rbxid}\`` : 'sin dato'}`,
     `• ID del script: \`${script.loader_id || script.id}\``,
     `• Veces que esta key ejecutó este script: ${run?.exec_count ?? 1}`,
-  ].join('\n'), k.discord_id);
+  ], k.discord_id, rbxid);
   reply(`OK:${issuePayloadToken(script.id, req.ip)}`);
 });
 

@@ -348,6 +348,8 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
       // Usuario de Discord vinculado a la key: nombre y foto
       const user = userId ? await client.users.fetch(userId).catch(() => null) : null;
       if (user) embed.setAuthor({ name: user.username, iconURL: user.displayAvatarURL() }).setThumbnail(user.displayAvatarURL());
+      // Avatar de Roblox (si se pudo consultar) reemplaza la miniatura
+      if (opts.thumbnail) embed.setThumbnail(opts.thumbnail);
       await channel.send({ embeds: [embed], components: opts.components ?? [] });
     } catch (err) {
       console.error('[Bot] No se pudo escribir en el canal de logs:', err.message);
@@ -1476,9 +1478,9 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
     });
   };
 
-  client.logScriptEvent = (scriptId, text, userId = null) => {
+  client.logScriptEvent = (scriptId, text, userId = null, opts = {}) => {
     const script = q.scriptById.get(scriptId);
-    if (script) logScriptEvent(script, text, userId);
+    if (script) logScriptEvent(script, text, userId, opts);
   };
 
   // Permisos que el bot necesita en cada servidor. Si faltan, avisa en consola y le escribe al dueño (una vez al arrancar).

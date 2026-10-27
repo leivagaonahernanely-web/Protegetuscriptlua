@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="description" content="Centro de ayuda de Vantarmor: respuestas sobre keys, HWID, loaders, planes y cómo abrir un ticket de soporte.">
+<title>Soporte · Vantarmor</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#08080a;--card:#121216;--card-2:#1a1a20;--text:#f5f5f8;--soft:#a8a8b4;--muted:#6e6e78;--line:#26262e;--silver-1:#f5f5f8;--silver-2:#d0d0d8;--silver-3:#a0a0ac}
+*{box-sizing:border-box}
+body{margin:0;background:radial-gradient(ellipse 70% 40% at 50% -5%,rgba(224,224,232,.08),transparent 70%),var(--bg);min-height:100vh;color:var(--text);font:15px/1.65 Inter,system-ui,-apple-system,Segoe UI,Roboto,sans-serif;-webkit-font-smoothing:antialiased;overflow-x:hidden}
+a:focus-visible,button:focus-visible,summary:focus-visible,input:focus-visible{outline:2px solid var(--soft);outline-offset:3px;border-radius:6px}
+header{position:sticky;top:0;z-index:10;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;padding:14px 24px;background:rgba(8,8,10,.78);backdrop-filter:blur(18px) saturate(160%);-webkit-backdrop-filter:blur(18px) saturate(160%);border-bottom:1px solid var(--line)}
+.brand{font-weight:900;letter-spacing:.14em;color:var(--text);text-decoration:none}
+nav a{color:var(--soft);text-decoration:none;margin-left:16px;font-size:14px}
+nav a:hover,nav a.on{color:var(--text)}
+main{max-width:860px;margin:0 auto;padding:44px 20px 64px}
+.eyebrow{margin:0 0 8px;font-size:12px;font-weight:800;letter-spacing:.2em;color:var(--muted);text-transform:uppercase}
+h1{margin:0 0 10px;font-size:clamp(30px,5vw,42px);font-weight:900;letter-spacing:-.03em;line-height:1.15;background:linear-gradient(135deg,#f5f5f8 0%,#d0d0d8 45%,#a0a0ac 100%);-webkit-background-clip:text;background-clip:text;color:transparent}
+.lead{margin:0 0 26px;color:var(--soft);font-size:16px}
+.search{position:relative;margin-bottom:28px}
+.search input{width:100%;background:var(--card);border:1px solid var(--line);color:var(--text);font:inherit;font-size:15px;padding:14px 16px 14px 44px;border-radius:14px;transition:border-color .2s}
+.search input:focus{outline:none;border-color:var(--silver-3)}
+.search svg{position:absolute;left:16px;top:50%;transform:translateY(-50%);width:18px;height:18px;stroke:var(--muted);fill:none;stroke-width:2}
+.cats{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-bottom:36px}
+.cat{display:block;padding:16px 18px;border:1px solid var(--line);border-radius:14px;background:linear-gradient(180deg,var(--card-2),var(--card));color:var(--text);text-decoration:none;transition:transform .2s,border-color .2s}
+.cat:hover{transform:translateY(-2px);border-color:var(--silver-3)}
+.cat b{display:block;font-size:15px;margin-bottom:2px}
+.cat span{font-size:13px;color:var(--soft)}
+h2{margin:36px 0 12px;font-size:20px;font-weight:800;letter-spacing:-.01em}
+details{background:var(--card);border:1px solid var(--line);border-radius:14px;margin-bottom:10px;overflow:hidden;transition:border-color .2s}
+details[open]{border-color:var(--silver-3)}
+summary{cursor:pointer;list-style:none;padding:16px 18px;font-weight:700;font-size:15px;display:flex;justify-content:space-between;gap:14px;align-items:center}
+summary::-webkit-details-marker{display:none}
+summary::after{content:"+";font-size:20px;font-weight:500;color:var(--soft);flex:none;transition:transform .2s}
+details[open] summary::after{content:"–"}
+.answer{padding:0 18px 18px;color:var(--soft);font-size:14.5px}
+.answer p{margin:0 0 10px}
+.answer p:last-child{margin-bottom:0}
+.answer code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:13px;color:var(--text);background:#0c0c10;border:1px solid var(--line);padding:1px 6px;border-radius:6px}
+.answer a{color:var(--text);text-decoration:underline;text-decoration-color:var(--muted);text-underline-offset:3px}
+.empty{display:none;padding:24px;text-align:center;color:var(--muted);border:1px dashed var(--line);border-radius:14px}
+.empty.show{display:block}
+.help{margin-top:44px;padding:26px;border:1px solid var(--line);border-radius:18px;background:linear-gradient(135deg,rgba(255,255,255,.05),rgba(255,255,255,.01));text-align:center}
+.help h2{margin:0 0 8px}
+.help p{margin:0 0 18px;color:var(--soft)}
+.btn{display:inline-flex;align-items:center;justify-content:center;padding:12px 22px;border-radius:12px;font-weight:800;font-size:14px;text-decoration:none;background:linear-gradient(135deg,var(--silver-1) 0%,var(--silver-2) 50%,var(--silver-3) 100%);color:#08080a;transition:transform .2s,box-shadow .2s}
+.btn:hover{transform:translateY(-1px);box-shadow:0 10px 24px -10px rgba(224,224,232,.5)}
+footer{padding:20px;border-top:1px solid var(--line);color:var(--muted);font-size:13px;text-align:center}
+footer a{color:var(--soft);text-decoration:none;margin:0 6px}
+footer a:hover{color:var(--text)}
+@media (max-width:560px){header{padding:12px 16px}nav a{margin-left:12px}main{padding:30px 16px 48px}.help{padding:22px 18px}}
+</style>
+</head>
+<body>
+<header>
+  <a class="brand" href="/">VANTARMOR</a>
+  <nav aria-label="Principal"><a href="/">Inicio</a><a href="/soporte.html" class="on" aria-current="page">Soporte</a><a href="/dashboard.html">Panel</a></nav>
+</header>
+
+<main>
+  <p class="eyebrow">Centro de ayuda</p>
+  <h1>¿En qué te ayudamos?</h1>
+  <p class="lead">Respuestas rápidas a los problemas más comunes. Si no encuentras la tuya, abre un ticket en Discord.</p>
+
+  <label class="search">
+    <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+    <span class="sr-only" style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)">Buscar en la ayuda</span>
+    <input id="q" type="search" placeholder="Busca por ejemplo: key inválida, HWID, loader" autocomplete="off">
+  </label>
+
+  <div class="cats">
+    <a class="cat" href="#keys"><b>Keys y HWID</b><span>Activación, cambio de equipo y compartir keys</span></a>
+    <a class="cat" href="#loader"><b>Loader y errores</b><span>Qué hacer cuando el script no carga</span></a>
+    <a class="cat" href="#planes"><b>Planes</b><span>Canje, vencimiento y funciones</span></a>
+    <a class="cat" href="#cuenta"><b>Cuenta y panel</b><span>Acceso con Discord y uso del panel</span></a>
+  </div>
+
+  <section id="faq">
+    <h2 id="keys">Keys y HWID</h2>
+    <details data-faq>
+      <summary>Mi key dice que es inválida</summary>
+      <div class="answer"><p>Revisa que copies la key completa, sin espacios al inicio o al final, y que sea para el script correcto. Si la key es de un plan, confirma que el plan no haya vencido en la sección Planes del panel.</p></div>
+    </details>
+    <details data-faq>
+      <summary>¿Qué es el HWID y por qué mi key quedó vinculada?</summary>
+      <div class="answer"><p>El HWID identifica el equipo. La primera vez que se usa una key, queda vinculada a ese equipo para evitar que se comparta.</p></div>
+    </details>
+    <details data-faq>
+      <summary>Cambié de equipo y ya no funciona</summary>
+      <div class="answer"><p>Puedes reiniciar el HWID con el botón <b>Reset HWID</b> del panel, en el script correspondiente. Solo se puede cada cierto tiempo, según la configuración del creador. Si el botón está deshabilitado, abre un ticket en Discord.</p></div>
+    </details>
+    <details data-faq>
+      <summary>Me avisaron que compartí una key</summary>
+      <div class="answer"><p>Las keys son personales e intransferibles. Si se detecta uso desde otro equipo, la primera vez recibes un aviso, la segunda una advertencia más fuerte, y a la tercera la key se elimina y el acceso se bloquea en ese script.</p><p>Si crees que es un error, abre un ticket explicando la situación.</p></div>
+    </details>
+
+    <h2 id="loader">Loader y errores</h2>
+    <details data-faq>
+      <summary>Al ejecutar aparece "script no encontrado"</summary>
+      <div class="answer"><p>La URL del loader puede estar incompleta o el script fue eliminado. Copia el loader otra vez desde la página del script en el panel, sin modificar la URL.</p></div>
+    </details>
+    <details data-faq>
+      <summary>El script carga pero no hace nada</summary>
+      <div class="answer"><p>Confirma que la key esté activa (no vencida ni bloqueada) y que el ejecutor tenga soporte para <code>loadstring</code> y <code>HttpGet</code>. Si el problema sigue, abre un ticket con el nombre del script y la hora del intento.</p></div>
+    </details>
+    <details data-faq>
+      <summary>Veo una pantalla de mantenimiento</summary>
+      <div class="answer"><p>Estamos haciendo cambios en la plataforma. Durante el mantenimiento no se pueden comprar ni canjear keys, pero los scripts que ya tienes siguen funcionando. Vuelve en unos minutos o revisa Discord para ver las novedades.</p></div>
+    </details>
+
+    <h2 id="planes">Planes</h2>
+    <details data-faq>
+      <summary>¿Cómo canjeo una key de plan?</summary>
+      <div class="answer"><p>Entra al panel, abre <b>Planes</b> y pega la key en el campo de canje. Al canjearla, tu plan se activa de inmediato.</p></div>
+    </details>
+    <details data-faq>
+      <summary>¿Cuánto dura un plan?</summary>
+      <div class="answer"><p>Cada plan dura 30 días desde el canje. Te avisamos antes de que venza para que puedas renovarlo sin perder tus scripts.</p></div>
+    </details>
+    <details data-faq>
+      <summary>¿Qué incluye Premium Plus?</summary>
+      <div class="answer"><p>Premium Plus incluye todas las funciones de Premium, más el Ofuscador 3 (LuaUObfuscator) y el mensaje de bienvenida en tu servidor de Discord. Los detalles completos están en la sección de planes del inicio.</p></div>
+    </details>
+
+    <h2 id="cuenta">Cuenta y panel</h2>
+    <details data-faq>
+      <summary>No puedo iniciar sesión</summary>
+      <div class="answer"><p>El acceso se hace con tu cuenta de Discord. Si la ventana de Discord se cerró sin terminar, vuelve a intentarlo desde <a href="/login.html">la página de acceso</a>. Si aparece un error de conexión, espera un momento y recarga.</p></div>
+    </details>
+    <details data-faq>
+      <summary>¿Por qué me pide unirme al servidor de Discord?</summary>
+      <div class="answer"><p>Para crear scripts con el plan Free es obligatorio estar en nuestro servidor de Discord. Solo lo pedimos una vez.</p></div>
+    </details>
+  </section>
+
+  <div class="empty" id="empty">No encontramos resultados para tu búsqueda. Prueba con otras palabras o abre un ticket en Discord.</div>
+
+  <section class="help">
+    <h2>¿Aún necesitas ayuda?</h2>
+    <p>Abre un ticket en nuestro Discord y te respondemos lo antes posible. Incluye el nombre del script y lo que estabas haciendo.</p>
+    <a class="btn" href="https://discord.gg/FUjbTN69" target="_blank" rel="noopener">Abrir ticket en Discord</a>
+  </section>
+</main>
+
+<footer>
+  © Vantarmor
+  <a href="/terminos.html">Términos</a> ·
+  <a href="/privacidad.html">Privacidad</a> ·
+  <a href="https://discord.gg/FUjbTN69" target="_blank" rel="noopener">Discord</a>
+</footer>
+
+<script>
+  // Buscador: muestra solo las preguntas que contienen el texto y abre las coincidencias
+  (function () {
+    const input = document.getElementById('q');
+    const items = Array.from(document.querySelectorAll('[data-faq]'));
+    const empty = document.getElementById('empty');
+    input.addEventListener('input', () => {
+      const q = input.value.trim().toLowerCase();
+      let shown = 0;
+      items.forEach(d => {
+        const text = (d.textContent || '').toLowerCase();
+        const match = !q || text.includes(q);
+        d.hidden = !match;
+        if (match) shown++;
+        d.open = !!q && match;
+      });
+      document.querySelectorAll('#faq h2').forEach(h => {
+        let n = h.nextElementSibling, any = false;
+        while (n && n.tagName !== 'H2') { if (n.matches('[data-faq]') && !n.hidden) any = true; n = n.nextElementSibling; }
+        h.hidden = !any;
+      });
+      empty.classList.toggle('show', !!q && shown === 0);
+    });
+  })();
+</script>
+</body>
+</html>

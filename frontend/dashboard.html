@@ -304,6 +304,30 @@
   .skel-row td { padding: 14px 12px; }
   @keyframes shimmer { 0% { background-position: 100% 0; } 100% { background-position: -100% 0; } }
   @media (prefers-reduced-motion: reduce) { .skel { animation: none; } }
+  .support-grid { display: grid; grid-template-columns: minmax(260px, 1fr) minmax(0, 1.4fr); gap: 20px; align-items: start; }
+  .sup-detail { grid-column: 1 / -1; }
+  .support-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
+  .support-head h3 { margin: 0 0 4px; }
+  .faq details { border-top: 1px solid var(--border); padding: 12px 0; }
+  .faq details:first-child { border-top: 0; padding-top: 0; }
+  .faq summary { cursor: pointer; font-weight: 700; font-size: 14px; list-style: none; }
+  .faq summary::-webkit-details-marker { display: none; }
+  .faq summary::after { content: '+'; float: right; color: var(--text-dim); }
+  .faq details[open] summary::after { content: '−'; }
+  .faq p { margin: 8px 0 0; font-size: 13px; color: var(--text-dim); line-height: 1.6; }
+  .sup-row { width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 14px; border: 1px solid var(--border); border-radius: 12px; background: transparent; color: var(--text); text-align: left; margin-bottom: 8px; cursor: pointer; font: inherit; transition: background .2s, border-color .2s; }
+  .sup-row:hover, .sup-row.on { background: rgba(255,255,255,.05); border-color: #42424e; }
+  .sup-main { display: grid; gap: 2px; min-width: 0; }
+  .sup-main b { font-size: 14px; overflow-wrap: anywhere; }
+  .sup-badge { font-size: 11px; font-weight: 800; padding: 4px 9px; border-radius: 6px; white-space: nowrap; border: 1px solid var(--border); color: var(--text-dim); }
+  .sup-badge.ok { color: var(--ok); border-color: rgba(74,222,128,.3); background: rgba(74,222,128,.08); }
+  .sup-badge.warn { color: #fbbf24; border-color: rgba(251,191,36,.3); background: rgba(251,191,36,.08); }
+  .sup-thread { display: grid; gap: 10px; margin: 14px 0; max-height: 360px; overflow-y: auto; }
+  .sup-msg { padding: 10px 12px; border-radius: 12px; background: rgba(255,255,255,.04); border: 1px solid var(--border); }
+  .sup-msg.staff { border-color: rgba(224,224,232,.25); background: linear-gradient(135deg, rgba(224,224,232,.10), rgba(255,255,255,.02)); }
+  .sup-msg p { margin: 4px 0 0; font-size: 14px; line-height: 1.55; overflow-wrap: anywhere; }
+  .sup-reply { display: grid; gap: 10px; }
+  @media (max-width: 900px) { .support-grid { grid-template-columns: 1fr; } }
   .textarea { width: 100%; min-height: 220px; resize: vertical; font-family: 'JetBrains Mono', monospace; font-size: 12px; background: #000; color: #fff; border: 1px solid var(--border); border-radius: 10px; padding: 12px; line-height: 1.5; }
   .textarea:focus { border-color: #fff; }
   .code-meta { display: flex; justify-content: space-between; align-items: center; margin-top: 8px; font-size: 12px; color: var(--text-dim); gap: 10px; flex-wrap: wrap; }
@@ -405,6 +429,10 @@
         </button>
 
         <div class="nav-label">Cuenta</div>
+        <button class="nav-item" data-nav="soporte">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+          Soporte
+        </button>
         <button class="nav-item" data-nav="plans">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 2 3 7v6c0 5 4 9 9 9s9-4 9-9V7l-9-5z"/></svg>
           Planes
@@ -438,6 +466,10 @@
           Usuarios
         </button>
         <div class="nav-label">Comunidad</div>
+        <a class="nav-item" href="/soporte.html" style="text-decoration:none;color:inherit">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3M12 17h.01"/></svg>
+          Soporte
+        </a>
         <a class="nav-item" href="https://discord.gg/FUjbTN69" target="_blank" rel="noopener" style="text-decoration:none;color:inherit">
           <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M20.317 4.3698a19.7913 19.7913 0 00-4.8851-1.5152.0741.0741 0 00-.0785.0371c-.211.3753-.4447.8648-.6083 1.2495-1.8447-.2762-3.68-.2762-5.4868 0-.1636-.3933-.4058-.8742-.6177-1.2495a.077.077 0 00-.0785-.037 19.7363 19.7363 0 00-4.8852 1.515.0699.0699 0 00-.0321.0277C.5334 9.0458-.319 13.5799.0992 18.0578a.0824.0824 0 00.0312.0561c2.0528 1.5076 4.0413 2.4228 5.9929 3.0294a.0777.0777 0 00.0842-.0276c.4616-.6304.8731-1.2952 1.226-1.9942a.076.076 0 00-.0416-.1057c-.6528-.2476-1.2743-.5495-1.8722-.8923a.077.077 0 01-.0076-.1277c.1258-.0943.2517-.1923.3718-.2914a.0743.0743 0 01.0776-.0105c3.9278 1.7933 8.18 1.7933 12.0614 0a.0739.0739 0 01.0785.0095c.1202.099.246.1981.3728.2924a.077.077 0 01-.0066.1276 12.2986 12.2986 0 01-1.873.8914.0766.0766 0 00-.0407.1067c.3604.698.7719 1.3628 1.225 1.9932a.076.076 0 00.0842.0286c1.961-.6067 3.9495-1.5219 6.0023-3.0294a.077.077 0 00.0313-.0552c.5004-5.177-.8382-9.6739-3.5485-13.6604a.061.061 0 00-.0312-.0286zM8.02 15.3312c-1.1825 0-2.1569-1.0857-2.1569-2.419 0-1.3332.9555-2.4189 2.157-2.4189 1.2108 0 2.1757 1.0952 2.1568 2.419 0 1.3332-.9555 2.4189-2.1569 2.4189zm7.9748 0c-1.1825 0-2.1569-1.0857-2.1569-2.419 0-1.3332.9554-2.4189 2.1569-2.4189 1.2108 0 2.1757 1.0952 2.1569 2.419 0 1.3332-.946 2.4189-2.1569 2.4189z"/></svg>
           Discord
@@ -612,6 +644,55 @@
       </section>
 
       <!-- PLANS -->
+      <!-- SOPORTE -->
+      <section class="view" data-view="soporte">
+        <div class="section-head">
+          <div>
+            <h2>Soporte</h2>
+            <p>Revisa las preguntas frecuentes o abre un ticket. Te respondemos aquí mismo.</p>
+          </div>
+          <button class="btn" id="supNew" type="button">+ Nuevo ticket</button>
+        </div>
+        <div class="support-grid">
+          <article class="card">
+            <h3>Preguntas frecuentes</h3>
+            <div class="faq">
+              <details>
+                <summary>Mi key dice que el HWID no coincide</summary>
+                <p>La key se vincula al primer equipo que la usa. Si cambiaste de equipo, pulsa Reset HWID en Scripts (si tu plan lo permite) o abre un ticket de HWID.</p>
+              </details>
+              <details>
+                <summary>¿Qué es el HWID?</summary>
+                <p>Es el identificador de tu equipo. Sirve para que una key no se use en varios equipos al mismo tiempo.</p>
+              </details>
+              <details>
+                <summary>¿Cómo uso el loader?</summary>
+                <p>Copia el loadstring de la sección Scripts y pégalo en tu executor. En scripts protegidos, reemplaza KEY por tu key.</p>
+              </details>
+              <details>
+                <summary>Mi key no funciona</summary>
+                <p>Revisa que no esté vencida ni baneada y que sea la key del script correcto. Si el error habla de HWID, mira la pregunta anterior.</p>
+              </details>
+              <details>
+                <summary>¿Cuándo vence mi plan?</summary>
+                <p>Lo ves en la sección Planes. Te avisamos 3 días antes del vencimiento.</p>
+              </details>
+            </div>
+          </article>
+          <article class="card">
+            <div class="support-head">
+              <h3>Tickets</h3>
+              <div class="chips" id="supScope" hidden>
+                <button type="button" class="chip on" data-sup-scope="mine">Míos</button>
+                <button type="button" class="chip" data-sup-scope="all">Todos</button>
+              </div>
+            </div>
+            <div id="supList"></div>
+          </article>
+          <article class="card sup-detail" id="supDetail" hidden></article>
+        </div>
+      </section>
+
       <!-- PANEL DEL DUEÑO (solo dueño) -->
       <section class="view" data-view="ownerpanel">
         <div class="owner-grid">
@@ -911,6 +992,7 @@
     blacklist: { title: 'Blacklist', sub: 'Bloquea usuarios de Discord, IPs o HWID en tus scripts' },
     chat:      { title: 'Chat',      sub: 'Chat de la comunidad de Vantarmor' },
     plans:     { title: 'Planes',    sub: 'Elige el plan que necesitas' },
+    soporte:   { title: 'Soporte',   sub: 'Preguntas frecuentes y tus tickets' },
     ownerpanel: { title: 'Panel del dueño', sub: 'Ofuscador 3, ventas, mantenimiento y registro (solo dueño)' },
     planskeys: { title: 'Plans keys', sub: 'Keys de Premium y Premium Plus (solo dueño)' },
     publisher: { title: 'Publisher',  sub: 'Scripts subidos en formato source (solo dueño)' },
@@ -1030,6 +1112,7 @@
       if (on) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current');
     });
     document.querySelectorAll('.view').forEach(v => v.classList.toggle('active', v.dataset.view === name));
+    if (name === 'soporte') loadSupport();
     $('pageTitle').firstChild.textContent = NAV[name].title;
     $('pageSub').textContent = NAV[name].sub;
     if (name === 'bienvenida' && !hasPlusPlan()) {
@@ -1682,6 +1765,164 @@
       btn.textContent = isCurrent ? 'Plan actual' : btn.dataset.label;
     });
   }
+
+  // ---- Soporte: tickets propios (y todos, para el dueño) ----
+  const SUPPORT_CAT = { key: 'Key', hwid: 'HWID', loader: 'Loader', plan: 'Plan o pago', ofuscador: 'Ofuscador', otro: 'Otro' };
+  const SUPPORT_STATUS = { open: ['Abierto', 'warn'], answered: ['Respondido', 'ok'], closed: ['Cerrado', ''] };
+  let supScope = 'mine';
+  let supOpenId = null;
+  const supBadge = status => {
+    const [label, tone] = SUPPORT_STATUS[status] || [status, ''];
+    return `<span class="sup-badge ${tone}">${esc(label)}</span>`;
+  };
+  const supDate = ts => new Date(ts * 1000).toLocaleString('es-EC', { dateStyle: 'short', timeStyle: 'short' });
+  async function loadSupport() {
+    $('supScope').hidden = !(user && user.owner);
+    $('supList').innerHTML = '<p class="hint">Cargando tickets…</p>';
+    try {
+      const all = user && user.owner && supScope === 'all';
+      renderSupportList(await api(`/api/support/tickets${all ? '?all=1' : ''}`));
+    } catch (err) {
+      $('supList').innerHTML = `<p class="hint">${esc(err.message)}</p>`;
+    }
+  }
+  function renderSupportList(list) {
+    if (!list.length) {
+      $('supList').innerHTML = '<div class="empty"><h3>No tienes tickets</h3><p>Si algo no funciona, abre un ticket y te respondemos aquí.</p></div>';
+      return;
+    }
+    const showOwner = !!(user && user.owner && supScope === 'all');
+    $('supList').innerHTML = list.map(t => `
+      <button type="button" class="sup-row ${t.id === supOpenId ? 'on' : ''}" data-sup-open="${esc(t.id)}">
+        <span class="sup-main">
+          <b>${esc(t.subject)}</b>
+          <span class="hint">${esc(SUPPORT_CAT[t.category] || t.category)}${showOwner ? ` · ${esc(t.username || t.user_id)}` : ''} · ${supDate(t.updated_at)}</span>
+        </span>
+        ${supBadge(t.status)}
+      </button>`).join('');
+  }
+  async function openSupportTicket(id) {
+    supOpenId = Number(id);
+    const box = $('supDetail');
+    box.hidden = false;
+    box.innerHTML = '<p class="hint">Cargando ticket…</p>';
+    try {
+      const { ticket, messages } = await api(`/api/support/tickets/${encodeURIComponent(id)}`);
+      const closed = ticket.status === 'closed';
+      box.innerHTML = `
+        <div class="support-head">
+          <div>
+            <h3>${esc(ticket.subject)}</h3>
+            <span class="hint">${esc(SUPPORT_CAT[ticket.category] || ticket.category)} · Ticket #${esc(ticket.id)} · ${supDate(ticket.created_at)}</span>
+          </div>
+          ${supBadge(ticket.status)}
+        </div>
+        <div class="sup-thread">
+          ${messages.map(m => {
+            const staff = !!m.is_staff;
+            const who = staff ? 'Soporte Vantarmor' : (ticket.mine ? 'Tú' : 'Usuario');
+            return `<div class="sup-msg ${staff ? 'staff' : 'user'}">
+              <span class="hint">${esc(who)} · ${supDate(m.created_at)}</span>
+              <p>${esc(m.body).replace(/\n/g, '<br>')}</p>
+            </div>`;
+          }).join('')}
+        </div>
+        ${closed ? '<p class="hint">Este ticket está cerrado. Abre uno nuevo si necesitas más ayuda.</p>' : `
+        <form id="supReply" class="sup-reply" novalidate>
+          <textarea class="textarea" id="supReplyText" rows="3" maxlength="2000" placeholder="Escribe tu respuesta"></textarea>
+          <div class="form-actions">
+            <button type="button" class="btn ghost sm" id="supClose">Cerrar ticket</button>
+            <button type="submit" class="btn sm">Enviar</button>
+          </div>
+        </form>`}`;
+      if (!closed) {
+        $('supReply').addEventListener('submit', async e => {
+          e.preventDefault();
+          const text = $('supReplyText').value.trim();
+          if (!text) return toast('Escribe tu respuesta', 'error');
+          const btn = e.currentTarget.querySelector('[type="submit"]');
+          setBusy(btn, true);
+          try {
+            await api(`/api/support/tickets/${encodeURIComponent(id)}/messages`, { method: 'POST', body: JSON.stringify({ body: text }) });
+            await openSupportTicket(id);
+            await loadSupport();
+          } catch (err) {
+            toast(err.message, 'error');
+            setBusy(btn, false);
+          }
+        });
+        $('supClose').addEventListener('click', async () => {
+          if (!confirm('¿Cerrar este ticket? Ya no podrás responder.')) return;
+          try {
+            await api(`/api/support/tickets/${encodeURIComponent(id)}/close`, { method: 'POST' });
+            toast('Ticket cerrado');
+            await openSupportTicket(id);
+            await loadSupport();
+          } catch (err) { toast(err.message, 'error'); }
+        });
+      }
+    } catch (err) {
+      box.innerHTML = `<p class="hint">${esc(err.message)}</p>`;
+    }
+  }
+  function openSupportNew() {
+    const scriptOpts = scripts.map(s => `<option value="${esc(s.id)}">${esc(s.name)}</option>`).join('');
+    openModal('Nuevo ticket', `
+      <form id="supNewForm" novalidate>
+        <div class="input-group">
+          <label for="supCat">Tipo de problema</label>
+          <select id="supCat" class="field block" name="category">${Object.entries(SUPPORT_CAT).map(([v, l]) => `<option value="${v}">${esc(l)}</option>`).join('')}</select>
+        </div>
+        <div class="input-group">
+          <label for="supSubj">Asunto</label>
+          <input id="supSubj" class="field block" name="subject" maxlength="100" placeholder="Ej.: Mi key dice que el HWID no coincide" autocomplete="off">
+        </div>
+        ${scripts.length ? `<div class="input-group">
+          <label for="supScript">Script (opcional)</label>
+          <select id="supScript" class="field block" name="scriptId"><option value="">Ninguno</option>${scriptOpts}</select>
+        </div>` : ''}
+        <div class="input-group">
+          <label for="supBody">Describe el problema</label>
+          <textarea id="supBody" class="textarea" name="body" rows="5" maxlength="2000" placeholder="Qué intentaste, qué error ves y desde qué equipo"></textarea>
+          <div class="hint">No compartas tu contraseña ni tokens de tu cuenta.</div>
+        </div>
+        <div class="form-actions">
+          <button type="button" class="btn ghost" data-close>Cancelar</button>
+          <button type="submit" class="btn">Enviar ticket</button>
+        </div>
+      </form>`);
+    $('supNewForm').addEventListener('submit', async e => {
+      e.preventDefault();
+      const fd = new FormData(e.currentTarget);
+      const btn = e.currentTarget.querySelector('[type="submit"]');
+      setBusy(btn, true);
+      try {
+        const data = await api('/api/support/tickets', { method: 'POST', body: JSON.stringify({
+          category: fd.get('category'),
+          subject: String(fd.get('subject') || ''),
+          body: String(fd.get('body') || ''),
+          scriptId: fd.get('scriptId') || null,
+        }) });
+        closeModal();
+        toast('Ticket enviado');
+        await loadSupport();
+        await openSupportTicket(data.id);
+      } catch (err) {
+        toast(err.message, 'error');
+        setBusy(btn, false);
+      }
+    });
+  }
+  $('supNew').addEventListener('click', openSupportNew);
+  $('supList').addEventListener('click', e => {
+    const b = e.target.closest('[data-sup-open]');
+    if (b) openSupportTicket(b.dataset.supOpen);
+  });
+  document.querySelectorAll('#supScope [data-sup-scope]').forEach(b => b.addEventListener('click', () => {
+    supScope = b.dataset.supScope;
+    document.querySelectorAll('#supScope [data-sup-scope]').forEach(x => x.classList.toggle('on', x === b));
+    loadSupport();
+  }));
 
   // ---- Solo dueño: plans keys y publisher ----
   let ownerData = { planKeys: [], publisher: [], users: [], overview: null };

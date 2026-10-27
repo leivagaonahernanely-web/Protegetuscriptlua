@@ -409,13 +409,13 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
   // Tarjeta para quien no tiene acceso: explica cómo conseguirlo y trae los botones correspondientes
   function noAccessCard(script) {
     const embed = new EmbedBuilder()
-      .setColor(0x5865f2)
-      .setTitle('🔒 Acceso restringido')
-      .setDescription(`Todavía no tienes acceso a **${script.name}**.`)
+      .setColor(0xed4245)
+      .setTitle('🔒 No tienes acceso')
+      .setDescription(`Para usar **${script.name}** necesitas una **script key** o estar en la **whitelist** del creador.`)
       .addFields(
-        { name: '🔑 Ya tienes una key', value: 'Canjéala con el botón **Redeem Key**.' },
-        { name: '🛒 No tienes key', value: 'Pídela al creador de este script o en su panel de compra.' },
-        { name: '📋 Te añadieron a la whitelist', value: 'Usa **Get Script** otra vez.' },
+        { name: '🔑 Tienes una key', value: 'Pulsa **Redeem Key** de abajo y pégala. Se activa al instante.' },
+        { name: '📋 Estás en la whitelist', value: 'Pulsa **Get Script** otra vez. Tu acceso se activa solo.' },
+        { name: '❔ No tienes ninguna', value: 'Pídesela al creador de este script.' },
       )
       .setFooter({ text: 'Vantarmor · acceso por key o whitelist' })
       .setTimestamp();

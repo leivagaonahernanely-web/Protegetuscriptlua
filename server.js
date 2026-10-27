@@ -220,6 +220,7 @@ db.exec(`
   if (!cols.includes('hwid_reset_hours')) db.exec('ALTER TABLE scripts ADD COLUMN hwid_reset_hours INTEGER DEFAULT 24');
   // Detección de keys compartidas (1 = activa)
   if (!cols.includes('share_detection')) db.exec('ALTER TABLE scripts ADD COLUMN share_detection INTEGER DEFAULT 1');
+  if (!cols.includes('auto_revoke_dump')) db.exec('ALTER TABLE scripts ADD COLUMN auto_revoke_dump INTEGER DEFAULT 0');
   if (!cols.includes('maintenance')) db.exec('ALTER TABLE scripts ADD COLUMN maintenance INTEGER DEFAULT 0');
 
   // Columnas de keys para el bot y el control de HWID
@@ -323,16 +324,16 @@ const stmt = {
   `),
   // Nunca se seleccionan source ni content aquí
   scriptsByUser: db.prepare(`
-    SELECT id, user_id, name, slug, loader_id, ffa, obfuscator, hwid_reset_hours, share_detection, maintenance, clyde_vm, perf_level FROM scripts
+    SELECT id, user_id, name, slug, loader_id, ffa, obfuscator, hwid_reset_hours, share_detection, auto_revoke_dump, maintenance, clyde_vm, perf_level FROM scripts
     WHERE user_id = ? ORDER BY id DESC
   `),
   scriptOwned: db.prepare('SELECT * FROM scripts WHERE id = ? AND user_id = ?'),
   scriptInsert: db.prepare(`
-    INSERT INTO scripts (user_id, name, slug, ffa, obfuscator, source, content, hwid_reset_hours, share_detection, clyde_vm)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO scripts (user_id, name, slug, ffa, obfuscator, source, content, hwid_reset_hours, share_detection, clyde_vm, auto_revoke_dump)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `),
   scriptUpdate: db.prepare(`
-    UPDATE scripts SET name = ?, ffa = ?, obfuscator = ?, source = ?, content = ?, hwid_reset_hours = ?, share_detection = ?, clyde_vm = ?
+    UPDATE scripts SET name = ?, ffa = ?, obfuscator = ?, source = ?, content = ?, hwid_reset_hours = ?, share_detection = ?, clyde_vm = ?, auto_revoke_dump = ?
     WHERE id = ? AND user_id = ?
   `),
   keysByUser: db.prepare(`
@@ -433,7 +434,7 @@ const luauUsedStmt = db.prepare('SELECT n FROM luau_usage WHERE user_id = ? AND 
 const luauBumpStmt = db.prepare('INSERT INTO luau_usage (user_id, day, n) VALUES (?, ?, 1) ON CONFLICT(user_id, day) DO UPDATE SET n = n + 1');
 const luauUsedToday = userId => luauUsedStmt.get(userId, luauDay())?.n ?? 0;
 
-function validateScriptInput({ name, ffa, obfuscator, code, hwidResetHours, shareDetection, clydeVm }, current = null) {
+function validateScriptInput({ name, ffa, obfuscator, code, hwidResetHours, shareDetection, clydeVm, autoRevokeDump }, current = null) {
   const cleanName = name === undefined ? current?.name : String(name).trim();
   if (!cleanName || cleanName.length > 60) return { error: 'Nombre inválido (1 a 60 caracteres)' };
 
@@ -451,7 +452,8 @@ function validateScriptInput({ name, ffa, obfuscator, code, hwidResetHours, shar
   if (!HWID_RESET_OPTIONS.includes(hwid)) return { error: 'Intervalo de reinicio de HWID inválido' };
 
   const vm = clydeVm === undefined ? (current?.clyde_vm ?? 1) : (clydeVm ? 1 : 0);
-  return { name: cleanName, isFfa, obfuscator: obf, source, hwidResetHours: hwid, shareDetection: share, clydeVm: vm };
+  const autoRevoke = autoRevokeDump === undefined ? (current?.auto_revoke_dump ?? 0) : (autoRevokeDump ? 1 : 0);
+  return { name: cleanName, isFfa, obfuscator: obf, source, hwidResetHours: hwid, shareDetection: share, clydeVm: vm, autoRevokeDump: autoRevoke };
 }
 
 // ==========================================
@@ -1100,6 +1102,9 @@ app.get('/scripts/hosted/:slug/auth', loaderLimit, (req, res) => {
     const tHwid = /^[\x21-\x7E]{8,128}$/.test(String(req.query.hwid || '')) ? String(req.query.hwid) : '';
     const keyRow = tKey ? db.prepare('SELECT discord_id FROM keys WHERE key = ? AND script_id = ?').get(tKey, script.id) : null;
     const tDiscord = keyRow?.discord_id || null;
+    // Revocación automática (opción del script): la key queda baneada sin esperar al dueño
+    const autoRevoked = Boolean(script.auto_revoke_dump && keyRow && tKey
+      && db.prepare("UPDATE keys SET banned = 1, ban_reason = 'Volcado detectado' WHERE key = ? AND script_id = ?").run(tKey, script.id).changes);
     const seenKey = `${script.id}|${tKey}|${tHwid}`;
     const last = tamperSeen.get(seenKey) || 0;
     if (Date.now() - last > 10 * 60 * 1000) { // un aviso cada 10 min por key y HWID
@@ -1110,7 +1115,7 @@ app.get('/scripts/hosted/:slug/auth', loaderLimit, (req, res) => {
         `• HWID: \`${tHwid || 'sin dato'}\``,
         `• Discord: ${tDiscord ? `<@${tDiscord}>` : 'sin vincular'}`,
       ], tDiscord, rbxid);
-      discordBot?.notifyTamper?.({ scriptId: script.id, key: tKey, hwid: tHwid, rbxid, discordId: tDiscord });
+      discordBot?.notifyTamper?.({ scriptId: script.id, key: tKey, hwid: tHwid, rbxid, discordId: tDiscord, autoRevoked });
     }
     return reply('TAMPERING');
   }
@@ -1900,7 +1905,7 @@ app.post('/api/scripts', requireAuth, async (req, res) => {
     const content = input.obfuscator === 'none' ? input.source : await obfuscate(input.source, input.obfuscator, { vm: input.clydeVm === 1 });
     const info = stmt.scriptInsert.run(
       req.userId, input.name, uniqueSlug(input.name), input.isFfa ? 1 : 0,
-      input.obfuscator, input.source, content, input.hwidResetHours, input.shareDetection, input.clydeVm,
+      input.obfuscator, input.source, content, input.hwidResetHours, input.shareDetection, input.clydeVm, input.autoRevokeDump,
     );
     db.prepare('UPDATE scripts SET loader_id = ? WHERE id = ?').run(crypto.randomBytes(20).toString('hex'), info.lastInsertRowid);
     db.prepare('UPDATE scripts SET perf_level = ? WHERE id = ?').run(analyzePerf(input.source, { obfuscator: input.obfuscator, vm: input.clydeVm === 1 }).level, info.lastInsertRowid);
@@ -1946,7 +1951,7 @@ app.put('/api/scripts/:id', requireAuth, async (req, res) => {
   try {
     const content = input.obfuscator === 'none' ? input.source : await obfuscate(input.source, input.obfuscator, { vm: input.clydeVm === 1 });
     stmt.scriptUpdate.run(
-      input.name, input.isFfa ? 1 : 0, input.obfuscator, input.source, content, input.hwidResetHours, input.shareDetection, input.clydeVm,
+      input.name, input.isFfa ? 1 : 0, input.obfuscator, input.source, content, input.hwidResetHours, input.shareDetection, input.clydeVm, input.autoRevokeDump,
       script.id, req.userId,
     );
     db.prepare('UPDATE scripts SET perf_level = ? WHERE id = ?').run(analyzePerf(input.source, { obfuscator: input.obfuscator, vm: input.clydeVm === 1 }).level, script.id);

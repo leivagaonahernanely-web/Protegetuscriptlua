@@ -1483,7 +1483,7 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
   // Expuesto al servidor para registrar cuando se ejecuta un loader
   // Aviso de key usada desde otro equipo: DM al dueño de la key y registro en logs con botón para eliminarla
   // Intento de volcado: avisa al dueño con mención, la key y un botón para eliminarla
-  client.notifyTamper = async ({ scriptId, key, hwid, rbxid, discordId }) => {
+  client.notifyTamper = async ({ scriptId, key, hwid, rbxid, discordId, autoRevoked }) => {
     const script = q.scriptById.get(scriptId);
     if (!script) return;
     const text = [
@@ -1491,11 +1491,13 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
       `• HWID: ${hwid ? `\`${hwid}\`` : 'sin dato'}`,
       `• Roblox: ${rbxid ? `\`${rbxid}\`` : 'sin dato'}`,
       `• Discord: ${discordId ? `<@${discordId}>` : 'sin vincular'}`,
-      key ? '• Si no reconoces este uso, elimina la key con el botón.' : '',
+      autoRevoked ? '• Acción: key revocada automáticamente (opción del script). Para devolverle el acceso usa el botón.'
+        : (key ? '• Si no reconoces este uso, elimina la key con el botón.' : ''),
     ].filter(Boolean).join('\n');
-    const components = key ? [new ActionRowBuilder().addComponents(
-      new ButtonBuilder().setCustomId(`vanta:delkey:${key}`).setLabel('Eliminar key').setEmoji('🗑️').setStyle(ButtonStyle.Danger),
-    )] : [];
+    const components = !key ? [] : [new ActionRowBuilder().addComponents(autoRevoked
+      ? new ButtonBuilder().setCustomId(`vanta:allowkey:${key}`).setLabel('Permitir acceso').setEmoji('✅').setStyle(ButtonStyle.Success)
+      : new ButtonBuilder().setCustomId(`vanta:delkey:${key}`).setLabel('Eliminar key').setEmoji('🗑️').setStyle(ButtonStyle.Danger),
+    )];
     await logScriptEvent(script, text, discordId, {
       color: 0xed4245,
       title: `🚨 Intento de dump · ${script.name}`,

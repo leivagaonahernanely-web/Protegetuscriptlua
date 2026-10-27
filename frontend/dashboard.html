@@ -288,6 +288,22 @@
   .site-notice { margin: 0 0 18px; padding: 12px 16px; border: 1px solid var(--border); border-radius: 12px; background: linear-gradient(135deg, rgba(255,255,255,.07), rgba(255,255,255,.02)); color: var(--text-soft); font-size: 14px; }
   .site-notice.maint { border-color: rgba(251,191,36,.45); background: linear-gradient(135deg, rgba(251,191,36,.12), rgba(251,191,36,.02)); color: #fde68a; }
   @media (max-width: 640px) { .owner-audit-row { grid-template-columns: 1fr; gap: 2px; } }
+  .ver-box { margin-top: 6px; border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px; background: rgba(255,255,255,.02); }
+  .ver-box summary { cursor: pointer; font-size: 13px; font-weight: 800; color: var(--text-soft); list-style: none; }
+  .ver-box summary::-webkit-details-marker { display: none; }
+  .ver-box summary::after { content: '+'; float: right; color: var(--text-dim); }
+  .ver-box[open] summary::after { content: '−'; }
+  .ver-list { margin-top: 10px; display: grid; gap: 8px; }
+  .ver-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; flex-wrap: wrap; }
+  .ver-meta { display: grid; gap: 2px; min-width: 0; font-size: 13px; }
+  .skel { display: block; height: 12px; border-radius: 6px; background: linear-gradient(90deg, rgba(255,255,255,.04) 0%, rgba(255,255,255,.10) 50%, rgba(255,255,255,.04) 100%); background-size: 200% 100%; animation: shimmer 1.4s ease-in-out infinite; }
+  .skel-line { margin: 10px 0; }
+  .skel-line.w60 { width: 60%; height: 16px; }
+  .skel-line.w40 { width: 40%; }
+  .skel-card { border: 1px solid var(--border); border-radius: 16px; padding: 22px; background: var(--surface); display: grid; gap: 4px; }
+  .skel-row td { padding: 14px 12px; }
+  @keyframes shimmer { 0% { background-position: 100% 0; } 100% { background-position: -100% 0; } }
+  @media (prefers-reduced-motion: reduce) { .skel { animation: none; } }
   .textarea { width: 100%; min-height: 220px; resize: vertical; font-family: 'JetBrains Mono', monospace; font-size: 12px; background: #000; color: #fff; border: 1px solid var(--border); border-radius: 10px; padding: 12px; line-height: 1.5; }
   .textarea:focus { border-color: #fff; }
   .code-meta { display: flex; justify-content: space-between; align-items: center; margin-top: 8px; font-size: 12px; color: var(--text-dim); gap: 10px; flex-wrap: wrap; }
@@ -913,6 +929,8 @@
   let scripts = [];
   let keys = [];
   let scriptsError = false;
+  let scriptsLoaded = false;
+  let keysLoaded = false;
   let keysError = false;
   const selected = new Set();
 
@@ -1240,6 +1258,10 @@
         </div>
         ${codeFieldHtml()}
         ${protectionHtml(s)}
+        <details class="ver-box">
+          <summary>Historial de versiones</summary>
+          <div id="verList" class="ver-list"></div>
+        </details>
         <div class="form-actions">
           <button type="button" class="btn ghost" data-close>Cancelar</button>
           <button type="submit" class="btn">Guardar cambios</button>
@@ -1248,6 +1270,45 @@
     wireCodeField();
     wireProtection();
     $('formEditScript').addEventListener('submit', e => submitScript(e, s.id));
+    $('verList').addEventListener('click', async e => {
+      const b = e.target.closest('[data-ver-load]');
+      if (!b) return;
+      setBusy(b, true);
+      try {
+        const v = await api(`/api/scripts/${encodeURIComponent(b.dataset.verScript)}/versions/${encodeURIComponent(b.dataset.verLoad)}`);
+        $('fCode').value = v.source;
+        $('fCode').dispatchEvent(new Event('input'));
+        toast('Versión cargada en el editor. Revisa y guarda para aplicarla.');
+      } catch (err) {
+        toast(err.message, 'error');
+      } finally {
+        setBusy(b, false);
+      }
+    });
+    loadVersions(s.id);
+  }
+
+  async function loadVersions(scriptId) {
+    const box = $('verList');
+    if (!box) return;
+    box.innerHTML = '<p class="hint">Cargando versiones…</p>';
+    try {
+      const list = await api(`/api/scripts/${encodeURIComponent(scriptId)}/versions`);
+      if (!list.length) {
+        box.innerHTML = '<p class="hint">Aún no hay versiones. Se guarda una cada vez que cambias el código.</p>';
+        return;
+      }
+      box.innerHTML = list.map(v => `
+        <div class="ver-row">
+          <div class="ver-meta">
+            <b>${esc(v.name)}</b>
+            <span class="hint">${new Date(v.created_at * 1000).toLocaleString('es-EC', { dateStyle: 'short', timeStyle: 'short' })} · ${esc(OBFUSCATORS[v.obfuscator] ?? v.obfuscator)} · <span class="mono">${esc(String(v.source_hash).slice(0, 12))}</span></span>
+          </div>
+          <button type="button" class="btn ghost sm" data-ver-load="${esc(v.id)}" data-ver-script="${esc(scriptId)}">Cargar en el editor</button>
+        </div>`).join('');
+    } catch (err) {
+      box.innerHTML = `<p class="hint">${esc(err.message)}</p>`;
+    }
   }
 
   function openKeysModal(preselect = '') {
@@ -1504,6 +1565,10 @@
 
   function renderScripts() {
     const grid = $('scriptsGrid');
+    if (!scriptsLoaded && !scriptsError) {
+      grid.innerHTML = Array.from({ length: 3 }, () => `<div class="skel-card"><span class="skel skel-line w60"></span><span class="skel skel-line"></span><span class="skel skel-line w40"></span></div>`).join('');
+      return;
+    }
     if (scriptsError) {
       grid.innerHTML = `<div class="empty"><h3>No se pudieron cargar los scripts</h3><p>Revisa tu conexión y pulsa Actualizar.</p></div>`;
       return;
@@ -1565,6 +1630,11 @@
 
   function renderKeys() {
     const tbody = $('keysTable');
+    if (!keysLoaded && !keysError) {
+      tbody.innerHTML = Array.from({ length: 4 }, () => `<tr class="skel-row"><td colspan="6"><span class="skel skel-line"></span></td></tr>`).join('');
+      updateBulk();
+      return;
+    }
     if (keysError) {
       tbody.innerHTML = `<tr><td colspan="6" class="center">No se pudieron cargar las keys.</td></tr>`;
       updateBulk();
@@ -2532,6 +2602,10 @@
       }
       $('userName').textContent = 'Sin conexión';
       toast(`No se pudo cargar tu cuenta: ${err.message}`, 'error');
+      scriptsError = true;
+      keysError = true;
+      renderScripts();
+      renderKeys();
       return;
     }
 
@@ -2544,9 +2618,13 @@
     setPlusNav(hasPlusPlan());
     loadOwnerData();
 
+    renderScripts();
+    renderKeys();
     const [s, k] = await Promise.allSettled([api('/api/scripts'), api('/api/keys')]);
     if (s.status === 'fulfilled') { scripts = s.value; scriptsError = false; } else scriptsError = true;
     if (k.status === 'fulfilled') { keys = k.value; keysError = false; } else keysError = true;
+    scriptsLoaded = true;
+    keysLoaded = true;
 
     const existing = new Set(keys.map(x => x.key));
     selected.forEach(key => { if (!existing.has(key)) selected.delete(key); });

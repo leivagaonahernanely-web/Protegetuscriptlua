@@ -271,6 +271,18 @@ setInterval(() => expirePlans(), 10 * 60_000);
 // Así el login no se rompe en cada deploy mientras la base de datos esté en el volumen.
 db.exec('CREATE TABLE IF NOT EXISTS app_settings (name TEXT PRIMARY KEY, value TEXT)');
 // Registro de acciones del dueño y ajustes globales (mantenimiento, banner, estado del Ofuscador 3)
+// Historial de versiones del código fuente de cada script (las últimas 10 por script)
+db.exec('CREATE TABLE IF NOT EXISTS script_versions (id INTEGER PRIMARY KEY AUTOINCREMENT, script_id INTEGER NOT NULL, name TEXT, obfuscator TEXT, ffa INTEGER, source_hash TEXT, source TEXT, created_at INTEGER)');
+db.exec('CREATE INDEX IF NOT EXISTS script_versions_by_script ON script_versions(script_id)');
+function snapshotVersion(scriptId, { name, obfuscator, ffa, source }) {
+  const hash = crypto.createHash('sha256').update(String(source ?? '')).digest('hex');
+  // Si el código no cambió (solo se editó el nombre o la protección), no se repite la versión
+  const last = db.prepare('SELECT source_hash FROM script_versions WHERE script_id = ? ORDER BY id DESC LIMIT 1').get(scriptId);
+  if (last?.source_hash === hash) return;
+  db.prepare('INSERT INTO script_versions (script_id, name, obfuscator, ffa, source_hash, source, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
+    .run(scriptId, String(name ?? ''), String(obfuscator ?? ''), ffa ? 1 : 0, hash, String(source ?? ''), Math.floor(Date.now() / 1000));
+  db.prepare('DELETE FROM script_versions WHERE script_id = ? AND id NOT IN (SELECT id FROM script_versions WHERE script_id = ? ORDER BY id DESC LIMIT 10)').run(scriptId, scriptId);
+}
 db.exec('CREATE TABLE IF NOT EXISTS admin_audit (id INTEGER PRIMARY KEY AUTOINCREMENT, actor_id TEXT, action TEXT, target TEXT, detail TEXT, created_at INTEGER)');
 const appGet = (name, def = '') => db.prepare('SELECT value FROM app_settings WHERE name = ?').get(name)?.value ?? def;
 const appSet = (name, value) => db.prepare('INSERT INTO app_settings (name, value) VALUES (?, ?) ON CONFLICT(name) DO UPDATE SET value = excluded.value').run(name, String(value));
@@ -1524,8 +1536,19 @@ app.get('/api/owner/publisher', requireOwnerApi, (req, res) => {
 });
 
 // Registro de usos y acciones de scripts (lo lee el panel admin)
+// Filtros: scriptId, from y to (segundos Unix) y limit (hasta 5000, para exportar)
 app.get('/api/owner/logs', requireOwnerApi, (req, res) => {
-  res.json(db.prepare('SELECT id, script_id, script_name, text, created_at FROM script_logs ORDER BY id DESC LIMIT 300').all());
+  const limit = Math.min(5000, Math.max(1, parseInt(req.query.limit, 10) || 300));
+  const where = [];
+  const args = [];
+  const scriptId = parseInt(req.query.scriptId, 10);
+  if (Number.isFinite(scriptId)) { where.push('script_id = ?'); args.push(scriptId); }
+  const from = parseInt(req.query.from, 10);
+  if (Number.isFinite(from)) { where.push('created_at >= ?'); args.push(from); }
+  const to = parseInt(req.query.to, 10);
+  if (Number.isFinite(to)) { where.push('created_at <= ?'); args.push(to); }
+  const sql = `SELECT id, script_id, script_name, text, created_at FROM script_logs ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY id DESC LIMIT ?`;
+  res.json(db.prepare(sql).all(...args, limit));
 });
 
 // Resumen del dueño: Ofuscador 3, ventas de planes, ajustes del sitio y registro de acciones
@@ -1642,6 +1665,7 @@ app.post('/api/scripts', requireAuth, async (req, res) => {
       input.obfuscator, input.source, content, input.hwidResetHours, input.shareDetection,
     );
     db.prepare('UPDATE scripts SET loader_id = ? WHERE id = ?').run(crypto.randomBytes(20).toString('hex'), info.lastInsertRowid);
+    snapshotVersion(info.lastInsertRowid, { name: input.name, obfuscator: input.obfuscator, ffa: input.isFfa, source: input.source });
     if (!input.isFfa) stmt.obfIncrement.run(req.userId);
     if (input.obfuscator === 'luau') luauBumpStmt.run(req.userId, luauDay());
     res.status(201).json({ ok: true, id: info.lastInsertRowid });
@@ -1685,6 +1709,7 @@ app.put('/api/scripts/:id', requireAuth, async (req, res) => {
       input.name, input.isFfa ? 1 : 0, input.obfuscator, input.source, content, input.hwidResetHours, input.shareDetection,
       script.id, req.userId,
     );
+    snapshotVersion(script.id, { name: input.name, obfuscator: input.obfuscator, ffa: input.isFfa, source: input.source });
     if (!input.isFfa) stmt.obfIncrement.run(req.userId);
     if (input.obfuscator === 'luau' && !input.isFfa) luauBumpStmt.run(req.userId, luauDay());
     res.json({ ok: true });
@@ -1692,6 +1717,20 @@ app.put('/api/scripts/:id', requireAuth, async (req, res) => {
     console.error('Update script error:', err);
     res.status(err.status || 500).json({ error: err.status ? err.message : 'Error del servidor' });
   }
+});
+
+// Versiones de un script: lista sin código y, al pedir una, su código fuente (solo del dueño del script)
+app.get('/api/scripts/:id/versions', requireAuth, (req, res) => {
+  const script = stmt.scriptOwned.get(Number(req.params.id), req.userId);
+  if (!script) return res.status(404).json({ error: 'Script no encontrado' });
+  res.json(db.prepare('SELECT id, name, obfuscator, ffa, source_hash, created_at FROM script_versions WHERE script_id = ? ORDER BY id DESC').all(script.id));
+});
+app.get('/api/scripts/:id/versions/:vid', requireAuth, (req, res) => {
+  const script = stmt.scriptOwned.get(Number(req.params.id), req.userId);
+  if (!script) return res.status(404).json({ error: 'Script no encontrado' });
+  const v = db.prepare('SELECT id, name, obfuscator, ffa, source_hash, source, created_at FROM script_versions WHERE id = ? AND script_id = ?').get(Number(req.params.vid), script.id);
+  if (!v) return res.status(404).json({ error: 'Versión no encontrada' });
+  res.json(v);
 });
 
 // Borrar keys propias (una o varias, máximo 100 por petición)

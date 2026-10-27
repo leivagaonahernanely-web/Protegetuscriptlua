@@ -61,6 +61,12 @@ pre{white-space:pre-wrap;word-break:break-all;background:#040407;border:1px soli
 .mt-blocks b{color:var(--text)}
 .mt-actions{justify-content:space-between;margin:20px 0 0}
 .mt-last{font-size:12px;margin:10px 0 0}
+.log-filters { align-items: stretch; }
+.log-filters .field { min-width: 0; }
+.log-count { font-size: 12px; margin: -6px 0 12px; }
+.skel-bar { display: block; height: 12px; border-radius: 6px; margin: 6px 0; background: linear-gradient(90deg, rgba(255,255,255,.04) 0%, rgba(255,255,255,.10) 50%, rgba(255,255,255,.04) 100%); background-size: 200% 100%; animation: shimmer 1.4s ease-in-out infinite; }
+@keyframes shimmer { 0% { background-position: 100% 0; } 100% { background-position: -100% 0; } }
+@media (prefers-reduced-motion: reduce) { .skel-bar { animation: none; } }
 .hidden{display:none!important}
 .toast{position:fixed;right:18px;bottom:18px;background:var(--card);border:1px solid var(--line);padding:10px 14px;border-radius:10px;opacity:0;transition:opacity .2s}
 .toast.show{opacity:1}
@@ -113,10 +119,20 @@ pre{white-space:pre-wrap;word-break:break-all;background:#040407;border:1px soli
     </section>
 
     <section class="card hidden" data-panel="logs">
-      <div class="row">
-        <input class="field" id="logSearch" placeholder="Filter by script or text">
-        <button class="btn" id="logRefresh">Refresh</button>
+      <div class="row log-filters">
+        <input class="field" id="logSearch" placeholder="Buscar en el texto o script">
+        <select class="field" id="logScript"><option value="">Todos los scripts</option></select>
+        <input class="field" id="logFrom" type="date" aria-label="Desde">
+        <input class="field" id="logTo" type="date" aria-label="Hasta">
+        <select class="field" id="logLimit" aria-label="Cantidad">
+          <option value="300">Últimos 300</option>
+          <option value="1000">Últimos 1000</option>
+          <option value="5000">Últimos 5000</option>
+        </select>
+        <button class="btn" id="logRefresh">Actualizar</button>
+        <button class="btn primary" id="logCsv">Exportar CSV</button>
       </div>
+      <p class="muted log-count" id="logCount"></p>
       <table><thead><tr><th>Time</th><th>Script</th><th>Event</th></tr></thead><tbody id="logsBody"></tbody></table>
     </section>
 
@@ -436,24 +452,81 @@ $('pubBody').addEventListener('click', e => {
 });
 
 // ---- Logs ----
-function renderLogs() {
+const knownScripts = new Map(); // script_id -> nombre, para el filtro (se acumula entre cargas)
+function filteredLogs() {
   const q = $('logSearch').value.trim().toLowerCase();
-  const rows = cache.logs.filter(l => `${l.script_name} ${l.text}`.toLowerCase().includes(q));
+  return cache.logs.filter(l => `${l.script_name} ${l.text}`.toLowerCase().includes(q));
+}
+function renderLogs() {
+  const rows = filteredLogs();
   $('logsBody').innerHTML = rows.length ? rows.map(l => `
     <tr>
       <td class="muted" style="white-space:nowrap">${when(l.created_at)}</td>
       <td>${esc(l.script_name || l.script_id)}</td>
       <td>${esc(l.text)}</td>
     </tr>`).join('') : '<tr><td colspan="3" class="muted">No events yet.</td></tr>';
+  $('logCount').textContent = `${rows.length} de ${cache.logs.length} eventos`;
+}
+function refreshScriptFilter() {
+  const current = $('logScript').value;
+  $('logScript').innerHTML = '<option value="">Todos los scripts</option>' + [...knownScripts]
+    .sort((a, b) => a[1].localeCompare(b[1]))
+    .map(([id, name]) => `<option value="${esc(id)}">${esc(name)}</option>`).join('');
+  $('logScript').value = current;
+}
+// Pide al servidor solo lo que se filtra por fecha, script y cantidad; el texto se busca aquí
+async function loadLogs() {
+  await withSkeleton('logsBody', 3, async () => {
+  const p = new URLSearchParams();
+  if ($('logScript').value) p.set('scriptId', $('logScript').value);
+  if ($('logFrom').value) p.set('from', Math.floor(new Date(`${$('logFrom').value}T00:00:00-05:00`).getTime() / 1000));
+  if ($('logTo').value) p.set('to', Math.floor(new Date(`${$('logTo').value}T23:59:59-05:00`).getTime() / 1000));
+  p.set('limit', $('logLimit').value);
+  cache.logs = await api('GET', `/admin/api/logs?${p}`);
+  cache.logs.forEach(l => { if (l.script_id) knownScripts.set(String(l.script_id), l.script_name || `Script ${l.script_id}`); });
+  refreshScriptFilter();
+  renderLogs();
+  });
+}
+// CSV con las filas visibles. Se neutralizan celdas que Excel tomaría como fórmula.
+const csvCell = v => {
+  let s = String(v ?? '');
+  if (/^[=+\-@\t\r]/.test(s)) s = `'${s}`;
+  return `"${s.replace(/"/g, '""')}"`;
+};
+function exportLogsCsv() {
+  const rows = filteredLogs();
+  if (!rows.length) return toast('No hay eventos para exportar');
+  const lines = ['fecha,script_id,script,evento', ...rows.map(l => [
+    new Date(l.created_at * 1000).toLocaleString('es-EC', { timeZone: 'America/Guayaquil' }),
+    l.script_id, l.script_name, l.text,
+  ].map(csvCell).join(','))];
+  const blob = new Blob(['\uFEFF' + lines.join('\n')], { type: 'text/csv;charset=utf-8' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `logs_${new Date().toISOString().slice(0, 10)}.csv`;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 }
 $('logSearch').addEventListener('input', renderLogs);
+['logScript', 'logFrom', 'logTo', 'logLimit'].forEach(id => $(id).addEventListener('change', loadLogs));
 $('logRefresh').addEventListener('click', loadLogs);
+$('logCsv').addEventListener('click', exportLogsCsv);
 
 // ---- Loading ----
-async function loadKeys() { cache.keys = await api('GET', '/admin/api/plan-keys'); renderKeys(); }
-async function loadUsers() { cache.users = await api('GET', '/admin/api/users'); renderUsers(); }
-async function loadPublisher() { cache.publisher = await api('GET', '/admin/api/publisher'); renderPublisher(); }
-async function loadLogs() { cache.logs = await api('GET', '/admin/api/logs'); renderLogs(); }
+// Mientras carga muestra filas de esqueleto; si falla, muestra el error en la tabla
+async function withSkeleton(tbodyId, cols, load) {
+  $(tbodyId).innerHTML = Array.from({ length: 4 }, () => `<tr class="skel-row"><td colspan="${cols}"><span class="skel-bar"></span></td></tr>`).join('');
+  try {
+    await load();
+  } catch (err) {
+    $(tbodyId).innerHTML = `<tr><td colspan="${cols}" class="muted">No se pudo cargar: ${esc(err.message)}</td></tr>`;
+    throw err;
+  }
+}
+async function loadKeys() { await withSkeleton('keysBody', 5, async () => { cache.keys = await api('GET', '/admin/api/plan-keys'); renderKeys(); }); }
+async function loadUsers() { await withSkeleton('usersBody', 7, async () => { cache.users = await api('GET', '/admin/api/users'); renderUsers(); }); }
+async function loadPublisher() { await withSkeleton('pubBody', 4, async () => { cache.publisher = await api('GET', '/admin/api/publisher'); renderPublisher(); }); }
 async function loadAll() {
   try {
     await Promise.all([loadKeys(), loadUsers(), loadPublisher(), loadLogs()]);

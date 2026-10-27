@@ -112,7 +112,17 @@ async function forward(res, method, route, body) {
 app.get('/admin/api/:resource', requireSession, (req, res) => {
   const route = ALLOWED[req.params.resource]?.GET;
   if (!route) return res.status(404).json({ error: 'No existe' });
-  forward(res, 'GET', route);
+  // Solo se reenvían los filtros de logs, con su nombre fijo
+  let qs = '';
+  if (req.params.resource === 'logs') {
+    const params = new URLSearchParams();
+    for (const k of ['limit', 'scriptId', 'from', 'to']) {
+      const v = req.query[k];
+      if (typeof v === 'string' && /^\d{1,12}$/.test(v)) params.set(k, v);
+    }
+    qs = params.toString() ? `?${params}` : '';
+  }
+  forward(res, 'GET', route + qs);
 });
 
 app.post('/admin/api/users/:id/plan', requireSession, (req, res) => {

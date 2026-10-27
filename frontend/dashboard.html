@@ -215,6 +215,28 @@
           <div id="execChart" style="min-height:170px"></div>
           <div id="execTop" class="muted" style="margin-top:10px;font-size:13px"></div>
         </div>
+
+        <div class="panel geo-panel">
+          <div class="panel-head">
+            <div>
+              <h3>Ejecuciones por país</h3>
+              <span class="geo-sub" id="geoSub">Últimos 30 días</span>
+            </div>
+          </div>
+          <div class="geo-body">
+            <div class="geo-map-wrap">
+              <svg id="geoMap" class="geo-map" role="img" aria-label="Mapa del mundo con las ejecuciones por país"></svg>
+              <div class="geo-tip" id="geoTip" hidden></div>
+              <div class="geo-zoom">
+                <button class="btn ghost sm" type="button" id="geoZoomIn" aria-label="Acercar">+</button>
+                <button class="btn ghost sm" type="button" id="geoZoomOut" aria-label="Alejar">−</button>
+                <button class="btn ghost sm" type="button" id="geoReset" aria-label="Restablecer vista">Reiniciar</button>
+              </div>
+            </div>
+            <ol class="geo-list" id="geoList"></ol>
+          </div>
+          <p class="geo-note">Solo se cuenta el país de cada ejecución. No se guardan IPs ni datos personales. Ubicación por <a href="https://github.com/bluesmoon/node-geoip" target="_blank" rel="noopener">geoip-lite</a> (MaxMind GeoLite2).</p>
+        </div>
       </section>
 
       <!-- SCRIPTS -->
@@ -594,6 +616,8 @@
 
 <div class="toasts" id="toasts" role="status" aria-live="polite"></div>
 
+<script src="https://cdn.jsdelivr.net/npm/d3@7.9.0/dist/d3.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/topojson-client@3.1.0/dist/topojson-client.min.js"></script>
 <script src="/dashboard.js"></script>
 </body>
 </html>

@@ -1562,8 +1562,92 @@
   // ---------- ESTADÍSTICAS DE EJECUCIÓN ----------
   let execDays = 7;
   const dayKey = offset => new Date(Date.now() - offset * 86400000).toLocaleDateString('en-CA', { timeZone: 'America/Guayaquil' });
+  // ---- Ejecuciones por país: mapa D3 (zoom y arrastre) + ranking. Solo código de país. ----
+  const GEO_NAMES = typeof Intl.DisplayNames === 'function' ? new Intl.DisplayNames(['es'], { type: 'region' }) : null;
+  const countryName = code => { try { return GEO_NAMES?.of(code) || code; } catch { return code; } };
+  let geoMapState = null; // { g, zoom, paths, alphaByNum, svg }
+
+  async function buildGeoMap() {
+    const d3 = window.d3;
+    const svg = d3.select($('geoMap'));
+    const [world, meta] = await Promise.all([
+      fetch('https://cdn.jsdelivr.net/npm/world-atlas@2.0.2/countries-110m.json').then(r => r.json()),
+      fetch('https://cdn.jsdelivr.net/npm/world-countries@5.0.0/countries.json').then(r => r.json()),
+    ]);
+    const alphaByNum = new Map(meta.map(c => [String(c.ccn3 || '').padStart(3, '0'), c.cca2]));
+    const features = window.topojson.feature(world, world.objects.countries).features;
+    const width = 960, height = 500;
+    svg.attr('viewBox', `0 0 ${width} ${height}`).attr('preserveAspectRatio', 'xMidYMid meet');
+    svg.selectAll('*').remove();
+    const projection = d3.geoNaturalEarth1().fitSize([width, height], { type: 'Sphere' });
+    const path = d3.geoPath(projection);
+    const g = svg.append('g');
+    g.append('path').attr('class', 'sphere').attr('d', path({ type: 'Sphere' }));
+    const paths = g.selectAll('path.country').data(features).join('path')
+      .attr('class', 'country').attr('d', path);
+    const zoom = d3.zoom().scaleExtent([1, 8]).translateExtent([[0, 0], [width, height]])
+      .on('zoom', e => g.attr('transform', e.transform));
+    svg.call(zoom);
+    geoMapState = { g, zoom, paths, alphaByNum, svg };
+  }
+
+  function colorGeoMap(counts, max) {
+    const d3 = window.d3;
+    const { paths, alphaByNum } = geoMapState;
+    const scale = d3.scaleSqrt().domain([0, Math.max(1, max)]).range(['#2c2c36', '#f5f5f8']);
+    const tip = $('geoTip');
+    const wrap = $('geoMap').parentNode;
+    paths.each(function (f) {
+      const code = alphaByNum.get(String(f.id).padStart(3, '0'));
+      const n = code ? counts.get(code) || 0 : 0;
+      const el = d3.select(this);
+      el.classed('has', n > 0).attr('fill', n ? scale(n) : null);
+      el.on('mouseenter', null).on('mousemove', null).on('mouseleave', null);
+      if (!n) return;
+      el.on('mouseenter', event => {
+        tip.innerHTML = `<b>${esc(countryName(code))}</b>${n.toLocaleString('es-EC')} ejecuciones`;
+        tip.hidden = false;
+      }).on('mousemove', event => {
+        const [x, y] = d3.pointer(event, wrap);
+        tip.style.left = `${x}px`;
+        tip.style.top = `${y}px`;
+      }).on('mouseleave', () => { tip.hidden = true; });
+    });
+  }
+
+  async function loadGeoStats() {
+    const list = $('geoList');
+    const sub = $('geoSub');
+    try {
+      const data = await api('/api/stats/countries?days=30');
+      const counts = new Map(data.countries.map(c => [c.country, c.n]));
+      const max = Math.max(1, ...data.countries.map(c => c.n));
+      sub.textContent = data.total
+        ? `${data.total.toLocaleString('es-EC')} ejecuciones · últimos ${data.days} días`
+        : `Últimos ${data.days} días`;
+      list.innerHTML = data.countries.length
+        ? data.countries.slice(0, 8).map(c => `
+          <li class="geo-row"><b>${esc(countryName(c.country))}</b><span>${c.n.toLocaleString('es-EC')}</span>
+            <div class="geo-bar"><i style="width:${Math.round(c.n / max * 100)}%"></i></div></li>`).join('')
+        : '<li class="geo-empty">Aún no hay ejecuciones con país registrado.</li>';
+      if (!window.d3 || !window.topojson) {
+        $('geoMap').closest('.geo-map-wrap').classList.add('geo-off');
+        return;
+      }
+      if (!geoMapState) await buildGeoMap();
+      colorGeoMap(counts, max);
+    } catch (err) {
+      list.innerHTML = '<li class="geo-empty">No se pudieron cargar los países.</li>';
+    }
+  }
+
+  $('geoZoomIn').addEventListener('click', () => geoMapState && geoMapState.svg.transition().call(geoMapState.zoom.scaleBy, 1.6));
+  $('geoZoomOut').addEventListener('click', () => geoMapState && geoMapState.svg.transition().call(geoMapState.zoom.scaleBy, 1 / 1.6));
+  $('geoReset').addEventListener('click', () => geoMapState && geoMapState.svg.transition().call(geoMapState.zoom.transform, window.d3.zoomIdentity));
+
   async function loadExecStats() {
     try {
+      loadGeoStats();
       const data = await api(`/api/stats/executions?days=${execDays}`);
       const counts = new Map(data.byDay.map(r => [r.day, r.n]));
       const series = Array.from({ length: execDays }, (_, i) => {

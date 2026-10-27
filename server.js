@@ -12,6 +12,7 @@ import Database from 'better-sqlite3';
 import { createQuota, PLAN_DAYS_DEFAULT, MONTH_SECONDS, FREE_RESET_SECONDS } from './lib/quota.js';
 import { analyzePerf } from './lib/perf.js';
 import { startDiscordBot, ensureBotSchema } from './bot/discordBot.js';
+import geoip from 'geoip-lite'; // país por IP, offline (solo se guarda el país, nunca la IP)
 import 'dotenv/config';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -950,7 +951,18 @@ if (!db.prepare('SELECT 1 FROM execution_daily LIMIT 1').get()) {
 const ecuadorDay = ms => new Date(ms - 5 * 3600_000).toISOString().slice(0, 10);
 const countExecutionStmt = db.prepare(`INSERT INTO execution_daily (script_id, day, n) VALUES (?, ?, 1)
   ON CONFLICT(script_id, day) DO UPDATE SET n = n + 1`);
-const countExecution = scriptId => { try { countExecutionStmt.run(scriptId, ecuadorDay(Date.now())); } catch { /* las estadísticas nunca rompen el loader */ } };
+// Conteo por país: (dueño del script, día, país). Solo guarda el código de país, nunca la IP.
+db.exec(`CREATE TABLE IF NOT EXISTS execution_country (user_id TEXT NOT NULL, day TEXT NOT NULL, country TEXT NOT NULL, n INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (user_id, day, country))`);
+const countryStmt = db.prepare(`INSERT INTO execution_country (user_id, day, country, n) VALUES (?, ?, ?, 1)
+  ON CONFLICT(user_id, day, country) DO UPDATE SET n = n + 1`);
+const countryOf = ip => { try { return geoip.lookup(String(ip || ''))?.country || null; } catch { return null; } };
+const countExecution = (scriptId, ip, userId) => {
+  try {
+    countExecutionStmt.run(scriptId, ecuadorDay(Date.now()));
+    const country = countryOf(ip);
+    if (country && userId) countryStmt.run(String(userId), ecuadorDay(Date.now()), country);
+  } catch { /* las estadísticas nunca rompen el loader */ }
+};
 
 const logUse = (scriptId, text, userId = null, opts = {}) => { try { discordBot?.logScriptEvent?.(scriptId, text, userId, opts); } catch { /* el log nunca rompe el loader */ } };
 
@@ -1064,7 +1076,7 @@ app.get('/scripts/hosted/:slug/auth', loaderLimit, (req, res) => {
   const rbxid = /^\d{1,20}$/.test(String(req.query.rbxid || '')) ? String(req.query.rbxid) : '';
   if (script.ffa) {
     const ffaHwid = String(req.query.hwid || '').slice(0, 128);
-    countExecution(script.id);
+    countExecution(script.id, req.ip, script.user_id);
     logWithRoblox(script.id, [
       '🟢 Script ejecutado (FFA)',
       `• HWID: \`${/^[\x21-\x7E]{8,128}$/.test(ffaHwid) ? ffaHwid : 'sin dato'}\``,
@@ -1101,7 +1113,7 @@ app.get('/scripts/hosted/:slug/auth', loaderLimit, (req, res) => {
   } else if (k.hwid !== hwid) return reportKeyShare(script, k, hwid, reply);
   const run = db.prepare('UPDATE keys SET last_ip = ?, exec_count = COALESCE(exec_count, 0) + 1 WHERE key = ? RETURNING exec_count')
     .get(req.ip || null, key);
-  countExecution(script.id);
+  countExecution(script.id, req.ip, script.user_id);
   logWithRoblox(script.id, [
     '🟢 Script ejecutado',
     `• Key: \`${key}\``,
@@ -2016,6 +2028,16 @@ app.post('/api/keys/delete', requireAuth, (req, res) => {
 });
 
 // Ejecuciones de tus scripts por día (hora de Ecuador) y por script
+// Ejecuciones de mis scripts por país (solo código de país, sin IPs)
+app.get('/api/stats/countries', requireAuth, (req, res) => {
+  const days = Math.min(Math.max(parseInt(req.query.days, 10) || 30, 1), 60);
+  const since = ecuadorDay(Date.now() - (days - 1) * 86400_000);
+  const rows = db.prepare('SELECT country, SUM(n) AS n FROM execution_country WHERE user_id = ? AND day >= ? GROUP BY country ORDER BY n DESC')
+    .all(String(req.userId), since);
+  const total = rows.reduce((a, r) => a + r.n, 0);
+  res.json({ days, total, countries: rows });
+});
+
 app.get('/api/stats/executions', requireAuth, (req, res) => {
   const days = Math.min(Math.max(Number(req.query.days) || 7, 1), 60);
   const since = ecuadorDay(Date.now() - (days - 1) * 86400_000);
@@ -2176,6 +2198,7 @@ function pruneOldData() {
     const t = Math.floor(Date.now() / 1000);
     const logs = db.prepare('DELETE FROM script_logs WHERE created_at < ?').run(t - LOG_KEEP_SECONDS).changes;
     db.prepare('DELETE FROM execution_daily WHERE day < ?').run(ecuadorDay(Date.now() - 60 * 86400_000));
+    db.prepare('DELETE FROM execution_country WHERE day < ?').run(ecuadorDay(Date.now() - 60 * 86400_000));
     db.prepare('DELETE FROM obf_cache WHERE created_at < ?').run(Math.floor(Date.now() / 1000) - 30 * 86400);
     if (logs) console.log(`[Limpieza] ${logs} logs de scripts borrados (más de 1 día).`);
   } catch (err) { console.error('[Limpieza] Error:', err.message); }

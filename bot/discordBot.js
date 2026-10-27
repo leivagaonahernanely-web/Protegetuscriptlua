@@ -367,6 +367,7 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
 
   // Mensaje para quien no tiene whitelist ni key (estilo Luarmor)
   const NO_ACCESS_MSG = 'You need to be whitelisted to get this script.\nIf you have a script key, click on the Redeem button below to redeem it';
+  const KEY_LIMIT_MSG = '⛔ El creador de este script alcanzó el límite de keys de su plan en este periodo. Vuelve a intentar cuando se reinicie.';
 
   // Bloqueo: blacklist o key baneada en ese script
   const isBlocked = (script, userId) =>
@@ -381,6 +382,8 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
       || q.rulesForScript.all(script.id).filter(ruleActive).some(r =>
         (r.kind === 'user' && r.discord_id === userId) || (r.kind === 'role' && roleIds.includes(r.discord_id)));
     if (!allowed) return { status: 'none' };
+    // Las keys automáticas también cuentan para el límite del plan del creador
+    if (!keyCapOk(script.user_id, 1)) return { status: 'limit' };
     const key = makeKey();
     q.insertClaimed.run(key, script.id, userId); // whitelist: key automática vinculada al usuario
     return { status: 'ok', key };
@@ -408,6 +411,7 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
     if (script.ffa) return `\`\`\`lua\n${loaderText(script)}\n\`\`\``;
     const access = resolveAccess(script, userId, roleIds);
     if (access.status === 'blacklisted') return `⛔ Estás bloqueado para **${script.name}**.`;
+    if (access.status === 'limit') return KEY_LIMIT_MSG;
     if (access.status === 'none') {
       console.log(`[Bot] Sin acceso: script ${script.id} (${script.name}), usuario ${userId}, roles vistos ${roleIds.length}`);
       return NO_ACCESS_MSG;
@@ -459,6 +463,7 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
   function scriptStatsReply(userId, script, roleIds) {
     const granted = resolveAccess(script, userId, roleIds);
     if (granted.status === 'blacklisted') return `⛔ Estás bloqueado para **${script.name}**.`;
+    if (granted.status === 'limit') return KEY_LIMIT_MSG;
     if (granted.status === 'none') return NO_ACCESS_MSG;
     const k = q.keyForScriptUser.get(script.id, userId);
     const lines = [`📊 **Tu estado en ${script.name}**`, 'Acceso: ✅ Key activa'];
@@ -795,16 +800,18 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
           q.ruleInsert.run(script.id, kind, id, user ? user.username : role.name, expires);
           logScriptEvent(script, `✅ ${label} añadido a la whitelist por <@${actor}> (${expires ? 'temporal' : 'permanente'})`);
           // Whitelist de usuario: su key se crea (o se ajusta) con la misma duración, si no está bloqueado
+          let keyLimited = false;
           if (user && !isBlocked(script, id)) {
             const active = q.activeKeyFor.get(script.id, id, now());
             if (active) q.setExpiry.run(expires, active.key);
-            else q.insertKeyExp.run(makeKey(), script.id, expires, id);
+            else if (keyCapOk(script.user_id, 1)) q.insertKeyExp.run(makeKey(), script.id, expires, id);
+            else keyLimited = true;
           }
           const panel = q.panelForScript.get(script.id);
           const where = panel ? ` en el panel <#${panel.channel_id}>` : '';
           const roleGuild = user ? await grantBuyerRole(script, id) : null;
           const roleNote = roleGuild ? ` Se le dio el rol comprador en **${roleGuild.name}**.` : '';
-          return reply(`✅ ${label} añadido a la whitelist de **${script.name}** (${expiryText}). Puede obtener el script con Get Script${where}.${roleNote}`);
+          return reply(`✅ ${label} añadido a la whitelist de **${script.name}** (${expiryText}). Puede obtener el script con Get Script${where}.${roleNote}${keyLimited ? ' Su key se creará cuando se reinicie el límite de keys del plan.' : ''}`);
         }
         q.ruleDelete.run(script.id, kind, id);
         logScriptEvent(script, `➖ ${label} quitado de la whitelist por <@${actor}>`);
@@ -1119,7 +1126,7 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
     q.ruleInsert.run(game.script.id, 'user', userId, interaction.user.username, expires);
     const active = q.activeKeyFor.get(game.script.id, userId, now());
     if (active) q.setExpiry.run(expires, active.key);
-    else q.insertKeyExp.run(makeKey(), game.script.id, expires, userId);
+    else if (keyCapOk(game.script.user_id, 1)) q.insertKeyExp.run(makeKey(), game.script.id, expires, userId);
     logScriptEvent(game.script, `🍪 <@${userId}> ganó el juego de la galleta (whitelist ${game.durText})`);
     await interaction.reply({ content: `🏆 ¡Ganaste! Quedaste en la whitelist de **${game.script.name}** ${game.durText}. Usa Get Script para obtener tu loader.`, flags: MessageFlags.Ephemeral });
     await endCookieGame(game, userId);
@@ -1306,12 +1313,12 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
     if (action === 'stats') return reply(statsReply(actor, script, memberRoleIds(interaction)));
     if (action === 'role') {
       const access = resolveAccess(script, actor, memberRoleIds(interaction));
-      if (access.status !== 'ok') return reply(NO_ACCESS_MSG);
+      if (access.status !== 'ok') return reply(access.status === 'limit' ? KEY_LIMIT_MSG : NO_ACCESS_MSG);
       return reply(await giveBuyerRole(interaction, script));
     }
     if (action === 'hwid') {
       const access = resolveAccess(script, actor, memberRoleIds(interaction));
-      if (access.status !== 'ok') return reply(NO_ACCESS_MSG);
+      if (access.status !== 'ok') return reply(access.status === 'limit' ? KEY_LIMIT_MSG : NO_ACCESS_MSG);
       return reply(resetHwid(script, actor, actor, false));
     }
     return reply('❌ Acción no disponible.');

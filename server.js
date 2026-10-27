@@ -9,6 +9,7 @@ import os from 'os';
 import { execFile } from 'child_process';
 import { fileURLToPath } from 'url';
 import Database from 'better-sqlite3';
+import { createQuota, PLAN_DAYS_DEFAULT, MONTH_SECONDS, FREE_RESET_SECONDS } from './lib/quota.js';
 import { startDiscordBot, ensureBotSchema } from './bot/discordBot.js';
 import 'dotenv/config';
 
@@ -246,21 +247,9 @@ db.exec('CREATE UNIQUE INDEX IF NOT EXISTS scripts_loader_id ON scripts(loader_i
 for (const row of db.prepare('SELECT id FROM scripts WHERE loader_id IS NULL').all()) {
   db.prepare('UPDATE scripts SET loader_id = ? WHERE id = ?').run(crypto.randomBytes(20).toString('hex'), row.id);
 }
-// Todos los planes duran un mes, y los contadores (ofuscaciones) se reinician cada mes
-const PLAN_DAYS_DEFAULT = 30;
-const MONTH_SECONDS = PLAN_DAYS_DEFAULT * 86400;
-// El contador Free se reinicia cada 15 días; los planes pagos cada mes
-const FREE_RESET_SECONDS = 15 * 86400;
-const quotaDueStmt = db.prepare('SELECT plan, quota_reset_at FROM users WHERE id = ?');
-// Al reiniciarse el periodo se ponen en cero todos los contadores: ofuscaciones, scripts creados y keys generadas
-const quotaResetStmt = db.prepare('UPDATE users SET obf_used = 0, scripts_period = 0, keys_period = 0, quota_reset_at = ? WHERE id = ?');
-function resetQuotaIfDue(userId) {
-  const row = quotaDueStmt.get(userId);
-  if (!row) return;
-  const now = Math.floor(Date.now() / 1000);
-  const every = row.plan === 'free' ? FREE_RESET_SECONDS : MONTH_SECONDS;
-  if (!row.quota_reset_at || row.quota_reset_at <= now) quotaResetStmt.run(now + every, userId);
-}
+// Contadores por periodo y cuotas: lógica en lib/quota.js
+const quota = createQuota(db);
+const resetQuotaIfDue = userId => quota.resetIfDue(userId);
 // Un plan pagado cuyo vencimiento ya pasó vuelve a Free y queda marcado para avisar al usuario
 const expireAllStmt = db.prepare("UPDATE users SET plan = 'free', plan_expires_at = NULL, plan_expired_at = ? WHERE plan IN ('premium','plus') AND plan_expires_at IS NOT NULL AND plan_expires_at <= ?");
 const expireOneStmt = db.prepare("UPDATE users SET plan = 'free', plan_expires_at = NULL, plan_expired_at = ? WHERE id = ? AND plan IN ('premium','plus') AND plan_expires_at IS NOT NULL AND plan_expires_at <= ?");
@@ -278,6 +267,10 @@ db.exec('CREATE TABLE IF NOT EXISTS app_settings (name TEXT PRIMARY KEY, value T
 // Historial de versiones del código fuente de cada script (las últimas 10 por script)
 db.exec('CREATE TABLE IF NOT EXISTS script_versions (id INTEGER PRIMARY KEY AUTOINCREMENT, script_id INTEGER NOT NULL, name TEXT, obfuscator TEXT, ffa INTEGER, source_hash TEXT, source TEXT, created_at INTEGER)');
 db.exec('CREATE INDEX IF NOT EXISTS script_versions_by_script ON script_versions(script_id)');
+db.exec('CREATE INDEX IF NOT EXISTS scripts_by_user ON scripts(user_id)');
+db.exec('CREATE INDEX IF NOT EXISTS keys_by_script ON keys(script_id)');
+db.exec('CREATE INDEX IF NOT EXISTS keys_by_discord ON keys(discord_id)');
+db.exec('CREATE INDEX IF NOT EXISTS plan_keys_by_user ON plan_keys(used_by)');
 function snapshotVersion(scriptId, { name, obfuscator, ffa, source }) {
   const hash = crypto.createHash('sha256').update(String(source ?? '')).digest('hex');
   // Si el código no cambió (solo se editó el nombre o la protección), no se repite la versión
@@ -307,32 +300,9 @@ const SESSION_SECRET = JWT_SECRET || (() => {
   return secret;
 })();
 
-// Cuotas por plan (las mismas que muestra el dashboard)
-const PLAN_QUOTAS = {
-  free:    { scripts: 2,        obfuscations: 5,  keys: 100 },
-  premium: { scripts: 10,       obfuscations: 30, keys: Infinity },
-  plus:    { scripts: Infinity, obfuscations: Infinity, keys: Infinity },
-};
-const keyCapFor = userId => (isPaidPlanId(userId) ? Infinity : PLAN_QUOTAS.free.keys);
-// Cuota por periodo compartida con el bot: reserva keys (comprueba y suma en una sola operación)
-const quotaApi = {
-  reserveKeys(userId, amount) {
-    resetQuotaIfDue(userId);
-    const cap = keyCapFor(userId);
-    if (cap === Infinity) return true;
-    const used = db.prepare('SELECT keys_period FROM users WHERE id = ?').get(userId)?.keys_period ?? 0;
-    if (used + amount > cap) return false;
-    db.prepare('UPDATE users SET keys_period = COALESCE(keys_period, 0) + ? WHERE id = ?').run(amount, userId);
-    return true;
-  },
-  keysLeft(userId) {
-    resetQuotaIfDue(userId);
-    const cap = keyCapFor(userId);
-    if (cap === Infinity) return Infinity;
-    return Math.max(0, cap - (db.prepare('SELECT keys_period FROM users WHERE id = ?').get(userId)?.keys_period ?? 0));
-  },
-};
-const quotaFor = userId => PLAN_QUOTAS[stmt.userById.get(userId)?.plan] ?? PLAN_QUOTAS.free;
+const keyCapFor = userId => quota.capFor(userId);
+// Reserva de keys del periodo (la comparte el bot)
+const quotaApi = quota;
 
 const scriptBanStmt = db.prepare('SELECT 1 FROM script_bans WHERE script_id = ? AND kind = ? AND value = ?');
 const scriptBanned = (scriptId, kind, value) => Boolean(value) && Boolean(scriptBanStmt.get(scriptId, kind, String(value)));
@@ -951,23 +921,37 @@ const logUse = (scriptId, text, userId = null, opts = {}) => { try { discordBot?
 
 // Nombre y foto de avatar de un usuario de Roblox (caché 1 h; si Roblox no responde, queda vacío)
 const robloxCache = new Map();
+db.exec('CREATE TABLE IF NOT EXISTS roblox_cache (user_id TEXT PRIMARY KEY, name TEXT, avatar TEXT, updated_at INTEGER)');
+const robloxRowStmt = db.prepare('SELECT name, avatar, updated_at FROM roblox_cache WHERE user_id = ?');
+const robloxSaveStmt = db.prepare(`INSERT INTO roblox_cache (user_id, name, avatar, updated_at) VALUES (?, ?, ?, ?)
+  ON CONFLICT(user_id) DO UPDATE SET name = excluded.name, avatar = excluded.avatar, updated_at = excluded.updated_at`);
 async function robloxInfo(userId) {
   const hit = robloxCache.get(userId);
   if (hit && hit.exp > Date.now()) return hit.value;
+  const t = Math.floor(Date.now() / 1000);
+  // Base de datos: sobrevive a reinicios. Con foto vale una hora; sin foto se vuelve a consultar pronto
+  const saved = robloxRowStmt.get(userId);
+  if (saved && saved.avatar && saved.updated_at > t - 3600) {
+    const value = { name: saved.name, avatar: saved.avatar };
+    robloxCache.set(userId, { value, exp: Date.now() + 3600_000 });
+    return value;
+  }
   const getJson = url => fetch(url, { signal: AbortSignal.timeout(4000) }).then(r => (r.ok ? r.json() : null)).catch(() => null);
   const load = async () => {
-    const [u, t] = await Promise.all([
+    const [u, th] = await Promise.all([
       getJson(`https://users.roblox.com/v1/users/${userId}`),
       getJson(`https://thumbnails.roblox.com/v1/users/avatar-headshot?userIds=${userId}&size=150x150&format=Png&isCircular=false`),
     ]);
-    const avatar = t?.data?.[0]?.imageUrl;
+    const avatar = th?.data?.[0]?.imageUrl;
     return { name: u?.name || null, avatar: typeof avatar === 'string' && avatar.startsWith('https://') ? avatar : null };
   };
   let value = await load();
   // Roblox genera la miniatura la primera vez y responde sin imagen mientras tanto: se reintenta una vez
   if (!value.avatar) { await new Promise(r => setTimeout(r, 2500)); value = await load(); }
+  if (value.name || value.avatar) {
+    try { robloxSaveStmt.run(userId, value.name, value.avatar, t); } catch { /* la caché nunca rompe el log */ }
+  }
   if (robloxCache.size > 5000) robloxCache.clear();
-  // Sin foto no se guarda una hora: se vuelve a consultar pronto
   robloxCache.set(userId, { value, exp: Date.now() + (value.avatar ? 3600_000 : 60_000) });
   return value;
 }
@@ -1730,17 +1714,8 @@ app.get('/api/scripts', requireAuth, (req, res) => {
 });
 
 // Cuotas del plan: scripts creados y ofuscaciones usadas (borrar un script no devuelve la cuota)
-function quotaError(userId, { isNewScript, isFfa }) {
-  const quota = quotaFor(userId);
-  resetQuotaIfDue(userId);
-  const scriptsUsed = db.prepare('SELECT scripts_period FROM users WHERE id = ?').get(userId)?.scripts_period ?? 0;
-  if (isNewScript && scriptsUsed >= quota.scripts) {
-    return `Tu plan permite ${quota.scripts} scripts por periodo. Mejora tu plan para crear más.`;
-  }
-  if (!isFfa && (stmt.obfUsed.get(userId)?.obf_used ?? 0) >= quota.obfuscations) {
-    return `Ya usaste tus ${quota.obfuscations} ofuscaciones del plan. Mejora tu plan para seguir.`;
-  }
-  return null;
+function quotaError(userId, opts) {
+  return quota.quotaError(userId, opts);
 }
 
 // El usuario confirma que ya se unió; queda guardado y el aviso no vuelve a salir

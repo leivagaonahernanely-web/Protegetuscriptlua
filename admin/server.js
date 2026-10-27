@@ -88,6 +88,7 @@ const ALLOWED = {
   obfuscators: { GET: '/obfuscators' },
   announce: { POST: '/announce' },
   overview: { GET: '/overview' },
+  servers: { GET: '/servers' },
   settings: { POST: '/settings' },
 };
 

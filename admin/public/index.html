@@ -100,6 +100,7 @@ pre{white-space:pre-wrap;word-break:break-all;background:#040407;border:1px soli
       <button class="tab" data-tab="logs">Logs</button>
       <button class="tab" data-tab="prices">Prices &amp; Plans</button>
       <button class="tab" data-tab="changelog">Changelog</button>
+      <button class="tab" data-tab="servers">Servers</button>
       <button class="tab" data-tab="site">Mantenimiento</button>
     </nav>
 
@@ -114,6 +115,11 @@ pre{white-space:pre-wrap;word-break:break-all;background:#040407;border:1px soli
     <section class="card hidden" data-panel="users">
       <div class="row"><input class="field" id="userSearch" placeholder="Search username"><select class="field" id="userRoleFilter"><option value="">Todos los roles</option><option value="owner">Owner</option><option value="admin">Admin</option><option value="plus">Premium Plus</option><option value="premium">Premium</option><option value="free">Free</option></select></div>
       <table><thead><tr><th>User</th><th>Scripts</th><th>Obfuscations</th><th>Plan</th><th></th><th>Staff</th><th></th></tr></thead><tbody id="usersBody"></tbody></table>
+    </section>
+
+    <section class="card hidden" data-panel="servers">
+      <div class="row" style="justify-content:space-between"><strong id="srvCount">Cargando…</strong><button class="btn ghost sm" id="srvRefresh" type="button">Actualizar</button></div>
+      <table><thead><tr><th>Servidor</th><th>ID</th><th>Miembros</th></tr></thead><tbody id="srvBody"></tbody></table>
     </section>
 
     <section class="card hidden" data-panel="publisher">
@@ -273,6 +279,7 @@ document.querySelectorAll('.tab').forEach(t => t.addEventListener('click', () =>
   document.querySelectorAll('[data-panel]').forEach(p => p.classList.toggle('hidden', p.dataset.panel !== t.dataset.tab));
   if (t.dataset.tab === 'prices' || t.dataset.tab === 'changelog') loadChannels();
   if (t.dataset.tab === 'site') loadSite();
+  if (t.dataset.tab === 'servers') loadServers();
 }));
 
 // ---- Mantenimiento y banner ----
@@ -534,6 +541,19 @@ async function withSkeleton(tbodyId, cols, load) {
 async function loadKeys() { await withSkeleton('keysBody', 5, async () => { cache.keys = await api('GET', '/admin/api/plan-keys'); renderKeys(); }); }
 async function loadUsers() { await withSkeleton('usersBody', 7, async () => { cache.users = await api('GET', '/admin/api/users'); renderUsers(); }); }
 async function loadPublisher() { await withSkeleton('pubBody', 4, async () => { cache.publisher = await api('GET', '/admin/api/publisher'); renderPublisher(); }); }
+async function loadServers() {
+  const body = $('srvBody');
+  try {
+    const s = await api('GET', '/admin/api/servers');
+    $('srvCount').textContent = `${s.servers} ${s.servers === 1 ? 'servidor' : 'servidores'} · bot ${s.online ? 'en línea' : 'desconectado'}`;
+    body.innerHTML = s.list.length
+      ? s.list.map(g => `<tr><td>${esc(g.name)}</td><td>${esc(g.id)}</td><td>${g.members ?? '—'}</td></tr>`).join('')
+      : '<tr><td colspan="3" class="muted">El bot no está en ningún servidor.</td></tr>';
+  } catch (err) {
+    body.innerHTML = `<tr><td colspan="3" class="muted">No se pudo cargar: ${esc(err.message)}</td></tr>`;
+  }
+}
+$('srvRefresh').addEventListener('click', loadServers);
 async function loadAll() {
   try {
     await Promise.all([loadKeys(), loadUsers(), loadPublisher(), loadLogs()]);

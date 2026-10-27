@@ -1717,15 +1717,16 @@ app.get('/api/owner/overview', requireOwnerApi, (req, res) => {
       usersByPlan: db.prepare("SELECT COALESCE(plan, 'free') AS plan, COUNT(*) AS count FROM users GROUP BY plan").all(),
     },
     audit: db.prepare('SELECT actor_id, action, target, detail, created_at FROM admin_audit ORDER BY id DESC LIMIT 100').all(),
-    bot: discordBot?.guilds?.cache ? {
-      online: Boolean(discordBot.isReady?.() ?? discordBot.user),
-      servers: discordBot.guilds.cache.size,
-      list: [...discordBot.guilds.cache.values()]
-        .map(g => ({ name: g.name, members: g.memberCount ?? null }))
-        .sort((a, b) => (b.members ?? 0) - (a.members ?? 0))
-        .slice(0, 50),
-    } : { online: false, servers: 0, list: [] },
   });
+});
+// Servidores donde está el bot (solo dueño; el panel admin lo reenvía)
+app.get('/api/owner/servers', requireOwnerApi, (req, res) => {
+  const cache = discordBot?.guilds?.cache;
+  if (!cache) return res.json({ online: false, servers: 0, list: [] });
+  const list = [...cache.values()]
+    .map(g => ({ id: g.id, name: g.name, members: g.memberCount ?? null }))
+    .sort((a, b) => (b.members ?? 0) - (a.members ?? 0));
+  res.json({ online: Boolean(discordBot.isReady?.()), servers: list.length, list });
 });
 app.post('/api/owner/settings', requireOwnerApi, (req, res) => {
   const b = req.body || {};

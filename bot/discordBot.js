@@ -409,15 +409,16 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
   // Tarjeta para quien no tiene acceso: explica cómo conseguirlo y trae los botones correspondientes
   function noAccessCard(script) {
     const embed = new EmbedBuilder()
-      .setColor(0xed4245)
-      .setTitle('🔒 No tienes acceso')
-      .setDescription(`Necesitas una **key** o estar en la **whitelist** de **${script.name}**.`)
+      .setColor(0x2b2d31)
+      .setAuthor({ name: 'Vantarmor', iconURL: client.user.displayAvatarURL() })
+      .setTitle('Acceso restringido')
+      .setDescription(`**${script.name}** requiere una key o acceso por whitelist.`)
       .addFields(
-        { name: '🔑 Tienes una key', value: 'Pulsa **Redeem Key** y pégala.' },
-        { name: '📋 Estás en la whitelist', value: 'Pulsa **Get Script** otra vez.' },
-        { name: '❔ No tienes ninguna', value: 'Pídesela al creador.' },
+        { name: 'Tienes una key', value: 'Canjéala con **Redeem Key**.' },
+        { name: 'Estás en la whitelist', value: 'Vuelve a pulsar **Get Script**.' },
+        { name: 'No tienes acceso', value: 'Solicítalo al creador del script.' },
       )
-      .setFooter({ text: 'Vantarmor · acceso por key o whitelist' })
+      .setFooter({ text: 'Vantarmor · Protección de scripts', iconURL: client.user.displayAvatarURL() })
       .setTimestamp();
     const row = new ActionRowBuilder().addComponents(
       new ButtonBuilder().setCustomId(`vanta:redeem:${script.id}`).setLabel('🔑 Redeem Key').setStyle(ButtonStyle.Success),

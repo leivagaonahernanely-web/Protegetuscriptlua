@@ -728,3 +728,36 @@ tbody tr:hover td { background: rgba(255,255,255,.025); }
 /* Mapa: puntos para países muy pequeños */
 .geo-map .dot { stroke: #0b0b0e; stroke-width: .8; cursor: pointer; transition: stroke .15s ease; }
 .geo-map .dot:hover { stroke: #ffffff; stroke-width: 1.2; }
+
+/* Estadísticas: barra de filtro y exportación */
+.stats-toolbar { display: flex; justify-content: flex-end; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 14px; }
+.stats-filter { display: flex; align-items: center; gap: 8px; color: var(--text-dim); font-size: 13px; }
+.stats-filter select { min-width: 200px; }
+
+/* Estado vacío con acción */
+.empty-inline { display: flex; align-items: center; justify-content: center; gap: 12px; flex-wrap: wrap; padding: 6px 0; color: var(--text-dim); }
+
+/* Keys en móvil: cada licencia es una tarjeta */
+@media (max-width: 700px) {
+  table:has(#keysTable) thead { display: none; }
+  #keysTable tr { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 14px; padding: 14px; margin-bottom: 10px; border: 1px solid var(--border); border-radius: 14px; background: var(--surface); }
+  #keysTable tr.selected { border-color: rgba(255,255,255,.3); }
+  #keysTable td { border: 0; padding: 0; min-width: 0; overflow-wrap: anywhere; }
+  #keysTable td:first-child { grid-column: 1 / -1; }
+  #keysTable td[data-label]::before { content: attr(data-label); display: block; font-size: 10px; letter-spacing: .08em; text-transform: uppercase; color: var(--text-dim); margin-bottom: 3px; }
+  #keysTable td.key-cell { grid-column: 1 / -1; }
+  #keysTable td.key-actions { grid-column: 1 / -1; text-align: left !important; display: flex; flex-wrap: wrap; gap: 6px; }
+  #keysTable td[colspan] { grid-column: 1 / -1; }
+}
+
+/* Barra de selección en lote: oscura, para que los botones se lean */
+.bulk-bar { background: rgba(255,255,255,.07); color: #fff; border: 1px solid var(--border-strong); }
+.bulk-bar .btn.ghost { color: #fff; }
+.bulk-bar .btn:not(.ghost) { background: #fff; color: #000; }
+
+/* Keys en móvil: la tabla ocupa solo el ancho de la pantalla */
+@media (max-width: 700px) {
+  table:has(#keysTable) { display: block; width: 100%; }
+  #keysTable { display: block; width: 100%; }
+  #keysTable tr { width: 100%; box-sizing: border-box; }
+}

@@ -991,12 +991,16 @@ const countExecutionStmt = db.prepare(`INSERT INTO execution_daily (script_id, d
 db.exec(`CREATE TABLE IF NOT EXISTS execution_country (user_id TEXT NOT NULL, day TEXT NOT NULL, country TEXT NOT NULL, n INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (user_id, day, country))`);
 const countryStmt = db.prepare(`INSERT INTO execution_country (user_id, day, country, n) VALUES (?, ?, ?, 1)
   ON CONFLICT(user_id, day, country) DO UPDATE SET n = n + 1`);
+db.exec(`CREATE TABLE IF NOT EXISTS execution_script_country (script_id INTEGER NOT NULL, day TEXT NOT NULL, country TEXT NOT NULL, n INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (script_id, day, country))`);
+const scriptCountryStmt = db.prepare(`INSERT INTO execution_script_country (script_id, day, country, n) VALUES (?, ?, ?, 1)
+  ON CONFLICT(script_id, day, country) DO UPDATE SET n = n + 1`);
 const countryOf = ip => { try { return geoip.lookup(String(ip || ''))?.country || null; } catch { return null; } };
 const countExecution = (scriptId, ip, userId) => {
   try {
     countExecutionStmt.run(scriptId, ecuadorDay(Date.now()));
     const country = countryOf(ip);
     if (country && userId) countryStmt.run(String(userId), ecuadorDay(Date.now()), country);
+    if (country) scriptCountryStmt.run(scriptId, ecuadorDay(Date.now()), country);
   } catch { /* las estadísticas nunca rompen el loader */ }
 };
 
@@ -2097,31 +2101,48 @@ app.post('/api/keys/delete', requireAuth, (req, res) => {
 
 // Ejecuciones de tus scripts por día (hora de Ecuador) y por script
 // Ejecuciones de mis scripts por país (solo código de país, sin IPs)
+// Filtro opcional ?script=ID: solo si el script es del usuario; devuelve null si no lo es
+const ownScriptFilter = req => {
+  if (req.query.script === undefined || req.query.script === '' || req.query.script === 'all') return { id: null };
+  const id = Number(req.query.script);
+  const own = Number.isInteger(id) && db.prepare('SELECT 1 FROM scripts WHERE id = ? AND user_id = ?').get(id, req.userId);
+  return own ? { id } : null;
+};
+
 app.get('/api/stats/countries', requireAuth, (req, res) => {
   const days = Math.min(Math.max(parseInt(req.query.days, 10) || 30, 1), 60);
   const since = ecuadorDay(Date.now() - (days - 1) * 86400_000);
-  const rows = db.prepare('SELECT country, SUM(n) AS n FROM execution_country WHERE user_id = ? AND day >= ? GROUP BY country ORDER BY n DESC')
-    .all(String(req.userId), since);
+  const f = ownScriptFilter(req);
+  if (!f) return res.status(404).json({ error: 'Script no encontrado' });
+  const rows = f.id === null
+    ? db.prepare('SELECT country, SUM(n) AS n FROM execution_country WHERE user_id = ? AND day >= ? GROUP BY country ORDER BY n DESC')
+        .all(String(req.userId), since)
+    : db.prepare('SELECT country, SUM(n) AS n FROM execution_script_country WHERE script_id = ? AND day >= ? GROUP BY country ORDER BY n DESC')
+        .all(f.id, since);
   const total = rows.reduce((a, r) => a + r.n, 0);
-  res.json({ days, total, countries: rows });
+  res.json({ days, total, countries: rows, script: f.id });
 });
 
 app.get('/api/stats/executions', requireAuth, (req, res) => {
   const days = Math.min(Math.max(Number(req.query.days) || 7, 1), 60);
   const since = ecuadorDay(Date.now() - (days - 1) * 86400_000);
+  const f = ownScriptFilter(req);
+  if (!f) return res.status(404).json({ error: 'Script no encontrado' });
+  const only = f.id === null ? '' : ' AND s.id = ?';
+  const extra = f.id === null ? [] : [f.id];
   const byDay = db.prepare(`
     SELECT e.day, SUM(e.n) AS n FROM execution_daily e JOIN scripts s ON s.id = e.script_id
-    WHERE s.user_id = ? AND e.day >= ? GROUP BY e.day ORDER BY e.day`).all(req.userId, since);
+    WHERE s.user_id = ? AND e.day >= ?${only} GROUP BY e.day ORDER BY e.day`).all(req.userId, since, ...extra);
   const byScript = db.prepare(`
     SELECT s.id, s.name, SUM(e.n) AS n FROM execution_daily e JOIN scripts s ON s.id = e.script_id
-    WHERE s.user_id = ? AND e.day >= ? GROUP BY s.id ORDER BY n DESC LIMIT 10`).all(req.userId, since);
+    WHERE s.user_id = ? AND e.day >= ?${only} GROUP BY s.id ORDER BY n DESC LIMIT 10`).all(req.userId, since, ...extra);
   // Total del período anterior (mismo largo) para comparar en las estadísticas
   const prevSince = ecuadorDay(Date.now() - (days * 2 - 1) * 86400_000);
   const prevTotal = db.prepare(`
     SELECT COALESCE(SUM(e.n), 0) AS n FROM execution_daily e JOIN scripts s ON s.id = e.script_id
-    WHERE s.user_id = ? AND e.day >= ? AND e.day < ?`).get(req.userId, prevSince, since).n;
+    WHERE s.user_id = ? AND e.day >= ? AND e.day < ?${only}`).get(req.userId, prevSince, since, ...extra).n;
   const total = byDay.reduce((a, r) => a + r.n, 0);
-  res.json({ days, total, prevTotal, byDay, byScript });
+  res.json({ days, total, prevTotal, byDay, byScript, script: f.id });
 });
 
 app.get('/api/keys', requireAuth, (req, res) => {
@@ -2273,6 +2294,7 @@ function pruneOldData() {
     const logs = db.prepare('DELETE FROM script_logs WHERE created_at < ?').run(t - LOG_KEEP_SECONDS).changes;
     db.prepare('DELETE FROM execution_daily WHERE day < ?').run(ecuadorDay(Date.now() - 60 * 86400_000));
     db.prepare('DELETE FROM execution_country WHERE day < ?').run(ecuadorDay(Date.now() - 60 * 86400_000));
+    db.prepare('DELETE FROM execution_script_country WHERE day < ?').run(ecuadorDay(Date.now() - 60 * 86400_000));
     db.prepare('DELETE FROM obf_cache WHERE created_at < ?').run(Math.floor(Date.now() / 1000) - 30 * 86400);
     if (logs) console.log(`[Limpieza] ${logs} logs de scripts borrados (más de 1 día).`);
   } catch (err) { console.error('[Limpieza] Error:', err.message); }

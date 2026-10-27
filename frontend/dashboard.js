@@ -830,7 +830,7 @@
       return;
     }
     if (!keys.length) {
-      tbody.innerHTML = `<tr><td colspan="6" class="center">Todavía no has generado keys.</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="6" class="center"><div class="empty-inline"><span>Todavía no has generado keys.</span> <button class="btn sm" data-open="keys">+ Generar keys</button></div></td></tr>`;
       updateBulk();
       return;
     }
@@ -843,11 +843,11 @@
     tbody.innerHTML = rows.map(({ k, st, script }) => `
       <tr class="${selected.has(k.key) ? 'selected' : ''}">
         <td><input type="checkbox" class="check" data-select="${esc(k.key)}" ${selected.has(k.key) ? 'checked' : ''} aria-label="Seleccionar key"></td>
-        <td class="key-cell">${esc(maskKey(k.key))}</td>
-        <td>${esc(script)}</td>
-        <td><span class="badge ${st.cls}">${st.label}</span></td>
-        <td>${fmtDate(k.expires_at)}</td>
-        <td style="text-align:right"><button class="btn ghost sm" data-copy="${esc(k.key)}" data-msg="Key copiada">Copiar</button> <button class="btn ghost sm" data-ban-key="${esc(k.key)}">Banear</button> <button class="btn ghost sm" data-del-key="${esc(k.key)}">Eliminar</button></td>
+        <td class="key-cell" data-label="Licencia">${esc(maskKey(k.key))}</td>
+        <td data-label="Script">${esc(script)}</td>
+        <td data-label="Estado"><span class="badge ${st.cls}">${st.label}</span></td>
+        <td data-label="Expiración">${fmtDate(k.expires_at)}</td>
+        <td class="key-actions" style="text-align:right"><button class="btn ghost sm" data-copy="${esc(k.key)}" data-msg="Key copiada">Copiar</button> <button class="btn ghost sm" data-ban-key="${esc(k.key)}">Banear</button> <button class="btn ghost sm" data-del-key="${esc(k.key)}">Eliminar</button></td>
       </tr>`).join('');
     updateBulk();
   }
@@ -1686,11 +1686,58 @@
     $('geoMax').textContent = max.toLocaleString('es-EC');
   }
 
+  // D3 y topojson solo se cargan cuando se abre Estadísticas (no pesan en el resto del dashboard)
+  let mapLibsPromise = null;
+  const loadScript = src => new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = src; s.async = true;
+    s.onload = resolve; s.onerror = () => reject(new Error(src));
+    document.head.appendChild(s);
+  });
+  function ensureD3() {
+    if (window.d3 && window.topojson) return Promise.resolve(true);
+    if (!mapLibsPromise) {
+      mapLibsPromise = Promise.all([
+        loadScript('https://cdn.jsdelivr.net/npm/d3@7.9.0/dist/d3.min.js'),
+        loadScript('https://cdn.jsdelivr.net/npm/topojson-client@3.1.0/dist/topojson-client.min.js'),
+      ]).then(() => true, () => { mapLibsPromise = null; return false; });
+    }
+    return mapLibsPromise;
+  }
+
+  // Filtro de estadísticas por script y datos actuales para exportar
+  let statScript = 'all';
+  let statCache = null;
+  const statQuery = () => (statScript === 'all' ? '' : `&script=${encodeURIComponent(statScript)}`);
+  function renderStatScript() {
+    const sel = $('statScript');
+    sel.innerHTML = '<option value="all">Todos los scripts</option>' +
+      scripts.map(s => `<option value="${esc(s.id)}">${esc(s.name)}</option>`).join('');
+    sel.value = [...sel.options].some(o => o.value === statScript) ? statScript : 'all';
+    statScript = sel.value;
+  }
+  $('statScript').addEventListener('change', e => { statScript = e.target.value; loadExecStats(); });
+  $('statCsv').addEventListener('click', () => {
+    if (!statCache) { toast('Aún no hay datos para exportar', 'error'); return; }
+    const rows = [['Sección', 'Clave', 'Valor']];
+    (statCache.byDay || []).forEach(d => rows.push(['Ejecuciones por día', d.day, d.n]));
+    (statCache.byScript || []).forEach(s => rows.push(['Scripts', s.name, s.n]));
+    (statCache.countries || []).forEach(c => rows.push(['Países (30 días)', c.country, c.n]));
+    const csv = '\ufeff' + rows.map(r => r.map(v => `"${String(v ?? '').replace(/"/g, '""')}"`).join(',')).join('\r\n');
+    const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `vantarmor-estadisticas-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  });
+
   async function loadGeoStats() {
     const list = $('geoList');
     const sub = $('geoSub');
     try {
-      const [data, ex] = await Promise.all([api('/api/stats/countries?days=30'), api('/api/stats/executions?days=30')]);
+      const [data, ex] = await Promise.all([api(`/api/stats/countries?days=30${statQuery()}`), api(`/api/stats/executions?days=30${statQuery()}`)]);
+      statCache = { ...(statCache || {}), countries: data.countries };
       const counts = new Map(data.countries.map(c => [c.country, c.n]));
       const max = Math.max(1, ...data.countries.map(c => c.n));
       const top = data.countries[0];
@@ -1716,7 +1763,7 @@
             <span class="geo-num">${c.n.toLocaleString('es-EC')}<small>${Math.round(c.n / data.total * 100)}%</small></span>
             <div class="geo-bar"><i style="width:${Math.round(c.n / max * 100)}%"></i></div></li>`).join('')
         : '<li class="geo-empty">Aún no hay ejecuciones con país registrado.</li>';
-      if (!window.d3 || !window.topojson) {
+      if (!(await ensureD3())) {
         $('geoMap').closest('.geo-map-wrap').classList.add('geo-off');
         return;
       }
@@ -1737,8 +1784,10 @@
 
   async function loadExecStats() {
     try {
+      renderStatScript();
       loadGeoStats();
-      const data = await api(`/api/stats/executions?days=${execDays}`);
+      const data = await api(`/api/stats/executions?days=${execDays}${statQuery()}`);
+      statCache = { ...(statCache || {}), byDay: data.byDay, byScript: data.byScript };
       const counts = new Map(data.byDay.map(r => [r.day, r.n]));
       const series = Array.from({ length: execDays }, (_, i) => {
         const day = dayKey(execDays - 1 - i);
@@ -2203,6 +2252,21 @@
     }));
   }
   $('bulkDelete').addEventListener('click', () => deleteKeys([...selected]));
+  $('bulkBan').addEventListener('click', async () => {
+    const list = keys.filter(k => selected.has(k.key) && k.hwid);
+    if (!list.length) { toast('Ninguna de las seleccionadas tiene HWID registrado', 'error'); return; }
+    if (!confirm(`¿Banear el HWID de ${list.length} key(s)? Los equipos quedarán bloqueados.`)) return;
+    let ok = 0;
+    for (const k of list) {
+      try {
+        await api(`/api/keys/${encodeURIComponent(k.key)}/ban`, { method: 'POST', body: JSON.stringify({ kind: 'hwid' }) });
+        ok++;
+      } catch (_) { /* se cuenta abajo */ }
+    }
+    toast(`Baneo aplicado a ${ok} de ${list.length}`, ok === list.length ? 'ok' : 'error');
+    selected.clear();
+    await loadData();
+  });
 
   // ---------- DATA ----------
   async function loadData() {

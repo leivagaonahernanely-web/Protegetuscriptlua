@@ -138,6 +138,7 @@
       <h1 class="page-title" id="pageTitle">Dashboard<small id="pageSub">Resumen de tu cuenta</small></h1>
       <a class="btn sm" id="inviteBotBtn" href="#" target="_blank" rel="noopener" style="display:none">Invitar bot</a>
       <span class="badge ok" id="botServers" hidden></span>
+      <div id="langSlot"></div>
       <button class="btn ghost sm" id="refreshBtn">Actualizar</button>
     </header>
 
@@ -212,6 +213,12 @@
 
       <!-- ESTADÍSTICAS -->
       <section class="view" data-view="stats">
+        <div class="stats-toolbar">
+          <label class="stats-filter"><span>Script</span>
+            <select class="field" id="statScript" aria-label="Filtrar estadísticas por script"><option value="all">Todos los scripts</option></select>
+          </label>
+          <button class="btn ghost sm" type="button" id="statCsv">Exportar CSV</button>
+        </div>
         <div class="kpi-row" id="stKpis">
           <div class="kpi"><span class="kpi-label">Ejecuciones (30 días)</span><strong id="kpiTotal">—</strong><span class="kpi-sub" id="kpiTotalSub"></span></div>
           <div class="kpi"><span class="kpi-label">Países alcanzados</span><strong id="kpiCountries">—</strong><span class="kpi-sub">con al menos una ejecución</span></div>
@@ -293,6 +300,7 @@
           <span id="bulkCount">0 seleccionadas</span>
           <span class="spacer"></span>
           <button class="btn sm" id="bulkCopy">Copiar seleccionadas</button>
+          <button class="btn ghost sm" id="bulkBan">Banear HWID</button>
           <button class="btn ghost sm" id="bulkDelete">Eliminar seleccionadas</button>
           <button class="btn ghost sm" id="bulkClear">Quitar selección</button>
         </div>
@@ -632,8 +640,7 @@
 
 <div class="toasts" id="toasts" role="status" aria-live="polite"></div>
 
-<script src="https://cdn.jsdelivr.net/npm/d3@7.9.0/dist/d3.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/topojson-client@3.1.0/dist/topojson-client.min.js"></script>
+<script src="/i18n.js"></script>
 <script src="/dashboard.js"></script>
 </body>
 </html>

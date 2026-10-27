@@ -1774,17 +1774,29 @@
     const fns = findLuauFunctions($('fCode').value);
     if (!fns.length) { toast('No encontré funciones en el código', 'error'); return; }
     const hot = hotRanges($('fCode').value);
+    const codeLines = $('fCode').value.split('\n');
+    // Solo lo que cuesta: funciones con bucles (for, while, repeat) o que corren cada frame
+    const LOOP_RE = /\b(for|while|repeat)\b/;
+    fns.forEach(f => {
+      f.loop = codeLines.slice(f.line, f.line + f.count).some(l => LOOP_RE.test(l));
+      f.heavy = f.loop || inHot(f.line, hot);
+    });
+    const heavyCount = fns.filter(f => f.heavy).length;
     const wrap = document.createElement('div');
     wrap.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;z-index:1000;padding:16px';
     wrap.innerHTML = `
       <div class="modal" role="dialog" aria-modal="true" style="max-width:520px;width:100%">
         <h3>Macros de rendimiento</h3>
-        <p class="hint">Las funciones marcadas salen de la VM: corren más rápido, pero quedan menos protegidas. Marca las grandes que se ejecutan seguido.</p>
-        <div style="max-height:340px;overflow:auto;margin-top:10px">
+        <p class="hint">Las funciones marcadas salen de la VM: corren más rápido, pero quedan menos protegidas.</p>
+        <label style="display:flex;gap:8px;align-items:center;margin-top:10px;cursor:pointer">
+          <input type="checkbox" data-mc-only checked>
+          <span>Mostrar solo las que tienen bucles o corren cada frame (${heavyCount})</span>
+        </label>
+        <div style="max-height:320px;overflow:auto;margin-top:8px">
           ${fns.map((f, i) => `
-            <label style="display:flex;gap:8px;align-items:center;padding:6px 0">
-              <input type="checkbox" data-mc="${i}" ${f.count >= 30 || inHot(f.line, hot) ? 'checked' : ''}>
-              <span><code>${esc(f.name)}</code> · línea ${f.line + 1} · ${f.count} líneas${inHot(f.line, hot) ? ' · <b>corre cada frame</b>' : ''}</span>
+            <label data-mc-row="${f.heavy ? 1 : 0}" style="display:flex;gap:8px;align-items:center;padding:6px 0">
+              <input type="checkbox" data-mc="${i}" ${f.heavy ? 'checked' : ''}>
+              <span><code>${esc(f.name)}</code> · línea ${f.line + 1} · ${f.count} líneas${f.loop ? ' · <b>bucle</b>' : ''}${inHot(f.line, hot) ? ' · <b>corre cada frame</b>' : ''}</span>
             </label>`).join('')}
         </div>
         <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px">
@@ -1794,6 +1806,12 @@
       </div>`;
     document.body.appendChild(wrap);
     wrap.querySelector('[data-mc-cancel]').addEventListener('click', () => wrap.remove());
+    const applyFilter = () => {
+      const only = wrap.querySelector('[data-mc-only]').checked;
+      wrap.querySelectorAll('[data-mc-row]').forEach(r => { r.hidden = only && r.dataset.mcRow !== '1'; });
+    };
+    wrap.querySelector('[data-mc-only]').addEventListener('change', applyFilter);
+    applyFilter();
     wrap.querySelector('[data-mc-apply]').addEventListener('click', () => {
       const chosen = [...wrap.querySelectorAll('[data-mc]:checked')].map(c => fns[Number(c.dataset.mc)]);
       if (!chosen.length) { toast('Marca al menos una función', 'error'); return; }

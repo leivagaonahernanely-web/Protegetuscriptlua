@@ -1065,20 +1065,20 @@
   </a>
 
   <div class="nav-links">
-    <a href="#features" data-i18n="nav_features">Características</a>
-    <a href="#how" data-i18n="nav_how">Cómo funciona</a>
-    <a href="#pricing" data-i18n="nav_pricing">Precios</a>
+    <a href="#features">Características</a>
+    <a href="#how">Cómo funciona</a>
+    <a href="#pricing">Precios</a>
   </div>
 
   <div class="nav-cta">
-    <button id="langToggle" class="btn btn-ghost lang-btn" type="button" aria-label="Cambiar idioma">EN</button>
+    <div id="langSlot"></div>
     <a href="/login" class="btn btn-primary">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
         <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/>
         <polyline points="10 17 15 12 10 7"/>
         <line x1="15" y1="12" x2="3" y2="12"/>
       </svg>
-      <span data-i18n="nav_login">Acceder</span>
+      <span>Acceder</span>
     </a>
   </div>
 </nav>
@@ -1087,19 +1087,19 @@
 <header class="hero">
   <div class="hero-grid">
   <div class="hero-copy">
-    <div class="hero-badge" data-i18n="hero_badge">
+    <div class="hero-badge">
       <span class="hero-badge-dot"></span>
       Para creadores de scripts Lua y Luau
     </div>
 
     <div class="hero-logo"><img src="https://files.catbox.moe/qxl7dn.png" alt="Vantarmor" style="width:100%;height:100%;object-fit:cover;display:block"></div>
 
-    <h1 class="hero-title" data-i18n="hero_title">
+    <h1 class="hero-title">
       Protege tus scripts<br>
       con nivel profesional
     </h1>
 
-    <p class="hero-sub" data-i18n="hero_sub">
+    <p class="hero-sub">
       Protege tus scripts, genera y administra keys vinculadas a HWID, y controla el acceso desde un <strong>panel web</strong> y un <strong>bot de Discord</strong>.
     </p>
 
@@ -1108,10 +1108,10 @@
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
           <path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z"/>
         </svg>
-        <span data-i18n="cta_start">Comenzar ahora</span>
+        <span>Comenzar ahora</span>
       </a>
       <a href="#features" class="btn btn-ghost btn-lg">
-        <span data-i18n="cta_features">Ver características</span>
+        <span>Ver características</span>
       </a>
     </div>
 
@@ -1192,7 +1192,7 @@
   <div class="section-inner">
     <div class="section-head">
       <div class="section-tag">Características</div>
-      <h2 class="section-title" data-i18n="features_title">Todo lo que necesitas<br>para <em>proteger tu script</em></h2>
+      <h2 class="section-title">Todo lo que necesitas<br>para <em>proteger tu script</em></h2>
       <p class="section-desc">Herramientas para proteger tu código y controlar quién lo usa.</p>
     </div>
 
@@ -1270,7 +1270,7 @@
   <div class="section-inner">
     <div class="section-head">
       <div class="section-tag">Cómo funciona</div>
-      <h2 class="section-title" data-i18n="how_title">De 0 a protegido<br>en menos de <em>2 minutos</em></h2>
+      <h2 class="section-title">De 0 a protegido<br>en menos de <em>2 minutos</em></h2>
       <p class="section-desc">Sin configuración complicada. Solo sube tu script, genera keys y empieza a proteger.</p>
     </div>
 
@@ -1307,7 +1307,7 @@
   <div class="section-inner">
     <div class="section-head">
       <div class="section-tag">Precios</div>
-      <h2 class="section-title" data-i18n="pricing_title">Planes para <em>cada escala</em></h2>
+      <h2 class="section-title">Planes para <em>cada escala</em></h2>
       <p class="section-desc">Empieza gratis, escala cuando lo necesites. Sin comisiones ocultas.</p>
     </div>
 
@@ -1371,31 +1371,31 @@
 <!-- CTA FINAL -->
 <section id="faq">
   <div class="section-inner faq-inner">
-    <h2 class="section-title" data-i18n="faq_title">Preguntas <em>frecuentes</em></h2>
+    <h2 class="section-title">Preguntas <em>frecuentes</em></h2>
     <div class="faq">
       <details open>
-        <summary data-i18n="faq_q1">¿Qué es Vantarmor?</summary>
-        <p data-i18n="faq_a1">Un sistema para proteger scripts de Lua y Luau con keys vinculadas a HWID y control de acceso desde el panel web y el bot de Discord.</p>
+        <summary>¿Qué es Vantarmor?</summary>
+        <p>Un sistema para proteger scripts de Lua y Luau con keys vinculadas a HWID y control de acceso desde el panel web y el bot de Discord.</p>
       </details>
       <details>
-        <summary data-i18n="faq_q2">¿Tengo que cambiar el loader al actualizar el script?</summary>
-        <p data-i18n="faq_a2">No. Subir una nueva versión reemplaza el código actual y el loader sigue siendo el mismo.</p>
+        <summary>¿Tengo que cambiar el loader al actualizar el script?</summary>
+        <p>No. Subir una nueva versión reemplaza el código actual y el loader sigue siendo el mismo.</p>
       </details>
       <details>
-        <summary data-i18n="faq_q3">¿Cómo funcionan las keys?</summary>
-        <p data-i18n="faq_a3">Cada key puede vincularse a un equipo (HWID) y tener fecha de expiración. Tú decides cuántas generar y a quién entregarlas.</p>
+        <summary>¿Cómo funcionan las keys?</summary>
+        <p>Cada key puede vincularse a un equipo (HWID) y tener fecha de expiración. Tú decides cuántas generar y a quién entregarlas.</p>
       </details>
       <details>
-        <summary data-i18n="faq_q4">¿Qué pasa durante un mantenimiento?</summary>
-        <p data-i18n="faq_a4">El mantenimiento normal pausa compras, canjes y scripts nuevos, y la web muestra un aviso. Si el mantenimiento es total, también se pausan los loaders y el bot.</p>
+        <summary>¿Qué pasa durante un mantenimiento?</summary>
+        <p>El mantenimiento normal pausa compras, canjes y scripts nuevos, y la web muestra un aviso. Si el mantenimiento es total, también se pausan los loaders y el bot.</p>
       </details>
       <details>
-        <summary data-i18n="faq_q5">¿Cada cuánto se renuevan los límites de los planes?</summary>
-        <p data-i18n="faq_a5">El plan Free se reinicia cada 15 días. Premium y Premium Plus se renuevan cada mes.</p>
+        <summary>¿Cada cuánto se renuevan los límites de los planes?</summary>
+        <p>El plan Free se reinicia cada 15 días. Premium y Premium Plus se renuevan cada mes.</p>
       </details>
       <details>
-        <summary data-i18n="faq_q6">¿Necesito Discord para usarlo?</summary>
-        <p data-i18n="faq_a6">El panel web sirve para todo. El bot de Discord sirve para que tus usuarios reclamen keys y consulten su acceso.</p>
+        <summary>¿Necesito Discord para usarlo?</summary>
+        <p>El panel web sirve para todo. El bot de Discord sirve para que tus usuarios reclamen keys y consulten su acceso.</p>
       </details>
     </div>
   </div>
@@ -1403,14 +1403,14 @@
 
 <section>
   <div class="cta-final">
-    <h2 data-i18n="cta_title">¿Listo para proteger tu script?</h2>
+    <h2>¿Listo para proteger tu script?</h2>
     <p>Únete a la comunidad en Discord y empieza gratis.</p>
     <div class="hero-cta">
       <a href="/login" class="btn btn-primary btn-lg">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round">
           <path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z"/>
         </svg>
-        <span data-i18n="cta_start">Comenzar ahora</span>
+        <span>Comenzar ahora</span>
       </a>
       <a href="https://discord.gg/FUjbTN69" target="_blank" rel="noopener" class="btn btn-ghost btn-lg">
         Unirse al Discord
@@ -1430,8 +1430,8 @@
     <div class="footer-links">
       <a href="/login">Dashboard</a>
       <a href="/login">Login</a>
-      <a href="#features" data-i18n="nav_features">Características</a>
-      <a href="#pricing" data-i18n="nav_pricing">Precios</a>
+      <a href="#features">Características</a>
+      <a href="#pricing">Precios</a>
       <a href="https://discord.gg/FUjbTN69" target="_blank" rel="noopener">Discord</a>
       <a href="/terminos">Términos</a>
       <a href="/privacidad">Privacidad</a>

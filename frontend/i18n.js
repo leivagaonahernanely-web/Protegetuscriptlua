@@ -1,80 +1,67 @@
-// Idioma de la web: español (por defecto) e inglés.
-// Cada texto traducible tiene data-i18n="clave" y su original en español queda en el HTML.
-// La preferencia se guarda solo en este navegador (no es un dato de la cuenta).
+// Selector de idioma. El español es el original de la página.
+// Los demás idiomas se traducen automáticamente con Google Translate.
+// La elección se guarda en la cookie googtrans (la lee Google Translate al cargar).
 (function () {
-  const EN = {
-    nav_features: 'Features',
-    nav_how: 'How it works',
-    nav_pricing: 'Pricing',
-    nav_login: 'Sign in',
-    hero_badge: '<span class="hero-badge-dot"></span> For Lua and Luau script creators',
-    hero_title: 'Protect your scripts<br>with pro-grade security',
-    hero_sub: 'Protect your scripts, generate and manage HWID-bound keys, and control access from a <strong>web panel</strong> and a <strong>Discord bot</strong>.',
-    cta_start: 'Get started',
-    cta_features: 'See features',
-    features_title: 'Everything you need<br>to <em>protect your script</em>',
-    how_title: 'From zero to protected<br>in under <em>2 minutes</em>',
-    pricing_title: 'Plans for <em>every scale</em>',
-    faq_title: 'Frequently asked <em>questions</em>',
-    faq_q1: 'What is Vantarmor?',
-    faq_a1: 'A system to protect Lua and Luau scripts with HWID-bound keys and access control from the web panel and the Discord bot.',
-    faq_q2: 'Do I have to change the loader when I update my script?',
-    faq_a2: 'No. Uploading a new version replaces the current code and the loader stays the same.',
-    faq_q3: 'How do keys work?',
-    faq_a3: 'Each key can be bound to a device (HWID) and can have an expiration date. You decide how many to generate and who gets them.',
-    faq_q4: 'What happens during maintenance?',
-    faq_a4: 'Normal maintenance pauses purchases, redemptions and new scripts, and the website shows a notice. Full maintenance also pauses the loaders and the bot.',
-    faq_q5: 'How often do plan limits reset?',
-    faq_a5: 'The Free plan resets every 15 days. Premium and Premium Plus renew every month.',
-    faq_q6: 'Do I need Discord to use it?',
-    faq_a6: 'The web panel does everything. The Discord bot lets your users claim keys and check their access.',
-    cta_title: 'Ready to protect your script?',
-    login_title: 'Welcome back',
-    login_subtitle: 'Sign in to access your dashboard',
-    login_discord: 'Continue with Discord',
-    login_divider: 'or with email',
-    login_email: 'Email',
-    login_password: 'Password',
-    login_submit: 'Sign in',
-    login_forgot: 'Forgot your password?',
-    login_register: 'Create account',
-    login_back: 'Back',
-    login_soon: 'Email sign-in is coming soon. Use Discord for now.',
-    login_err_no_code: 'No code was received from Discord',
-    login_err_token: 'Failed to get the token',
-    login_err_server: 'Internal server error',
-    login_err_default: 'Sign-in error',
+  const LANGS = [
+    ['es', 'Español'], ['en', 'English'], ['pt', 'Português'], ['fr', 'Français'],
+    ['de', 'Deutsch'], ['it', 'Italiano'], ['ru', 'Русский'], ['ja', '日本語'], ['zh-CN', '中文'],
+  ];
+
+  const current = () => {
+    const m = document.cookie.match(/(?:^|;\s*)googtrans=\/es\/([^;]+)/);
+    return m ? decodeURIComponent(m[1]) : 'es';
   };
-  const KEY = 'vm-lang';
-  const readSaved = () => { try { return localStorage.getItem(KEY); } catch (_) { return null; } };
-  const saveLang = v => { try { localStorage.setItem(KEY, v); } catch (_) { /* navegador sin almacenamiento: no pasa nada */ } };
-  const browserLang = (navigator.language || 'es').slice(0, 2).toLowerCase();
-  let lang = readSaved() || (browserLang === 'en' ? 'en' : 'es');
-
-  function apply() {
-    document.documentElement.lang = lang;
-    document.querySelectorAll('[data-i18n]').forEach(el => {
-      if (el.dataset.esHtml === undefined) el.dataset.esHtml = el.innerHTML;
-      el.innerHTML = lang === 'en' && EN[el.dataset.i18n] ? EN[el.dataset.i18n] : el.dataset.esHtml;
-    });
-    document.querySelectorAll('[data-i18n-ph]').forEach(el => {
-      if (el.dataset.esPh === undefined) el.dataset.esPh = el.placeholder;
-      el.placeholder = lang === 'en' && EN[el.dataset.i18nPh] ? EN[el.dataset.i18nPh] : el.dataset.esPh;
-    });
-    const btn = document.getElementById('langToggle');
-    if (btn) btn.textContent = lang === 'en' ? 'ES' : 'EN';
-  }
-
-  window.vmLang = () => lang;
-  // Texto para scripts JS (mensajes de error, etc.). Devuelve null si el idioma es español.
-  window.vmT = key => (lang === 'en' && EN[key]) || null;
-  window.vmSetLang = next => { lang = next; saveLang(next); apply(); };
-
-  const start = () => {
-    apply();
-    const btn = document.getElementById('langToggle');
-    if (btn) btn.addEventListener('click', () => window.vmSetLang(lang === 'en' ? 'es' : 'en'));
+  const setLang = code => {
+    if (code === 'es') document.cookie = 'googtrans=; path=/; max-age=0';
+    else document.cookie = `googtrans=/es/${code}; path=/; max-age=31536000`;
   };
-  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start);
-  else start();
+
+  const css = `
+    .vm-lang { appearance: none; padding: 8px 28px 8px 12px; border-radius: 10px; font: 600 12px/1 inherit, system-ui, sans-serif;
+      color: #f5f5f8; background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.14); cursor: pointer;
+      background-image: linear-gradient(45deg, transparent 50%, #c9c9d4 50%), linear-gradient(135deg, #c9c9d4 50%, transparent 50%);
+      background-position: calc(100% - 14px) 50%, calc(100% - 9px) 50%; background-size: 5px 5px; background-repeat: no-repeat; }
+    .vm-lang option { background: #14141c; color: #f5f5f8; }
+    .vm-lang:focus-visible { outline: 2px solid #c9c9d4; outline-offset: 2px; }
+    #google_translate_element { display: none; }
+    .goog-te-banner-frame, .skiptranslate { display: none !important; }
+    body { top: 0 !important; }`;
+  const style = document.createElement('style');
+  style.textContent = css;
+  document.head.appendChild(style);
+
+  // Contenedor oculto que usa Google Translate.
+  const hidden = document.createElement('div');
+  hidden.id = 'google_translate_element';
+  document.body.appendChild(hidden);
+
+  const sel = document.createElement('select');
+  sel.className = 'vm-lang notranslate';
+  sel.setAttribute('aria-label', 'Idioma / Language');
+  LANGS.forEach(([code, name]) => {
+    const o = document.createElement('option');
+    o.value = code;
+    o.textContent = name;
+    sel.appendChild(o);
+  });
+  sel.value = current();
+  sel.addEventListener('change', () => { setLang(sel.value); location.reload(); });
+
+  const slot = document.getElementById('langSlot');
+  if (slot) slot.appendChild(sel);
+
+  document.documentElement.lang = current();
+
+  window.vmGtInit = () => {
+    if (!window.google || !google.translate) return;
+    new google.translate.TranslateElement({
+      pageLanguage: 'es',
+      includedLanguages: LANGS.map(l => l[0]).join(','),
+      autoDisplay: false,
+    }, 'google_translate_element');
+  };
+  const s = document.createElement('script');
+  s.src = 'https://translate.google.com/translate_a/element.js?cb=vmGtInit';
+  s.async = true;
+  document.head.appendChild(s);
 })();

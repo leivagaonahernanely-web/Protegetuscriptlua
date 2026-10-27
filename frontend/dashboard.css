@@ -365,3 +365,12 @@
   @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after { animation: none !important; transition: none !important; }
   }
+
+  /* Tarjetas de resumen: icono, números alineados y leve elevación al pasar el cursor */
+  .card-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+  .card-ico { width: 34px; height: 34px; border-radius: 10px; display: grid; place-items: center; flex: none;
+    background: rgba(255,255,255,.06); border: 1px solid var(--border); color: var(--text-soft); }
+  .card-ico svg { width: 17px; height: 17px; }
+  .card:has(.card-ico) { transition: transform .2s var(--ease), border-color .2s var(--ease); }
+  .card:has(.card-ico):hover { transform: translateY(-2px); border-color: var(--border-strong); }
+  .card-value { font-variant-numeric: tabular-nums; }

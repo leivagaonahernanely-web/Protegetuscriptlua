@@ -1542,7 +1542,7 @@
       const x = i * slot + (slot - bw) / 2;
       const y = H - pad - h;
       const label = series.length <= 7 || i % 5 === 0 || i === series.length - 1 ? `${s.day.slice(8, 10)}/${s.day.slice(5, 7)}` : '';
-      return `<rect x="${x.toFixed(1)}" y="${y}" width="${bw.toFixed(1)}" height="${h}" rx="3" fill="#5865f2"><title>${s.day}: ${s.n}</title></rect>
+      return `<rect x="${x.toFixed(1)}" y="${y}" width="${bw.toFixed(1)}" height="${h}" rx="3" fill="${i === series.length - 1 ? '#ffffff' : '#a0a0ac'}"><title>${s.day}: ${s.n}</title></rect>
         <text x="${(x + bw / 2).toFixed(1)}" y="${Math.max(10, y - 4)}" text-anchor="middle" font-size="11" fill="currentColor">${s.n || ''}</text>
         <text x="${(x + bw / 2).toFixed(1)}" y="${H - 6}" text-anchor="middle" font-size="10" fill="currentColor" opacity=".7">${label}</text>`;
     }).join('');

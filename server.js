@@ -963,16 +963,23 @@ app.post('/api/win', winLimit, async (req, res) => {
 
   const script = stmt.scriptBySlug.get(slug);
   if (!script) return res.status(404).json({ error: 'Script no encontrado' });
+  let discordId = null;
+  let hwid = '';
   if (!script.ffa) {
     const k = key && db.prepare('SELECT * FROM keys WHERE key = ? AND script_id = ?').get(key, script.id);
     if (!k || k.banned || (k.expires_at && k.expires_at * 1000 < Date.now())) return res.status(403).json({ error: 'Key inválida' });
+    discordId = k.discord_id || null;
+  } else {
+    // FFA no tiene key: el HWID lo manda el script del juego (mismo formato que el loader)
+    const rawHwid = String(body.hwid || '').slice(0, 128);
+    hwid = /^[\x21-\x7E]{8,128}$/.test(rawHwid) ? rawHwid : '';
   }
   if (!discordBot?.notifyWin) return res.status(503).json({ error: 'El bot todavía no está conectado' });
 
   const image = userId ? await robloxHeadshot(userId) : null;
   logUse(script.id, `🏆 ${playerName || 'Jugador'} ganó ${prize || 'un premio'}${amount ? ` (${amount})` : ''}`);
   try {
-    const posted = await discordBot.notifyWin({ scriptId: script.id, playerName, userId, prize, amount, image });
+    const posted = await discordBot.notifyWin({ scriptId: script.id, playerName, userId, prize, amount, image, hwid, discordId });
     res.json({ ok: true, posted });
   } catch (err) {
     console.warn('[Premios] No se pudo publicar:', err.message);

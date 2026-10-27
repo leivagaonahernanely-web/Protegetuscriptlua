@@ -1486,22 +1486,28 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
   };
 
   // Premio ganado en un juego: embed en el canal que activó el creador con /win logs
-  client.notifyWin = async ({ scriptId, playerName, userId, prize, amount, image }) => {
+  client.notifyWin = async ({ scriptId, playerName, userId, prize, amount, image, hwid, discordId }) => {
     const script = q.scriptById.get(scriptId);
     const row = q.winGet.get(scriptId);
     if (!script || !row) return false;
     const channel = await client.channels.fetch(row.channel_id).catch(() => null);
     if (!channel?.isTextBased()) return false;
+    const fields = [
+      { name: 'Script', value: script.name.slice(0, 256), inline: true },
+      { name: 'Jugador', value: String(playerName || 'Desconocido').slice(0, 256), inline: true },
+      { name: 'ID de Roblox', value: userId ? `\`${userId}\`` : 'sin dato', inline: true },
+    ];
+    // FFA muestra el HWID; con key muestra el Discord de quien tiene la key (si lo vinculó)
+    if (hwid) fields.push({ name: 'HWID', value: `\`${hwid}\``, inline: false });
+    if (discordId) fields.push({ name: 'Discord', value: `<@${discordId}>\n\`${discordId}\``, inline: false });
+    fields.push(
+      { name: 'Premio', value: String(prize || '—').slice(0, 256), inline: true },
+      { name: 'Monto', value: String(amount || '—').slice(0, 256), inline: true },
+    );
     const embed = new EmbedBuilder()
       .setColor(0xf1c40f)
       .setTitle('🏆 Nuevo premio')
-      .setDescription(`**${script.name}**`)
-      .addFields(
-        { name: 'Jugador', value: String(playerName || 'Desconocido').slice(0, 256), inline: true },
-        { name: 'ID de Roblox', value: userId ? `\`${userId}\`` : 'sin dato', inline: true },
-        { name: 'Premio', value: String(prize || '—').slice(0, 256), inline: true },
-        { name: 'Monto', value: String(amount || '—').slice(0, 256), inline: true },
-      )
+      .addFields(fields)
       .setFooter({ text: 'logs by Vantarmor', iconURL: client.user.displayAvatarURL() })
       .setTimestamp();
     if (image) embed.setThumbnail(image);

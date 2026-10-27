@@ -838,20 +838,21 @@ function loaderBootstrap(slug, ffa) {
   return `local AUTH_URL = ${JSON.stringify(authUrl)}
 local PAYLOAD_URL = ${JSON.stringify(payloadUrl)}
 local FFA = ${ffa ? 'true' : 'false'}
+local HEAD = "[ VANTARMOR ]\\n"
 local MSG = {
-  KEY_REQUIRED = "🔑 Key is required",
-  KEY_INVALID = "❌ Invalid key",
-  KEY_EXPIRED = "⏱️ Session expired, rejoin",
-  NOT_AUTHORIZED = "🚫 Not authorized",
-  HWID_MISMATCH = "📝 Hwid is mismatch",
-  VERIFY_FAILED = "🔒 Verification failed",
-  CONNECTION_FAILED = "🌐 Connection failed, try again",
-  TAMPERING = "⚠️ Tampering detected",
-  SCRIPT_NOT_FOUND = "📋 Script ID not found",
-  REAUTH = "🔄 Please re-authenticate",
-  BLACKLISTED = "🛡️ Blacklisted",
-  MAINTENANCE = "🛠️ Script under maintenance, try again later",
-  SERVER_UNREACHABLE = "📡 Server unreachable",
+  KEY_REQUIRED = HEAD .. "A valid key is required.",
+  KEY_INVALID = HEAD .. "The key is not valid.",
+  KEY_EXPIRED = HEAD .. "Your key has expired.",
+  NOT_AUTHORIZED = HEAD .. "You are not authorized to run this script.",
+  HWID_MISMATCH = HEAD .. "This key is linked to another device.",
+  VERIFY_FAILED = HEAD .. "Verification failed. Please rejoin.",
+  CONNECTION_FAILED = HEAD .. "Connection failed. Please try again.",
+  TAMPERING = HEAD .. "Tampering detected.",
+  SCRIPT_NOT_FOUND = HEAD .. "Script not found.",
+  REAUTH = HEAD .. "Please re-authenticate.",
+  BLACKLISTED = HEAD .. "Access denied.",
+  MAINTENANCE = HEAD .. "This script is under maintenance.\\nPlease try again in a few minutes.",
+  SERVER_UNREACHABLE = HEAD .. "Server unreachable. Please try later.",
 }
 local Players = game:GetService("Players")
 local function kick(code)

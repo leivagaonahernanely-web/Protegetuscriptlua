@@ -2585,21 +2585,16 @@ function pruneOldData() {
 pruneOldData();
 setInterval(pruneOldData, 60 * 60_000).unref();
 
-// Respaldo diario de la base (copia en la misma carpeta de datos; se conservan los últimos 7)
+// Ya no se guardan respaldos automáticos en el volumen (ocupaban varias veces el tamaño de la base).
+// El dueño sigue pudiendo descargar una copia al momento desde su panel (/api/owner/backup).
+// Al arrancar se borran las copias viejas que hubiera en la carpeta.
 const BACKUP_DIR = path.join(path.dirname(DATABASE_PATH), 'backups');
-async function backupDb() {
-  try {
-    fs.mkdirSync(BACKUP_DIR, { recursive: true });
-    const file = path.join(BACKUP_DIR, `vantarmor-${ecuadorDay(Date.now())}.db`);
-    if (fs.existsSync(file)) return;
-    await db.backup(file);
-    const files = fs.readdirSync(BACKUP_DIR).filter(f => /^vantarmor-\d{4}-\d{2}-\d{2}\.db$/.test(f)).sort();
-    for (const old of files.slice(0, -7)) fs.rmSync(path.join(BACKUP_DIR, old), { force: true });
-    console.log(`[Respaldo] Copia guardada: ${file}`);
-  } catch (err) { console.error('[Respaldo] No se pudo respaldar:', err.message); }
-}
-backupDb();
-setInterval(backupDb, 6 * 60 * 60_000).unref();
+try {
+  if (fs.existsSync(BACKUP_DIR)) {
+    fs.rmSync(BACKUP_DIR, { recursive: true, force: true });
+    console.log('[Respaldo] Copias automáticas antiguas borradas del volumen.');
+  }
+} catch (err) { console.error('[Respaldo] No se pudo borrar la carpeta de respaldos:', err.message); }
 
 // Errores que no pasan por una ruta: respuesta JSON clara (en vez de HTML o "Error del servidor" sin detalle)
 app.use((err, req, res, next) => {

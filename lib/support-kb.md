@@ -20,7 +20,7 @@ Si el ofuscador o el código protegido falla, el creador ve un mensaje específi
 ## Protección de scripts
 - **Protegido:** requiere key. Cada key se vincula a un equipo (HWID) la primera vez que se usa.
 - **FFA:** sin key, para scripts gratuitos o públicos.
-- **Macros de rendimiento:** están desactivadas. El código con macros no cargaba en el ejecutor.
+- **Macros (LUO_NO_VIRTUALIZE):** se pueden usar, pero cada macro debe ir en su propia línea, bien cerrada y en un lugar válido. Si una macro está mal puesta, el ejecutor no carga el código y aparece `PAYLOAD_LOAD_FAILED`.
 - Cada vez que se guarda un script, se guarda una versión. Se pueden cargar versiones anteriores en el editor.
 
 ## Keys
@@ -55,11 +55,32 @@ Hay una página pública con esta explicación en /errores.
 - **Mantenimiento normal (web):** pausa compras, canjes y scripts nuevos. La web muestra un aviso.
 - **Mantenimiento total:** también pausa los loaders y el bot.
 
-## Bot de Discord
-- Los usuarios reclaman keys y consultan su acceso desde Discord.
-- Hay un panel de control y comandos de barra.
+## Bot de Discord (bot principal de Vantarmor)
+- Los usuarios reclaman keys, canjean keys de plan y consultan su acceso desde Discord con `/redeem` y `/stats`.
+- Los creadores manejan sus scripts con comandos de barra. Los más usados:
+  - `/panel`: publica el panel de acceso de un script en el canal.
+  - `/generatekey` (dueño o gestor): genera de 1 a 50 keys para un script, con duración opcional (30d, 12h, 1w, 1mo, 1y; vacío = permanente).
+  - `/deletekey`: elimina una key o las keys vinculadas a un usuario.
+  - `/dropkey`: sortea keys en el canal con cuenta regresiva.
+  - `/addtime`: añade tiempo a una key.
+  - `/resethwid`: reinicia el HWID de una key.
+  - `/whitelist` y `/unwhitelist`: añade o quita un usuario o rol de la whitelist de un script.
+  - `/cookiegame`: juego en el que el primero que hace clic gana la whitelist.
+  - `/blacklist` y `/unblacklist`: bloquea o desbloquea a un usuario en un script, con razón opcional.
+  - `/warn`: advierte a un usuario.
+  - `/logs`: elige el canal donde se registran los usos de tus scripts.
+  - `/prices`: publica tus precios (solo Premium y Premium Plus).
+  - `/updates` (dueño): publica una actualización.
+  - `/getrole` (dueño): configura el rol que recibe un comprador.
+  - `/generatekeyrole` (dueño): configura el rol que puede gestionar keys.
+- Para soporte de servidores de creadores:
+  - `/ticketpanel`: publica el botón para abrir tickets (staff).
+  - `/ticketperm` (administradores): elige los roles de staff, la categoría de tickets y el canal de logs.
+  - `/lock` y `/unlock` (staff): bloquean o desbloquean un canal.
+- `/ping` verifica que el bot responde.
 - Si alguien intenta volcar un script (dump), el dueño recibe un aviso con una mención, la key, el HWID y un botón para revocar la key. Si el script tiene la opción de revocación automática, la key se bloquea sola.
-- El bot muestra en cuántos servidores está.
+- El bot muestra en cuántos servidores está (en la página principal).
+- Si el usuario tiene dudas sobre cómo usar un comando, explica el paso a paso con la lista anterior.
 
 ## Dashboard
 - **Scripts:** crear, editar, poner en mantenimiento, copiar el loader y ver las keys de cada script.
@@ -67,7 +88,7 @@ Hay una página pública con esta explicación en /errores.
 - **Estadísticas:** ejecuciones por día, por hora (hora de Ecuador) y por script; países (sin IPs); keys sin activar; exportación CSV.
 - **Chat:** chat de la comunidad con respuestas, reacciones, búsqueda y avisos cuando te mencionan.
 - **Perfil:** foto de perfil (Premium), webhooks.
-- **Soporte:** preguntas frecuentes, tickets y este asistente.
+- **Soporte:** preguntas frecuentes, tickets y la página de errores.
 - **Blacklist:** bloqueos de IP, HWID y usuarios por script.
 - **Idioma:** selector en la barra superior (español original; los demás idiomas se traducen automáticamente).
 

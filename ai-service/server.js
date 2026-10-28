@@ -1,10 +1,11 @@
 // Servicio aparte del asistente de IA (solo para el dueño). No está enlazado con la web pública.
-// Variables: AI_SERVICE_TOKEN (obligatoria), GEMINI_API_KEY, GEMINI_MODEL (opcional), PORT (opcional).
+// Variables: AI_SERVICE_TOKEN (panel privado), DISCORD_AI_TOKEN (bot de Discord), GEMINI_API_KEY, GEMINI_MODEL (opcional), PORT (opcional).
 import crypto from 'crypto';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import express from 'express';
 import { answerSupport, supportAiEnabled } from '../lib/support-ai.js';
+import { startDiscordBot } from './discord-bot.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const TOKEN = process.env.AI_SERVICE_TOKEN || '';
@@ -63,3 +64,4 @@ app.listen(PORT, '0.0.0.0', () => {
   console.log(`Asistente IA (servicio privado) en el puerto ${PORT}`);
   if (!TOKEN) console.warn('[AVISO] AI_SERVICE_TOKEN no configurada: el servicio responderá 503.');
 });
+startDiscordBot();

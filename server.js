@@ -2168,6 +2168,7 @@ app.get('/api/support/tickets', requireAuth, (req, res) => {
 
 // Asistente de soporte con IA: 20 mensajes por hora y usuario
 import { answerSupport, supportAiEnabled } from './lib/support-ai.js';
+import { startDiscordAiBot } from './lib/discord-ai-bot.js';
 const aiHits = new Map();
 const AI_WINDOW_MS = 60 * 60 * 1000;
 const AI_MAX = 20;

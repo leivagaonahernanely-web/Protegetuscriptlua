@@ -2166,6 +2166,32 @@ app.get('/api/support/tickets', requireAuth, (req, res) => {
   res.json(db.prepare(`SELECT ${SUPPORT_LIST_COLS} FROM support_tickets WHERE user_id = ? ORDER BY updated_at DESC LIMIT 100`).all(req.userId));
 });
 
+// Asistente de soporte con IA: 20 mensajes por hora y usuario
+import { answerSupport, supportAiEnabled } from './lib/support-ai.js';
+const aiHits = new Map();
+const AI_WINDOW_MS = 60 * 60 * 1000;
+const AI_MAX = 20;
+function aiAllowed(userId) {
+  const now = Date.now();
+  const list = (aiHits.get(String(userId)) || []).filter(t => now - t < AI_WINDOW_MS);
+  if (list.length >= AI_MAX) { aiHits.set(String(userId), list); return false; }
+  list.push(now);
+  aiHits.set(String(userId), list);
+  return true;
+}
+app.get('/api/support/ai/status', requireAuth, (req, res) => res.json({ enabled: supportAiEnabled() }));
+app.post('/api/support/ai', requireAuth, async (req, res) => {
+  if (!supportAiEnabled()) return res.status(503).json({ error: 'El asistente no está activo todavía.' });
+  if (!aiAllowed(req.userId)) return res.status(429).json({ error: 'Llegaste al límite de mensajes por hora. Vuelve más tarde o abre un ticket.' });
+  try {
+    const user = db.prepare('SELECT plan FROM users WHERE id = ?').get(String(req.userId));
+    const reply = await answerSupport({ message: req.body?.message, history: req.body?.history, planName: user?.plan || 'desconocido' });
+    res.json({ reply });
+  } catch (err) {
+    res.status(err.status || 500).json({ error: err.status ? err.message : 'Error del servidor. Inténtalo de nuevo.' });
+  }
+});
+
 app.post('/api/support/tickets', requireAuth, supportLimit, (req, res) => {
   const b = req.body || {};
   if (!SUPPORT_CATEGORIES.includes(b.category)) return res.status(400).json({ error: 'Elige una categoría' });
@@ -2624,4 +2650,5 @@ app.use((err, req, res, next) => {
 
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`✅ Servidor Vantarmor corriendo en el puerto ${PORT}`);
+  startDiscordAiBot();
 });

@@ -358,8 +358,9 @@ const CLEAN_PAGES = {
   '/terminos': 'terminos.html',
   '/privacidad': 'privacidad.html',
   '/soporte': 'soporte.html',
+  '/errores': 'errores.html',
 };
-const LEGACY_HTML = /^\/(index|login|dashboard|terminos|privacidad|soporte)\.html$/;
+const LEGACY_HTML = /^\/(index|login|dashboard|terminos|privacidad|soporte|errores)\.html$/;
 app.use((req, res, next) => {
   const m = LEGACY_HTML.exec(req.path);
   if (!m) return next();

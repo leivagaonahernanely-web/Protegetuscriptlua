@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Errores del loader · Vantarmor</title>
+<meta name="description" content="Qué significa cada mensaje del loader de Vantarmor y qué hacer.">
+<style>
+  :root { --bg:#0a0a0d; --panel:rgba(255,255,255,.035); --border:rgba(255,255,255,.1); --text:#f5f5f8; --dim:#8a8a94; --soft:#bcbcc4; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font-family: Inter, system-ui, sans-serif; line-height:1.55; }
+  .wrap { max-width: 860px; margin: 0 auto; padding: 40px 18px 80px; }
+  a { color: var(--text); }
+  .back { font-size: 14px; color: var(--dim); text-decoration: none; }
+  h1 { font-size: 30px; letter-spacing: -.03em; margin: 18px 0 8px; }
+  .lead { color: var(--soft); margin: 0 0 26px; }
+  .card { background: var(--panel); border: 1px solid var(--border); border-radius: 16px; padding: 18px 20px; margin-bottom: 12px; }
+  .card header { display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:6px; }
+  .code { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12px; font-weight: 700; padding: 3px 9px; border-radius: 999px; background: rgba(255,255,255,.08); border: 1px solid var(--border); }
+  h2 { font-size: 16px; margin: 0; letter-spacing: -.01em; }
+  p { margin: 6px 0; color: var(--soft); }
+  .fix { margin-top: 8px; font-size: 14px; color: var(--text); }
+  .fix b { color: var(--dim); font-weight: 600; }
+  .note { margin-top: 28px; font-size: 14px; color: var(--dim); }
+</style>
+</head>
+<body>
+<main class="wrap">
+  <a class="back" href="/soporte">← Volver a soporte</a>
+  <h1>Errores del loader</h1>
+  <p class="lead">Si el script no carga, el juego muestra uno de estos mensajes. Busca el código y sigue lo que dice.</p>
+
+  <section class="card">
+    <header><span class="code">KEY_REQUIRED</span><h2>Falta la key</h2></header>
+    <p>El script necesita una key y no la recibió.</p>
+    <p class="fix"><b>Qué hacer:</b> pega tu key en la variable <code>script_key</code> justo encima del loader.</p>
+  </section>
+
+  <section class="card">
+    <header><span class="code">KEY_INVALID</span><h2>Key no válida</h2></header>
+    <p>La key no existe para este script. Puede estar mal copiada o ser de otro script.</p>
+    <p class="fix"><b>Qué hacer:</b> copia la key de nuevo. Si sigue fallando, pide una nueva al creador.</p>
+  </section>
+
+  <section class="card">
+    <header><span class="code">KEY_EXPIRED</span><h2>Key vencida</h2></header>
+    <p>Tu acceso terminó.</p>
+    <p class="fix"><b>Qué hacer:</b> pide al creador una key renovada.</p>
+  </section>
+
+  <section class="card">
+    <header><span class="code">HWID_MISMATCH</span><h2>Key vinculada a otro equipo</h2></header>
+    <p>La key ya está vinculada a otro dispositivo.</p>
+    <p class="fix"><b>Qué hacer:</b> usa el equipo original, o pide al creador que reinicie el vínculo.</p>
+  </section>
+
+  <section class="card">
+    <header><span class="code">BLACKLISTED</span><h2>Acceso denegado</h2></header>
+    <p>La key, tu equipo, tu IP o tu cuenta de Discord están bloqueados para este script.</p>
+    <p class="fix"><b>Qué hacer:</b> escribe al creador si crees que es un error.</p>
+  </section>
+
+  <section class="card">
+    <header><span class="code">SCRIPT_NOT_FOUND</span><h2>Script no encontrado</h2></header>
+    <p>El loader apunta a un script que ya no existe o cambió de identificador.</p>
+    <p class="fix"><b>Qué hacer:</b> pide al creador el loader actualizado.</p>
+  </section>
+
+  <section class="card">
+    <header><span class="code">MAINTENANCE</span><h2>Script en mantenimiento</h2></header>
+    <p>El creador pausó este script por un momento.</p>
+    <p class="fix"><b>Qué hacer:</b> espera unos minutos y vuelve a intentar.</p>
+  </section>
+
+  <section class="card">
+    <header><span class="code">MAINTENANCE_ALL</span><h2>Vantarmor en mantenimiento total</h2></header>
+    <p>La plataforma está pausada completa: loaders, web y bot.</p>
+    <p class="fix"><b>Qué hacer:</b> espera a que termine. No hace falta cambiar nada.</p>
+  </section>
+
+  <section class="card">
+    <header><span class="code">SERVER_UNREACHABLE</span><h2>No se pudo conectar al servidor</h2></header>
+    <p>El ejecutor no llegó al servidor de verificación.</p>
+    <p class="fix"><b>Qué hacer:</b> revisa tu internet y vuelve a ejecutar. Si pasa siempre, prueba otro ejecutor.</p>
+  </section>
+
+  <section class="card">
+    <header><span class="code">CONNECTION_FAILED</span><h2>Falló la descarga del script</h2></header>
+    <p>La verificación salió bien, pero no se pudo descargar el código.</p>
+    <p class="fix"><b>Qué hacer:</b> vuelve a ejecutar. El intento es de un solo uso, así que no sirve reutilizar el anterior.</p>
+  </section>
+
+  <section class="card">
+    <header><span class="code">VERIFY_FAILED</span><h2>Verificación fallida</h2></header>
+    <p>El servidor no pudo confirmar tu acceso. Suele ser un problema temporal o un HWID que el ejecutor no entregó.</p>
+    <p class="fix"><b>Qué hacer:</b> vuelve a ejecutar. Si pasa siempre, cambia de ejecutor y avisa al creador.</p>
+  </section>
+
+  <section class="card">
+    <header><span class="code">PAYLOAD_LOAD_FAILED</span><h2>El ejecutor no pudo cargar el código</h2></header>
+    <p>La verificación pasó, pero el código protegido no se pudo cargar en tu ejecutor.</p>
+    <p class="fix"><b>Qué hacer:</b> avisa al creador: es un problema de la versión del script, no de tu key.</p>
+  </section>
+
+  <section class="card">
+    <header><span class="code">TAMPERING</span><h2>Se detectó manipulación</h2></header>
+    <p>El loader encontró algo que altera su funcionamiento normal (como hooks en el ejecutor o funciones modificadas).</p>
+    <p class="fix"><b>Qué hacer:</b> cierra los programas que modifiquen el ejecutor y vuelve a intentar. Si pasa siempre, usa un ejecutor sin modificaciones.</p>
+  </section>
+
+  <p class="note">¿Tu error no está aquí? Escribe en <a href="/soporte">soporte</a> con el mensaje exacto que viste.</p>
+</main>
+<script src="/i18n.js"></script>
+</body>
+</html>

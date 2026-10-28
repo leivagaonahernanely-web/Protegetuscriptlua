@@ -791,14 +791,3 @@ tbody tr:hover td { background: rgba(255,255,255,.025); }
 .chat-search { flex: 1 1 160px; max-width: 260px; padding: 7px 10px; font-size: 13px; }
 
 /* Asistente IA de soporte */
-.ai-card { margin-bottom: 16px; }
-.ai-head { display: flex; flex-direction: column; gap: 2px; margin-bottom: 10px; }
-.ai-head .hint { font-size: 13px; color: var(--text-dim); }
-.ai-log { display: flex; flex-direction: column; gap: 8px; max-height: 320px; overflow-y: auto; margin-bottom: 10px; }
-.ai-log:empty { display: none; }
-.ai-msg { max-width: 85%; padding: 9px 12px; border-radius: 12px; font-size: 14px; white-space: pre-wrap; overflow-wrap: anywhere; }
-.ai-msg.user { align-self: flex-end; background: rgba(255,255,255,.1); }
-.ai-msg.assistant { align-self: flex-start; background: rgba(255,255,255,.04); border: 1px solid var(--border); }
-.ai-msg.pending { color: var(--text-dim); }
-.ai-form { display: flex; gap: 8px; }
-.ai-form .field { flex: 1; min-width: 0; }

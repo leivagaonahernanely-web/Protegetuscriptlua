@@ -2041,6 +2041,22 @@ app.post('/api/perf-check', requireAuth, perfLimit, (req, res) => {
   res.json(analyzePerf(source, { obfuscator, vm: req.body?.clydeVm !== false }));
 });
 
+// Respuesta de error al guardar un script: mensajes claros según la causa, y un código de referencia
+// para los casos desconocidos (así el log del servidor se puede encontrar).
+function saveErrorResponse(res, err, label) {
+  if (err?.status) return res.status(err.status).json({ error: err.message });
+  const code = String(err?.code || '');
+  const ref = crypto.randomBytes(3).toString('hex');
+  console.error(`[${label}] ref ${ref} ${code}:`, err);
+  if (code === 'SQLITE_FULL' || /database or disk is full/i.test(String(err?.message))) {
+    return res.status(507).json({ error: 'El servidor se quedó sin espacio en disco. Avisa al dueño y vuelve a intentar después.' });
+  }
+  if (code === 'ERR_STRING_TOO_LONG' || err instanceof RangeError) {
+    return res.status(413).json({ error: 'El script es demasiado grande para procesarlo. Prueba con un script más corto.' });
+  }
+  return res.status(500).json({ error: `Error del servidor al guardar (ref ${ref}). Inténtalo de nuevo; si sigue, avisa con esa referencia.` });
+}
+
 app.post('/api/scripts', requireAuth, async (req, res) => {
   if (maintenanceBlock(req, res)) return;
   const input = validateScriptInput(req.body || {});
@@ -2074,8 +2090,7 @@ app.post('/api/scripts', requireAuth, async (req, res) => {
     db.prepare('UPDATE users SET scripts_period = COALESCE(scripts_period, 0) + 1 WHERE id = ?').run(req.userId);
     res.status(201).json({ ok: true, id: info.lastInsertRowid });
   } catch (err) {
-    console.error('Create script error:', err);
-    res.status(err.status || 500).json({ error: err.status ? err.message : 'Error del servidor' });
+    saveErrorResponse(res, err, 'Crear script');
   }
 });
 
@@ -2123,8 +2138,7 @@ app.put('/api/scripts/:id', requireAuth, async (req, res) => {
     if (input.obfuscator === 'luau' && !input.isFfa) luauBumpStmt.run(req.userId, luauDay());
     res.json({ ok: true });
   } catch (err) {
-    console.error('Update script error:', err);
-    res.status(err.status || 500).json({ error: err.status ? err.message : 'Error del servidor' });
+    saveErrorResponse(res, err, 'Editar script');
   }
 });
 

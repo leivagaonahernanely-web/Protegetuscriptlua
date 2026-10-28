@@ -921,6 +921,30 @@ if okh and h then hwid = h end
 local rbxid = ""
 local okr, rid = pcall(function() return tostring(Players.LocalPlayer.UserId) end)
 if okr and rid then rbxid = rid end
+-- Detector de dump por tiempo y frames: si el reloj o el Heartbeat están congelados, se reporta como volcado
+local detections = 0
+local function runDetectors()
+  local ok = pcall(function()
+    local a = tonumber(os.date("%S"))
+    task.wait(1.1)
+    local b = tonumber(os.date("%S"))
+    if not a or not b or a == b then detections += 1 end
+    local hits = 0
+    local conn = game:GetService("RunService").Heartbeat:Connect(function() hits += 1 end)
+    local t0 = os.clock()
+    repeat task.wait() until hits >= 2 or os.clock() - t0 > 2
+    conn:Disconnect()
+    if hits < 2 then detections += 1 end
+  end)
+  -- Si el propio detector falla no se castiga al jugador (evita falsos positivos en ejecutores raros)
+  return ok
+end
+runDetectors()
+if detections > 0 then
+  pcall(function() game:HttpGet(AUTH_URL .. "?key=" .. enc(key) .. "&hwid=" .. enc(hwid) .. "&rbxid=" .. enc(rbxid) .. "&tamper=1") end)
+  script_key = nil
+  kick("TAMPERING")
+end
 -- Si loadstring fue interceptado: se avisa al servidor (dueño) y se corta antes de validar la key
 if loaderTampered() then
   pcall(function() game:HttpGet(AUTH_URL .. "?key=" .. enc(key) .. "&hwid=" .. enc(hwid) .. "&rbxid=" .. enc(rbxid) .. "&tamper=1") end)

@@ -377,6 +377,15 @@
                 <p>Lo ves en la sección Planes. Te avisamos 3 días antes del vencimiento.</p>
               </details>
             </div>
+
+        <article class="card ai-card" id="aiCard" hidden>
+          <div class="ai-head"><b>Asistente IA</b><span class="hint">Responde sobre Vantarmor. Para casos especiales, abre un ticket.</span></div>
+          <div class="ai-log" id="aiLog" aria-live="polite"></div>
+          <form class="ai-form" id="aiForm" autocomplete="off">
+            <input id="aiInput" class="field" type="text" maxlength="1500" placeholder="Pregunta algo sobre Vantarmor…" aria-label="Pregunta para el asistente">
+            <button class="btn" type="submit" id="aiSend">Preguntar</button>
+          </form>
+        </article>
           </article>
           <article class="card">
             <div class="support-head">

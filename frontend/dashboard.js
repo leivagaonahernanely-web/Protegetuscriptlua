@@ -874,6 +874,48 @@
     });
   }
 
+  // ---- Asistente IA de soporte ----
+  const aiHistory = [];
+  const aiAdd = (role, text) => {
+    const div = document.createElement('div');
+    div.className = `ai-msg ${role}`;
+    div.textContent = text;
+    $('aiLog').appendChild(div);
+    $('aiLog').scrollTop = $('aiLog').scrollHeight;
+  };
+  async function initAi() {
+    try {
+      const st = await api('/api/support/ai/status');
+      $('aiCard').hidden = !st.enabled;
+    } catch (_) { $('aiCard').hidden = true; }
+  }
+  $('aiForm').addEventListener('submit', async e => {
+    e.preventDefault();
+    const text = $('aiInput').value.trim();
+    if (!text) return;
+    const btn = $('aiSend');
+    $('aiInput').value = '';
+    aiAdd('user', text);
+    setBusy(btn, true);
+    const thinking = document.createElement('div');
+    thinking.className = 'ai-msg assistant pending';
+    thinking.textContent = 'Pensando…';
+    $('aiLog').appendChild(thinking);
+    try {
+      const r = await api('/api/support/ai', { method: 'POST', body: JSON.stringify({ message: text, history: aiHistory.slice(-8) }) });
+      thinking.remove();
+      aiAdd('assistant', r.reply);
+      aiHistory.push({ role: 'user', content: text }, { role: 'assistant', content: r.reply });
+    } catch (err) {
+      thinking.remove();
+      aiAdd('assistant', err.message);
+    } finally {
+      setBusy(btn, false);
+      $('aiInput').focus();
+    }
+  });
+  initAi();
+
   // ---- Soporte: tickets propios (y todos, para el dueño) ----
   const SUPPORT_CAT = { key: 'Key', hwid: 'HWID', loader: 'Loader', plan: 'Plan o pago', ofuscador: 'Ofuscador', otro: 'Otro' };
   const SUPPORT_STATUS = { open: ['Abierto', 'warn'], answered: ['Respondido', 'ok'], closed: ['Cerrado', ''] };

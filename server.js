@@ -2577,7 +2577,7 @@ function pruneOldData() {
     db.prepare('DELETE FROM execution_country WHERE day < ?').run(ecuadorDay(Date.now() - 60 * 86400_000));
     db.prepare('DELETE FROM execution_script_country WHERE day < ?').run(ecuadorDay(Date.now() - 60 * 86400_000));
     db.prepare('DELETE FROM execution_hourly WHERE day < ?').run(ecuadorDay(Date.now() - 60 * 86400_000));
-    db.prepare('DELETE FROM obf_cache WHERE created_at < ?').run(Math.floor(Date.now() / 1000) - 30 * 86400);
+    db.prepare('DELETE FROM obf_cache WHERE created_at < ?').run(Math.floor(Date.now() / 1000) - 7 * 86400);
     if (logs) console.log(`[Limpieza] ${logs} logs de scripts borrados (más de 1 día).`);
   } catch (err) { console.error('[Limpieza] Error:', err.message); }
 }

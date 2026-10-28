@@ -562,10 +562,12 @@ async function obfuscateLuau(source) {
   const key = process.env.LUO_API_KEY;
   if (!key) throw Object.assign(new Error('El Ofuscador 3 no está configurado en el servidor.'), { status: 501 });
   const auth = { Authorization: `Bearer ${key}` };
+  // Las macros LUO_NO_VIRTUALIZE() hacían que el código no cargara en el ejecutor: se quitan antes de ofuscar
+  const clean = String(source).replace(/^[ \t]*LUO_NO_VIRTUALIZE\(\)[ \t]*\r?\n/gm, '');
 
   let r;
   try {
-    r = await luauPost({ source, version: 'sun', protection: 'strong', runtime_trace: true }, auth);
+    r = await luauPost({ source: clean, version: 'sun', protection: 'strong', runtime_trace: true }, auth);
   } catch (err) {
     console.warn('[Luau] No se pudo conectar:', err.message);
     throw Object.assign(new Error('No pudimos conectar con el Ofuscador 3. Inténtalo de nuevo.'), { status: 502 });

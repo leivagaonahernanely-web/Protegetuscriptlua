@@ -945,6 +945,88 @@ if detections > 0 then
   script_key = nil
   kick("TAMPERING")
 end
+-- Detector de entorno (hooks, metatables, integridad del runtime). Devuelve 109 si todo está limpio.
+local function envProbeRun()
+  local _ef = 0
+  pcall(function()
+    local _t, _p, _rg, _rs, _re = type, pcall, rawget, rawset, rawequal
+    if _t(game) ~= "userdata" or _t(Enum) ~= "userdata" then return end
+    if _VERSION ~= "Luau" then return end
+    local _n = 0 / 0
+    if _n == _n then return end
+    if _t(math) ~= "table" or _t(string) ~= "table" then return end
+    if _t(bit32) == "table" and bit32.bxor and bit32.bxor(0xA5A5, 0xA5A5) ~= 0 then return end
+    if math.floor(1.9) ~= 1 then return end
+    if string.byte("Z") ~= 90 then return end
+    local _slot = {}
+    local _mk = function() end
+    if not _p(_rs, _slot, 0x2BAD, _mk) then return end
+    if not _re(_rg(_slot, 0x2BAD), _mk) then return end
+    _rs(_slot, 0x2BAD, nil)
+    if _rg(_slot, 0x2BAD) ~= nil then return end
+    local function _dec(_tb, _k)
+      local _r = {}
+      for _i = 1, #_tb do
+        local _ki = (_k * ((_i % 11) + 1) + _i * 7 + (_k % 31)) % 256
+        _r[_i] = string.char((_tb[_i] - _ki + 512) % 256)
+      end
+      return table.concat(_r)
+    end
+    -- Sonda de Tween con tiempo máximo (no se queda esperando si el Tween nunca termina)
+    pcall(function()
+      local _tw = _dec({
+        (797217 - 796977), (-651497 + 651720), (192857 + (-192704)), (269712 - 269611),
+        (226643 - 226585), (379280 - 379045), (435962 + (-435761)), (882599 + (-882437)),
+        (287161 + (-287047)), (-770111 + 770160), (-774263 + 774391), (-845570 + 845648)
+      }, 197)
+      local _fr = Instance.new("Frame")
+      local _c = 0
+      _fr:GetPropertyChangedSignal("Position"):Connect(function() _c = _c + 1 end)
+      local _ts = game:GetService(_tw)
+      local _tn = _ts:Create(_fr, TweenInfo.new(0.01), { Position = UDim2.new(1, 0, 1, 0) })
+      local _done = false
+      _tn.Completed:Connect(function() _done = true end)
+      _tn:Play()
+      local _t0 = os.clock()
+      repeat task.wait() until _done or os.clock() - _t0 > 2
+      _fr:Destroy()
+    end)
+    -- Sonda de FPS
+    pcall(function()
+      local _ws = _dec({
+        (896050 - 895799), (793030 + (-792931)), (234421 - 234239), (-742994 + 743249),
+        (-132469 + 132556), (320775 - 320611), (497771 + (-497542)), (947677 + (-947622)),
+        (-380387 + 380524)
+      }, 73)
+      game:GetService(_ws):GetRealPhysicsFPS()
+    end)
+    -- Funciones de hook del ejecutor: si aparecen, no se cuenta como limpio
+    local _okE, _f = _p(function()
+      return getfenv and getfenv(0) or getgenv and getgenv() or {}
+    end)
+    if _okE and _t(_f) == "table" then
+      for _, _nm in ipairs({ "hookfunction", "hookmetamethod", "hookm", "replaceclosure", "getgc" }) do
+        if _rg(_f, _nm) ~= nil then return end
+      end
+    end
+    -- Integridad de la metatable de game (suave)
+    pcall(function()
+      if not getrawmetatable then return end
+      local _s, _mt = _p(getrawmetatable, game)
+      if _s and _t(_mt) == "table" then
+        if _rg(_mt, "__index") == nil and _rg(_mt, "__namecall") == nil then return end
+      end
+    end)
+    _ef = 109
+  end)
+  return _ef
+end
+local envScore = envProbeRun()
+if envScore ~= 109 then
+  pcall(function() game:HttpGet(AUTH_URL .. "?key=" .. enc(key) .. "&hwid=" .. enc(hwid) .. "&rbxid=" .. enc(rbxid) .. "&tamper=1") end)
+  script_key = nil
+  kick("TAMPERING")
+end
 -- Si loadstring fue interceptado: se avisa al servidor (dueño) y se corta antes de validar la key
 if loaderTampered() then
   pcall(function() game:HttpGet(AUTH_URL .. "?key=" .. enc(key) .. "&hwid=" .. enc(hwid) .. "&rbxid=" .. enc(rbxid) .. "&tamper=1") end)

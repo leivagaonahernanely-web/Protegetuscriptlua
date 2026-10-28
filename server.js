@@ -890,6 +890,7 @@ local MSG = {
   MAINTENANCE = HEAD .. "This script is under maintenance.\\nPlease try again in a few minutes.",
   MAINTENANCE_ALL = HEAD .. "Vantarmor is under maintenance.\\nPlease try again in a few minutes.",
   SERVER_UNREACHABLE = HEAD .. "Server unreachable. Please try later.",
+  PAYLOAD_LOAD_FAILED = HEAD .. "The script could not be loaded by your executor.\\nPlease contact the script owner.",
 }
 local Players = game:GetService("Players")
 local function kick(code)
@@ -939,7 +940,7 @@ local pcode = payload:match("^!VANTARMOR:(%u[%u_]*)$")
 if pcode then kick(pcode) end
 if loaderTampered() then kick("TAMPERING") end
 local fn = loadstring(payload)
-if not fn then kick("VERIFY_FAILED") end
+if not fn then kick("PAYLOAD_LOAD_FAILED") end
 fn()
 `;
 }

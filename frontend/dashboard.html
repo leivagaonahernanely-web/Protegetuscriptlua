@@ -540,6 +540,23 @@
             </div>
           </article>
         </div>
+        <article class="card" style="margin-top:14px">
+          <h3>Webhooks</h3>
+          <p style="margin:6px 0 14px;font-size:14px;color:var(--text-soft);">Recibe avisos en tu servidor cuando pase algo importante. Cada envío va firmado con el encabezado <code>X-Vantarmor-Signature</code>.</p>
+          <form id="whForm" class="input-group" autocomplete="off">
+            <label for="whUrl">URL (https)</label>
+            <input id="whUrl" class="field block" type="url" maxlength="500" placeholder="https://tu-servidor.com/vantarmor" required>
+            <fieldset style="border:0;padding:0;margin:12px 0;display:flex;flex-wrap:wrap;gap:10px 16px">
+              <legend style="font-size:13px;color:var(--text-dim);margin-bottom:6px">Eventos</legend>
+              <label><input type="checkbox" name="whEv" value="key.created" checked> Key creada</label>
+              <label><input type="checkbox" name="whEv" value="key.banned" checked> Key baneada</label>
+              <label><input type="checkbox" name="whEv" value="key.shared" checked> Key compartida</label>
+              <label><input type="checkbox" name="whEv" value="script.tamper" checked> Intento de dump</label>
+            </fieldset>
+            <button class="btn" type="submit">Crear webhook</button>
+          </form>
+          <div id="whList" style="margin-top:16px"></div>
+        </article>
       </section>
 
       <section class="view" data-view="chat">

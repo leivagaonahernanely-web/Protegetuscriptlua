@@ -3,6 +3,8 @@ import cookieParser from 'cookie-parser';
 import cors from 'cors';
 import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
+import net from 'net';
+import dns from 'dns';
 import path from 'path';
 import fs from 'fs';
 import os from 'os';
@@ -1196,6 +1198,7 @@ app.get('/scripts/hosted/:slug/payload', loaderLimit, (req, res) => {
 const SHARE_COOLDOWN_S = 600;
 function reportKeyShare(script, k, hwid, reply) {
   db.prepare('UPDATE keys SET pending_hwid = ? WHERE key = ?').run(hwid, k.key);
+  fireWebhooks(script.user_id, 'key.shared', { key: k.key, scriptId: script.id, hwid });
   if (script.share_detection === 0) return reply('HWID_MISMATCH');
   const nowS = Math.floor(Date.now() / 1000);
   const boundHwid = k.hwid || k.last_hwid;
@@ -1248,6 +1251,7 @@ app.get('/scripts/hosted/:slug/auth', loaderLimit, (req, res) => {
         `• Discord: ${tDiscord ? `<@${tDiscord}>` : 'sin vincular'}`,
       ], tDiscord, rbxid);
       discordBot?.notifyTamper?.({ scriptId: script.id, key: tKey, hwid: tHwid, rbxid, discordId: tDiscord, autoRevoked });
+      fireWebhooks(script.user_id, 'script.tamper', { scriptId: script.id, key: tKey, hwid: tHwid, rbxid, autoRevoked });
     }
     return reply('TAMPERING');
   }
@@ -2309,6 +2313,7 @@ function banRoute(on) {
     const reason = String(req.body?.reason || 'Baneado por el creador').slice(0, 200);
     const out = applyBan(k, kind, reason, req.userId, on);
     if (out.error) return res.status(out.status).json({ error: out.error });
+    if (on) fireWebhooks(ownerOfScript(k.script_id), 'key.banned', { key: k.key, scriptId: k.script_id, kind, reason });
     res.json({ ok: true });
   };
 }
@@ -2357,6 +2362,135 @@ function blacklistChange(req, res, on) {
 app.post('/api/blacklist', requireAuth, (req, res) => blacklistChange(req, res, true));
 app.post('/api/blacklist/remove', requireAuth, (req, res) => blacklistChange(req, res, false));
 
+// ==========================================
+// WEBHOOKS: avisos al servidor del dueño (firmados con HMAC)
+// ==========================================
+db.exec(`CREATE TABLE IF NOT EXISTS webhooks (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id TEXT NOT NULL,
+  url TEXT NOT NULL,
+  secret TEXT NOT NULL,
+  events TEXT NOT NULL,
+  active INTEGER NOT NULL DEFAULT 1,
+  created_at INTEGER,
+  last_status INTEGER,
+  last_error TEXT,
+  last_at INTEGER
+)`);
+db.exec('CREATE INDEX IF NOT EXISTS webhooks_by_user ON webhooks(user_id)');
+const WEBHOOK_EVENTS = ['key.created', 'key.banned', 'key.shared', 'script.tamper'];
+const WEBHOOK_MAX = 5;
+
+// Solo IPs públicas: evita que un webhook apunte a la red interna del servidor
+function isPublicIp(ip) {
+  if (net.isIPv4(ip)) {
+    const [a, b] = ip.split('.').map(Number);
+    if (a === 0 || a === 10 || a === 127 || a >= 224) return false;
+    if (a === 169 && b === 254) return false;
+    if (a === 172 && b >= 16 && b <= 31) return false;
+    if (a === 192 && b === 168) return false;
+    if (a === 100 && b >= 64 && b <= 127) return false;
+    return true;
+  }
+  if (net.isIPv6(ip)) {
+    const l = ip.toLowerCase();
+    return !(l === '::' || l === '::1' || l.startsWith('fc') || l.startsWith('fd') || l.startsWith('fe80') || l.startsWith('::ffff:'));
+  }
+  return false;
+}
+async function isPublicHttpsUrl(raw) {
+  let u;
+  try { u = new URL(String(raw)); } catch { return false; }
+  if (u.protocol !== 'https:' || u.username || u.password) return false;
+  if (u.port && u.port !== '443') return false;
+  const host = u.hostname.toLowerCase();
+  if (net.isIP(host)) return isPublicIp(host);
+  if (!host.includes('.') || host === 'localhost' || host.endsWith('.local')) return false;
+  try {
+    const addrs = await dns.promises.lookup(host, { all: true });
+    return addrs.length > 0 && addrs.every(a => isPublicIp(a.address));
+  } catch { return false; }
+}
+
+async function deliverWebhook(w, event, data) {
+  const body = JSON.stringify({ event, at: Math.floor(Date.now() / 1000), data });
+  const sig = crypto.createHmac('sha256', w.secret).update(body).digest('hex');
+  let status = null;
+  let err = null;
+  // Se revisa otra vez al enviar: el dominio podría haber cambiado de IP desde que se registró
+  if (!(await isPublicHttpsUrl(w.url))) {
+    err = 'URL no permitida';
+  } else {
+    try {
+      const r = await fetch(w.url, {
+        method: 'POST',
+        redirect: 'error',
+        signal: AbortSignal.timeout(5000),
+        headers: {
+          'Content-Type': 'application/json',
+          'User-Agent': 'Vantarmor-Webhook/1',
+          'X-Vantarmor-Event': event,
+          'X-Vantarmor-Signature': `sha256=${sig}`,
+        },
+        body,
+      });
+      status = r.status;
+      if (!r.ok) err = `HTTP ${r.status}`;
+    } catch (e) {
+      err = e?.name === 'TimeoutError' ? 'tiempo agotado' : String(e?.message || 'error de red').slice(0, 120);
+    }
+  }
+  try {
+    db.prepare('UPDATE webhooks SET last_status = ?, last_error = ?, last_at = ? WHERE id = ?')
+      .run(status, err, Math.floor(Date.now() / 1000), w.id);
+  } catch { /* el registro del resultado nunca rompe el loader */ }
+}
+
+// Envía el evento a todos los webhooks activos del dueño que escuchan ese evento (en segundo plano)
+function fireWebhooks(userId, event, data) {
+  if (!userId) return;
+  try {
+    const rows = db.prepare('SELECT id, url, secret FROM webhooks WHERE user_id = ? AND active = 1 AND events LIKE ?')
+      .all(String(userId), `%,${event},%`);
+    for (const w of rows) deliverWebhook(w, event, data).catch(() => {});
+  } catch { /* nunca rompe la acción principal */ }
+}
+const ownerOfScript = scriptId => {
+  try { return db.prepare('SELECT user_id FROM scripts WHERE id = ?').get(scriptId)?.user_id || null; } catch { return null; }
+};
+
+const webhookRow = w => ({ ...w, events: String(w.events || '').split(',').filter(Boolean) });
+app.get('/api/webhooks', requireAuth, (req, res) => {
+  const rows = db.prepare('SELECT id, url, events, active, last_status, last_error, last_at, created_at FROM webhooks WHERE user_id = ? ORDER BY id DESC')
+    .all(String(req.userId));
+  res.json(rows.map(webhookRow));
+});
+app.post('/api/webhooks', requireAuth, async (req, res) => {
+  const url = String(req.body?.url || '').trim().slice(0, 500);
+  const events = [...new Set((Array.isArray(req.body?.events) ? req.body.events : []).map(String))]
+    .filter(e => WEBHOOK_EVENTS.includes(e));
+  if (!events.length) return res.status(400).json({ error: 'Elige al menos un evento' });
+  if (!(await isPublicHttpsUrl(url))) return res.status(400).json({ error: 'La URL debe ser https y apuntar a un servidor público' });
+  const count = db.prepare('SELECT COUNT(*) AS n FROM webhooks WHERE user_id = ?').get(String(req.userId)).n;
+  if (count >= WEBHOOK_MAX) return res.status(400).json({ error: `Máximo ${WEBHOOK_MAX} webhooks` });
+  const secret = crypto.randomBytes(24).toString('hex');
+  const info = db.prepare('INSERT INTO webhooks (user_id, url, secret, events, active, created_at) VALUES (?, ?, ?, ?, 1, ?)')
+    .run(String(req.userId), url, secret, `,${events.join(',')},`, Math.floor(Date.now() / 1000));
+  // El secreto solo se muestra una vez, al crear el webhook
+  res.json({ id: Number(info.lastInsertRowid), secret });
+});
+app.delete('/api/webhooks/:id', requireAuth, (req, res) => {
+  db.prepare('DELETE FROM webhooks WHERE id = ? AND user_id = ?').run(Number(req.params.id), String(req.userId));
+  res.json({ ok: true });
+});
+app.post('/api/webhooks/:id/test', requireAuth, async (req, res) => {
+  const w = db.prepare('SELECT id, url, secret FROM webhooks WHERE id = ? AND user_id = ?').get(Number(req.params.id), String(req.userId));
+  if (!w) return res.status(404).json({ error: 'Webhook no encontrado' });
+  await deliverWebhook(w, 'webhook.test', { message: 'Prueba de webhook de Vantarmor' });
+  const row = db.prepare('SELECT last_status, last_error, last_at FROM webhooks WHERE id = ?').get(w.id);
+  res.json(row);
+});
+
 app.post('/api/keys', requireAuth, (req, res) => {
   if (maintenanceBlock(req, res)) return;
   const scriptId = Number(req.body?.scriptId);
@@ -2389,6 +2523,7 @@ app.post('/api/keys', requireAuth, (req, res) => {
       }
       return list;
     })();
+    fireWebhooks(req.userId, 'key.created', { scriptId: script.id, count: generated.length, keys: generated });
     res.json({ keys: generated });
   } catch (err) {
     console.error('Create keys error:', err);

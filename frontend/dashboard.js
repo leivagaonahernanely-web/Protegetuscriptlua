@@ -149,6 +149,7 @@
     document.querySelectorAll('.view').forEach(v => v.classList.toggle('active', v.dataset.view === name));
     if (name === 'soporte') loadSupport();
     if (name === 'stats') { loadExecStats(); }
+    if (name === 'profile') loadWebhooks();
     $('pageTitle').firstChild.textContent = NAV[name].title;
     $('pageSub').textContent = NAV[name].sub;
     if (name === 'bienvenida' && !hasPlusPlan()) {
@@ -2239,6 +2240,74 @@
     });
   }
   document.addEventListener('click', e => { if (e.target.closest('#macroBtn')) openMacroPicker(); });
+
+  // ---------- WEBHOOKS (perfil) ----------
+  const WH_EVENT_LABEL = { 'key.created': 'Key creada', 'key.banned': 'Key baneada', 'key.shared': 'Key compartida', 'script.tamper': 'Intento de dump', 'webhook.test': 'Prueba' };
+  async function loadWebhooks() {
+    const box = $('whList');
+    if (!box) return;
+    box.innerHTML = '<p class="hint">Cargando webhooks…</p>';
+    try {
+      const list = await api('/api/webhooks');
+      if (!list.length) { box.innerHTML = '<p class="hint">Todavía no tienes webhooks.</p>'; return; }
+      box.innerHTML = list.map(w => {
+        const st = w.last_status == null && !w.last_error ? 'Sin envíos todavía'
+          : w.last_error ? `Último envío con error: ${esc(w.last_error)}`
+          : `Último envío: HTTP ${w.last_status}`;
+        return `
+          <div class="ver-row" style="padding:10px 0;border-top:1px solid var(--border)">
+            <div class="ver-meta" style="min-width:0">
+              <b style="word-break:break-all">${esc(w.url)}</b>
+              <span class="hint">${w.events.map(e => esc(WH_EVENT_LABEL[e] || e)).join(' · ')}</span>
+              <span class="hint">${st}</span>
+            </div>
+            <span style="display:flex;gap:6px;flex-wrap:wrap">
+              <button class="btn ghost sm" type="button" data-wh-test="${esc(w.id)}">Probar</button>
+              <button class="btn ghost sm" type="button" data-wh-del="${esc(w.id)}">Eliminar</button>
+            </span>
+          </div>`;
+      }).join('');
+    } catch (err) {
+      box.innerHTML = `<p class="hint">${esc(err.message)}</p>`;
+    }
+  }
+  $('whForm').addEventListener('submit', async e => {
+    e.preventDefault();
+    const events = [...document.querySelectorAll('input[name="whEv"]:checked')].map(c => c.value);
+    const btn = e.submitter || e.target.querySelector('button[type="submit"]');
+    setBusy(btn, true);
+    try {
+      const r = await api('/api/webhooks', { method: 'POST', body: JSON.stringify({ url: $('whUrl').value.trim(), events }) });
+      $('whUrl').value = '';
+      openModal('Webhook creado', `
+        <p class="hint">Guarda este secreto ahora. Sirve para verificar la firma de cada envío (HMAC-SHA256 del cuerpo). No se vuelve a mostrar.</p>
+        <div class="input-group"><input class="field block mono" readonly value="${esc(r.secret)}"></div>`);
+      loadWebhooks();
+    } catch (err) {
+      toast(err.message, 'error');
+    } finally {
+      setBusy(btn, false);
+    }
+  });
+  $('whList').addEventListener('click', async e => {
+    const test = e.target.closest('[data-wh-test]');
+    const del = e.target.closest('[data-wh-del]');
+    if (test) {
+      setBusy(test, true);
+      try {
+        const r = await api(`/api/webhooks/${encodeURIComponent(test.dataset.whTest)}/test`, { method: 'POST' });
+        toast(r.last_error ? `Falló: ${r.last_error}` : `Respondió HTTP ${r.last_status}`, r.last_error ? 'error' : 'ok');
+      } catch (err) { toast(err.message, 'error'); }
+      finally { setBusy(test, false); loadWebhooks(); }
+    } else if (del) {
+      if (!confirm('¿Eliminar este webhook?')) return;
+      try {
+        await api(`/api/webhooks/${encodeURIComponent(del.dataset.whDel)}`, { method: 'DELETE' });
+        toast('Webhook eliminado');
+        loadWebhooks();
+      } catch (err) { toast(err.message, 'error'); }
+    }
+  });
 
   // ---------- BLACKLIST (web) ----------
   async function loadBlacklist() {

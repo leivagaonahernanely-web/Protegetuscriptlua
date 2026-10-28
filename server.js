@@ -251,9 +251,22 @@ for (const sql of [
   "ALTER TABLE scripts ADD COLUMN loader_id TEXT",
 ]) { try { db.exec(sql); } catch { /* ya existe */ } }
 // Identificador estable del loader: 40 caracteres aleatorios que se crean una vez y no cambian al editar el script
-db.exec('CREATE UNIQUE INDEX IF NOT EXISTS scripts_loader_id ON scripts(loader_id)');
-for (const row of db.prepare('SELECT id FROM scripts WHERE loader_id IS NULL').all()) {
-  db.prepare('UPDATE scripts SET loader_id = ? WHERE id = ?').run(crypto.randomBytes(20).toString('hex'), row.id);
+// Diagnóstico de espacio: si el volumen está lleno, SQLite no puede escribir y el servidor no debe caerse en el arranque
+try {
+  const free = fs.statfsSync(path.dirname(DATABASE_PATH));
+  const freeMb = Math.round(Number(free.bavail) * Number(free.bsize) / 1048576);
+  const dbMb = Math.round((fs.existsSync(DATABASE_PATH) ? fs.statSync(DATABASE_PATH).size : 0) / 1048576);
+  console.log(`[DB] tamaño de la base: ${dbMb} MB · espacio libre en el volumen: ${freeMb} MB`);
+  if (freeMb < 50) console.error('[DB] ALERTA: quedan menos de 50 MB libres en el volumen. Aumenta el tamaño del volumen en Railway.');
+} catch { /* el diagnóstico nunca detiene el arranque */ }
+// Estas escrituras de arranque pueden fallar con el disco lleno: el servidor sigue arrancando y lo avisa en los logs
+try {
+  db.exec('CREATE UNIQUE INDEX IF NOT EXISTS scripts_loader_id ON scripts(loader_id)');
+  for (const row of db.prepare('SELECT id FROM scripts WHERE loader_id IS NULL').all()) {
+    db.prepare('UPDATE scripts SET loader_id = ? WHERE id = ?').run(crypto.randomBytes(20).toString('hex'), row.id);
+  }
+} catch (err) {
+  console.error('[DB] No se pudo completar la migración de arranque:', err.code || err.message, '· revisa el espacio del volumen.');
 }
 // Contadores por periodo y cuotas: lógica en lib/quota.js
 const quota = createQuota(db);

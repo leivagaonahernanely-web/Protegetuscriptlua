@@ -119,7 +119,7 @@ if (process.env.RAILWAY_ENVIRONMENT) {
 
 if (!JWT_SECRET) console.warn('⚠️  JWT_SECRET no está definido: se usará una clave guardada en la base de datos.');
 
-app.use(express.json({ limit: '3mb' }));          // el default de Express (100 KB) no alcanza para 2 MB
+app.use(express.json({ limit: '6mb' }));          // el default de Express (100 KB) no alcanza para 2 MB
 app.use(cookieParser());
 app.use(cors({ origin: FRONTEND_URL, credentials: true }));
 
@@ -512,10 +512,16 @@ function runObfuscatorCli(bin, args, cwd, luaPath) {
     execFile(bin, args, {
       cwd,
       timeout: OBF_TIMEOUT_MS,
-      maxBuffer: 32 * 1024 * 1024,
+      maxBuffer: 256 * 1024 * 1024,
       env: { ...process.env, LUA_PATH: `${cwd}/?.lua;${cwd}/?/init.lua;${luaPath};;` },
     }, (err, stdout, stderr) => {
       if (err) {
+        if (err.killed) {
+          return reject(Object.assign(new Error('El ofuscador tardó demasiado con este script. Prueba con un script más corto o divídelo.'), { status: 422 }));
+        }
+        if (err.code === 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER') {
+          return reject(Object.assign(new Error('La versión ofuscada de este script es demasiado grande. Prueba con un script más corto.'), { status: 422 }));
+        }
         const detail = String(stderr || stdout || err.message).slice(0, 500);
         // Error de sintaxis del propio script
         if (/Parsing Error|syntax|unexpected token|expected <|expected/i.test(detail)) {
@@ -2580,6 +2586,18 @@ async function backupDb() {
 }
 backupDb();
 setInterval(backupDb, 6 * 60 * 60_000).unref();
+
+// Errores que no pasan por una ruta: respuesta JSON clara (en vez de HTML o "Error del servidor" sin detalle)
+app.use((err, req, res, next) => {
+  if (err?.type === 'entity.too.large') {
+    return res.status(413).json({ error: 'El script es demasiado grande. El límite es de 2 MB de código.' });
+  }
+  if (res.headersSent) return next(err);
+  console.error('Error no controlado:', err);
+  res.status(err?.status && err.expose ? err.status : 500).json({
+    error: err?.status && err.expose ? err.message : 'Error del servidor. Inténtalo de nuevo.',
+  });
+});
 
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`✅ Servidor Vantarmor corriendo en el puerto ${PORT}`);

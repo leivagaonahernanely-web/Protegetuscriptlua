@@ -394,7 +394,7 @@
       const isProtected = document.querySelector('input[name="protection"]:checked')?.value === 'protected';
       // El ofuscador se elige en FFA y en protegido; el reinicio de HWID solo aplica a protegido
       $('hwidGroup').hidden = !isProtected;
-      $('macroBtn').hidden = true; // macros desactivadas: el código con macros no cargaba en el ejecutor
+      $('macroBtn').hidden = $('fObf').value !== 'luau';
       $('vmGroup').hidden = $('fObf').value !== 'clyde';
       const vmOn = $('vmGroup').querySelector('input')?.checked;
       const hot = hotRanges($('fCode')?.value || '').length > 0;

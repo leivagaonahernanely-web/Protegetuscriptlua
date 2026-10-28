@@ -238,6 +238,26 @@
           <div id="execTop" class="muted" style="margin-top:10px;font-size:13px"></div>
         </div>
 
+        <div class="panel">
+          <div class="panel-head">
+            <div>
+              <h3>Ejecuciones por hora</h3>
+              <span class="geo-sub">Hora de Ecuador</span>
+            </div>
+          </div>
+          <div id="hourChart" class="hour-chart"></div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head">
+            <div>
+              <h3>Keys sin activar</h3>
+              <span class="geo-sub" id="unusedSub">Vendidas o creadas que nadie ha usado todavía</span>
+            </div>
+          </div>
+          <div id="unusedList"></div>
+        </div>
+
         <div class="panel geo-panel">
           <div class="panel-head">
             <div>
@@ -526,6 +546,8 @@
         <article class="card chat-card">
           <div class="chat-top">
             <div class="chat-online" id="chatOnline"></div>
+            <input class="field chat-search" id="chatSearch" type="search" placeholder="Buscar en el chat…" aria-label="Buscar en el chat">
+            <button class="btn ghost sm" id="chatNotify" type="button" title="Avisarme cuando me mencionen">🔔 Avisos</button>
             <button class="btn ghost sm" id="chatWordsBtn" type="button" hidden>⚙️ Palabras</button>
           </div>
           <div class="chat-words" id="chatWords" hidden></div>

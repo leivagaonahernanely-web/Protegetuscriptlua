@@ -775,3 +775,17 @@ tbody tr:hover td { background: rgba(255,255,255,.025); }
   .topbar > #inviteBotBtn, .topbar > #botServers, .topbar > #langSlot, .topbar > #refreshBtn { flex: 0 0 auto; }
   #langSlot .vm-lang { font-size: 12px; padding: 8px 26px 8px 10px; }
 }
+
+/* Ejecuciones por hora */
+.hour-chart { min-height: 170px; }
+.hour-bars { display: flex; align-items: flex-end; gap: 4px; height: 160px; }
+.hour-col { flex: 1; height: 100%; display: flex; flex-direction: column; justify-content: flex-end; align-items: center; gap: 6px; min-width: 0; }
+.hour-col i { display: block; width: 100%; border-radius: 5px 5px 2px 2px; background: linear-gradient(#c9c9d4, #3a3a46); transition: opacity .2s var(--ease); }
+.hour-col.peak i { background: linear-gradient(#ffffff, #9a9aaa); }
+.hour-col:hover i { opacity: .75; }
+.hour-col span { font-size: 10px; color: var(--text-dim); height: 14px; line-height: 14px; font-variant-numeric: tabular-nums; }
+.hour-note { margin-top: 10px; font-size: 13px; color: var(--text-soft); }
+
+/* Chat: búsqueda en la barra superior */
+.chat-top { flex-wrap: wrap; }
+.chat-search { flex: 1 1 160px; max-width: 260px; padding: 7px 10px; font-size: 13px; }

@@ -1290,6 +1290,7 @@
   };
   const chatAtBottom = list => list.scrollHeight - list.scrollTop - list.clientHeight < 60;
 
+  let chatQuery = '';
   function renderChat(scrollToEnd) {
     const list = $('chatList');
     const wasAtBottom = chatAtBottom(list);
@@ -1297,9 +1298,14 @@
       list.innerHTML = '<div class="chat-empty">Todavía no hay mensajes. ¡Escribe el primero!</div>';
       return;
     }
-    const more = chatHasMore ? '<button class="chat-more" id="chatMore" type="button">Cargar mensajes anteriores</button>' : '';
+    const shown = chatQuery ? chatMessages.filter(m => String(m.text).toLowerCase().includes(chatQuery)) : chatMessages;
+    if (!shown.length) {
+      list.innerHTML = '<div class="chat-empty">Ningún mensaje coincide con la búsqueda.</div>';
+      return;
+    }
+    const more = chatHasMore && !chatQuery ? '<button class="chat-more" id="chatMore" type="button">Cargar mensajes anteriores</button>' : '';
     let prev = null;
-    list.innerHTML = more + chatMessages.map(m => {
+    list.innerHTML = more + shown.map(m => {
       const mine = !!user && m.user_id === user.id;
       const canDelete = mine || canModerateChat;
       const canMute = canModerateChat && !mine;
@@ -1345,7 +1351,26 @@
     if (chatMessages.some(x => x.id === m.id)) return;
     chatMessages = chatMessages.concat([m]).slice(-300);
     renderChat(scrollToEnd);
+    notifyChatMention(m);
   }
+
+  // Aviso del navegador cuando te mencionan o responden a tu mensaje y no estás viendo la pestaña
+  function notifyChatMention(m) {
+    if (!user || m.user_id === user.id || !document.hidden) return;
+    const mentioned = chatMentionsMe(m.text);
+    const repliedToMe = m.reply && m.reply.username === user.username;
+    if (!mentioned && !repliedToMe) return;
+    if (!('Notification' in window) || Notification.permission !== 'granted') return;
+    try {
+      new Notification(`${m.username} ${mentioned ? 'te mencionó' : 'respondió a tu mensaje'} en el chat`, { body: String(m.text).slice(0, 120), tag: 'vm-chat' });
+    } catch (_) { /* el navegador puede bloquear avisos: no pasa nada */ }
+  }
+  $('chatSearch').addEventListener('input', e => { chatQuery = e.target.value.trim().toLowerCase(); renderChat(false); });
+  $('chatNotify').addEventListener('click', async () => {
+    if (!('Notification' in window)) { toast('Tu navegador no permite avisos', 'error'); return; }
+    const perm = Notification.permission === 'granted' ? 'granted' : await Notification.requestPermission();
+    toast(perm === 'granted' ? 'Te avisaremos cuando te mencionen' : 'Avisos desactivados en el navegador', perm === 'granted' ? 'ok' : 'error');
+  });
 
   // Primera carga: últimos mensajes. Después pide solo los nuevos (after = último id)
   async function loadChat({ scrollToEnd = false } = {}) {
@@ -1794,6 +1819,13 @@
         return { day, n: counts.get(day) || 0 };
       });
       renderExecChart(series);
+      renderUnusedKeys();
+      try {
+        const hr = await api(`/api/stats/hourly?days=${execDays}${statQuery()}`);
+        renderHourChart(hr.hours);
+      } catch (_) {
+        $('hourChart').innerHTML = '<div class="empty-line">No se pudo cargar la hora de las ejecuciones.</div>';
+      }
       const maxS = Math.max(1, ...data.byScript.map(s => s.n));
       const totS = Math.max(1, data.byScript.reduce((a, s) => a + s.n, 0));
       $('execTop').innerHTML = data.byScript.length
@@ -1878,6 +1910,48 @@
     svg.addEventListener('pointerdown', show);
     svg.addEventListener('pointerleave', () => { tip.hidden = true; });
   }
+  // Ejecuciones por hora del día (24 columnas, hora pico resaltada)
+  function renderHourChart(hours) {
+    const byHour = new Map(hours.map(h => [h.hour, h.n]));
+    const vals = Array.from({ length: 24 }, (_, h) => byHour.get(h) || 0);
+    const total = vals.reduce((a, b) => a + b, 0);
+    if (!total) { $('hourChart').innerHTML = '<p class="empty-line">Sin ejecuciones en este período.</p>'; return; }
+    const max = Math.max(...vals);
+    const peak = vals.indexOf(max);
+    const pad = h => String(h).padStart(2, '0');
+    $('hourChart').innerHTML = `
+      <div class="hour-bars">${vals.map((n, h) => `
+        <div class="hour-col${h === peak ? ' peak' : ''}" title="${pad(h)}:00 · ${n.toLocaleString('es-EC')} ejecuciones">
+          <i style="height:${n ? Math.max(3, Math.round(n / max * 100)) : 0}%"></i>
+          <span>${h % 3 === 0 ? pad(h) : ''}</span>
+        </div>`).join('')}
+      </div>
+      <p class="hour-note">Hora pico: <b>${pad(peak)}:00</b> con ${max.toLocaleString('es-EC')} ejecuciones</p>`;
+  }
+
+  // Keys activas que nadie ha usado todavía (sin HWID), por script
+  function renderUnusedKeys() {
+    const box = $('unusedList');
+    if (!keysLoaded) { box.innerHTML = '<p class="hint">Cargando keys…</p>'; return; }
+    const active = keys.filter(k => !k.banned && keyStatus(k).id === 'active');
+    const pending = active.filter(k => !k.hwid);
+    $('unusedSub').textContent = `${pending.length} de ${active.length} keys activas aún sin usar`;
+    if (!pending.length) { box.innerHTML = '<p class="empty-line">Todas tus keys activas ya fueron usadas.</p>'; return; }
+    const per = new Map();
+    pending.forEach(k => per.set(k.script_id, (per.get(k.script_id) || 0) + 1));
+    const rows = [...per.entries()].sort((a, b) => b[1] - a[1]);
+    const max = rows[0][1];
+    box.innerHTML = `<div class="top-scripts">${rows.map(([id, n]) => {
+      const total = active.filter(k => k.script_id === id).length;
+      return `<div class="ts-row">
+        <span class="geo-rank">•</span>
+        <span class="geo-name">${esc(scriptName(id))}</span>
+        <span class="geo-num">${n}<small>de ${total}</small></span>
+        <div class="geo-bar"><i style="width:${Math.round(n / max * 100)}%"></i></div>
+      </div>`;
+    }).join('')}</div>`;
+  }
+
   let execResizeTimer = null;
   window.addEventListener('resize', () => {
     clearTimeout(execResizeTimer);

@@ -991,6 +991,9 @@ const countExecutionStmt = db.prepare(`INSERT INTO execution_daily (script_id, d
 db.exec(`CREATE TABLE IF NOT EXISTS execution_country (user_id TEXT NOT NULL, day TEXT NOT NULL, country TEXT NOT NULL, n INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (user_id, day, country))`);
 const countryStmt = db.prepare(`INSERT INTO execution_country (user_id, day, country, n) VALUES (?, ?, ?, 1)
   ON CONFLICT(user_id, day, country) DO UPDATE SET n = n + 1`);
+db.exec(`CREATE TABLE IF NOT EXISTS execution_hourly (script_id INTEGER NOT NULL, day TEXT NOT NULL, hour INTEGER NOT NULL, n INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (script_id, day, hour))`);
+const hourlyStmt = db.prepare(`INSERT INTO execution_hourly (script_id, day, hour, n) VALUES (?, ?, ?, 1)
+  ON CONFLICT(script_id, day, hour) DO UPDATE SET n = n + 1`);
 db.exec(`CREATE TABLE IF NOT EXISTS execution_script_country (script_id INTEGER NOT NULL, day TEXT NOT NULL, country TEXT NOT NULL, n INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (script_id, day, country))`);
 const scriptCountryStmt = db.prepare(`INSERT INTO execution_script_country (script_id, day, country, n) VALUES (?, ?, ?, 1)
   ON CONFLICT(script_id, day, country) DO UPDATE SET n = n + 1`);
@@ -998,6 +1001,8 @@ const countryOf = ip => { try { return geoip.lookup(String(ip || ''))?.country |
 const countExecution = (scriptId, ip, userId) => {
   try {
     countExecutionStmt.run(scriptId, ecuadorDay(Date.now()));
+    const nowMs = Date.now();
+    hourlyStmt.run(scriptId, ecuadorDay(nowMs), new Date(nowMs - 5 * 3600_000).getUTCHours());
     const country = countryOf(ip);
     if (country && userId) countryStmt.run(String(userId), ecuadorDay(Date.now()), country);
     if (country) scriptCountryStmt.run(scriptId, ecuadorDay(Date.now()), country);
@@ -2123,6 +2128,20 @@ app.get('/api/stats/countries', requireAuth, (req, res) => {
   res.json({ days, total, countries: rows, script: f.id });
 });
 
+// Ejecuciones por hora del día (hora de Ecuador), para ver cuándo juegan tus usuarios
+app.get('/api/stats/hourly', requireAuth, (req, res) => {
+  const days = Math.min(Math.max(Number(req.query.days) || 7, 1), 60);
+  const since = ecuadorDay(Date.now() - (days - 1) * 86400_000);
+  const f = ownScriptFilter(req);
+  if (!f) return res.status(404).json({ error: 'Script no encontrado' });
+  const only = f.id === null ? '' : ' AND h.script_id = ?';
+  const extra = f.id === null ? [] : [f.id];
+  const rows = db.prepare(`
+    SELECT h.hour, SUM(h.n) AS n FROM execution_hourly h JOIN scripts s ON s.id = h.script_id
+    WHERE s.user_id = ? AND h.day >= ?${only} GROUP BY h.hour ORDER BY h.hour`).all(req.userId, since, ...extra);
+  res.json({ days, hours: rows });
+});
+
 app.get('/api/stats/executions', requireAuth, (req, res) => {
   const days = Math.min(Math.max(Number(req.query.days) || 7, 1), 60);
   const since = ecuadorDay(Date.now() - (days - 1) * 86400_000);
@@ -2295,6 +2314,7 @@ function pruneOldData() {
     db.prepare('DELETE FROM execution_daily WHERE day < ?').run(ecuadorDay(Date.now() - 60 * 86400_000));
     db.prepare('DELETE FROM execution_country WHERE day < ?').run(ecuadorDay(Date.now() - 60 * 86400_000));
     db.prepare('DELETE FROM execution_script_country WHERE day < ?').run(ecuadorDay(Date.now() - 60 * 86400_000));
+    db.prepare('DELETE FROM execution_hourly WHERE day < ?').run(ecuadorDay(Date.now() - 60 * 86400_000));
     db.prepare('DELETE FROM obf_cache WHERE created_at < ?').run(Math.floor(Date.now() / 1000) - 30 * 86400);
     if (logs) console.log(`[Limpieza] ${logs} logs de scripts borrados (más de 1 día).`);
   } catch (err) { console.error('[Limpieza] Error:', err.message); }

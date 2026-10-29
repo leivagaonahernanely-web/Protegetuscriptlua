@@ -763,7 +763,7 @@ app.post('/api/plan/redeem', requireAuth, jsonLimit, (req, res) => {
   if (!row) return res.status(404).json({ error: 'Key de plan inválida' });
   if (row.used_by) return res.status(409).json({ error: 'Esta key ya fue usada' });
 
-  const days = PLAN_DAYS_DEFAULT;
+  const days = row.days || PLAN_DAYS_DEFAULT;
   let expiresAt = null;
   const ok = db.transaction(() => {
     const now = Math.floor(Date.now() / 1000);
@@ -1833,10 +1833,13 @@ app.get('/api/owner/plan-keys', requireOwnerApi, (req, res) => {
 app.post('/api/owner/plan-keys', requireOwnerApi, (req, res) => {
   const plan = req.body?.plan === 'plus' ? 'plus' : (req.body?.plan === 'premium' ? 'premium' : null);
   if (!plan) return res.status(400).json({ error: 'Plan inválido' });
+  // Duración en días (1 a 3650). Si no viene, 30 días como antes.
+  const days = req.body?.days === undefined || req.body.days === null ? PLAN_DAYS_DEFAULT : Number(req.body.days);
+  if (!Number.isInteger(days) || days < 1 || days > 3650) return res.status(400).json({ error: 'La duración debe estar entre 1 y 3650 días' });
   const key = crypto.randomBytes(24).toString('base64url'); // 32 caracteres, uso único
-  db.prepare('INSERT INTO plan_keys (key, plan, days, created_at) VALUES (?, ?, ?, ?)').run(key, plan, PLAN_DAYS_DEFAULT, Math.floor(Date.now() / 1000));
-  auditLog(req.userId, 'plan_key_create', plan, `${PLAN_DAYS_DEFAULT} días`);
-  res.json({ key, plan, days: PLAN_DAYS_DEFAULT });
+  db.prepare('INSERT INTO plan_keys (key, plan, days, created_at) VALUES (?, ?, ?, ?)').run(key, plan, days, Math.floor(Date.now() / 1000));
+  auditLog(req.userId, 'plan_key_create', plan, `${days} días`);
+  res.json({ key, plan, days });
 });
 // ---- Usuarios (solo dueño): ver planes y cambiarlos ----
 app.get('/api/owner/obfuscators', requireOwnerApi, (req, res) => {

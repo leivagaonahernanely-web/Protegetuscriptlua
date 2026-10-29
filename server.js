@@ -2560,15 +2560,20 @@ app.post('/api/keys', requireAuth, (req, res) => {
   const scriptId = Number(req.body?.scriptId);
   const amount = req.body?.amount === undefined ? 1 : Number(req.body.amount);
   const days = req.body?.days === undefined || req.body.days === null ? null : Number(req.body.days);
+  // Duración exacta en segundos (de 1 hora a 10 años). Si viene, tiene prioridad sobre days.
+  const seconds = req.body?.seconds === undefined || req.body.seconds === null ? null : Number(req.body.seconds);
 
   if (!Number.isInteger(scriptId)) return res.status(400).json({ error: 'scriptId inválido' });
   if (!Number.isInteger(amount) || amount < 1 || amount > 50) return res.status(400).json({ error: 'La cantidad debe estar entre 1 y 50' });
   if (days !== null && (!Number.isInteger(days) || days < 1 || days > 3650)) return res.status(400).json({ error: 'Días inválidos' });
+  if (seconds !== null && (!Number.isInteger(seconds) || seconds < 3600 || seconds > 3650 * 86400)) {
+    return res.status(400).json({ error: 'La duración debe estar entre 1 hora y 10 años' });
+  }
 
   const script = stmt.scriptOwned.get(scriptId, req.userId);
   if (!script) return res.status(403).json({ error: 'No autorizado' });
 
-  const expiresAt = days ? Math.floor(Date.now() / 1000) + days * 86400 : null;
+  const expiresAt = seconds ? Math.floor(Date.now() / 1000) + seconds : days ? Math.floor(Date.now() / 1000) + days * 86400 : null;
 
   if (!quotaApi.reserveKeys(req.userId, amount)) {
     return res.status(403).json({ error: `Tu plan Free permite ${keyCapFor(req.userId)} keys cada 15 días. Te quedan ${quotaApi.keysLeft(req.userId)}.` });

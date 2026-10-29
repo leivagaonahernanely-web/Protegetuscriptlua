@@ -497,7 +497,10 @@
 
   function openKeysModal(preselect = '') {
     if (!scripts.length) { toast('Crea un script primero', 'error'); return; }
-    const DAY_OPTS = [['', 'Nunca'], ['1', '1 día'], ['7', '7 días'], ['30', '30 días']];
+    const DUR_OPTS = [['', 'Nunca'], ['3600', '1 hora'], ['21600', '6 horas'], ['86400', '1 día'], ['604800', '7 días'],
+      ['1296000', '15 días'], ['2592000', '30 días'], ['7776000', '90 días'], ['31536000', '1 año'], ['custom', 'Personalizado']];
+    const UNIT_SECONDS = { horas: 3600, dias: 86400, meses: 2592000, anios: 31536000 };
+    const MAX_KEY_SECONDS = 3650 * 86400;
     const AMOUNT_PRESETS = [1, 5, 10, 25, 50];
     openModal('Generar keys', `
       <p class="card-sub" style="margin:-6px 0 20px">Crea keys vinculadas a un script. Podrás copiarlas al terminar.</p>
@@ -523,13 +526,22 @@
         </div>
 
         <div class="input-group">
-          <span class="label" id="daysLabel">Expiración</span>
-          <div class="chips seg" role="radiogroup" aria-labelledby="daysLabel">
-            ${DAY_OPTS.map(([v, t], i) => `
+          <span class="label" id="durLabel">Duración</span>
+          <div class="chips seg" role="radiogroup" aria-labelledby="durLabel">
+            ${DUR_OPTS.map(([v, t], i) => `
               <label class="chip">
-                <input type="radio" name="days" value="${v}" ${i === 0 ? 'checked' : ''}>
+                <input type="radio" name="dur" value="${v}" ${i === 0 ? 'checked' : ''}>
                 <span>${t}</span>
               </label>`).join('')}
+          </div>
+          <div class="custom-dur" id="customDur" hidden>
+            <input id="fCustomN" type="number" name="customN" class="field" value="1" min="1" max="3650" inputmode="numeric" aria-label="Cantidad de tiempo">
+            <select id="fCustomUnit" name="customUnit" class="field" aria-label="Unidad de tiempo">
+              <option value="horas">horas</option>
+              <option value="dias" selected>días</option>
+              <option value="meses">meses</option>
+              <option value="anios">años</option>
+            </select>
           </div>
         </div>
 
@@ -548,11 +560,28 @@
     const submitBtn = $('keysSubmit');
 
     const clampAmount = (n) => Math.min(50, Math.max(1, Number.isFinite(n) ? Math.floor(n) : 1));
-    const currentDays = () => form.querySelector('input[name="days"]:checked')?.value || '';
+    // Duración en segundos (null = no expira). Devuelve NaN si el personalizado no es válido.
+    const currentSeconds = () => {
+      const choice = form.querySelector('input[name="dur"]:checked')?.value || '';
+      if (choice === 'custom') {
+        const n = parseInt($('fCustomN').value, 10);
+        const unit = $('fCustomUnit').value;
+        const secs = n * (UNIT_SECONDS[unit] || 86400);
+        return Number.isInteger(n) && n >= 1 && secs >= 3600 && secs <= MAX_KEY_SECONDS ? secs : NaN;
+      }
+      return choice ? Number(choice) : null;
+    };
+    const humanDur = secs => {
+      if (secs >= 31536000) return `${Math.round(secs / 31536000)} ${Math.round(secs / 31536000) === 1 ? 'año' : 'años'}`;
+      if (secs >= 2592000) return `${Math.round(secs / 2592000)} meses`;
+      if (secs >= 86400) return `${Math.round(secs / 86400)} ${Math.round(secs / 86400) === 1 ? 'día' : 'días'}`;
+      return `${Math.round(secs / 3600)} ${Math.round(secs / 3600) === 1 ? 'hora' : 'horas'}`;
+    };
     const refresh = () => {
       const n = clampAmount(parseInt(amountEl.value, 10));
-      const days = currentDays();
-      const expiry = days ? `expiran en ${days} ${days === '1' ? 'día' : 'días'}` : 'no expiran';
+      const secs = currentSeconds();
+      $('customDur').hidden = form.querySelector('input[name="dur"]:checked')?.value !== 'custom';
+      const expiry = secs === null ? 'no expiran' : Number.isNaN(secs) ? 'con una duración no válida (de 1 hora a 10 años)' : `expiran en ${humanDur(secs)}`;
       summary.innerHTML = `Se crearán <strong>${n} ${n === 1 ? 'key' : 'keys'}</strong> para <strong>${esc(scriptName(parseInt(scriptEl.value, 10)))}</strong> que ${expiry}.`;
       submitBtn.textContent = `Generar ${n} ${n === 1 ? 'key' : 'keys'}`;
       form.querySelectorAll('[data-preset]').forEach(b => b.classList.toggle('on', Number(b.dataset.preset) === n));
@@ -565,7 +594,9 @@
     form.querySelectorAll('[data-preset]').forEach(b => b.addEventListener('click', () => setAmount(Number(b.dataset.preset))));
     amountEl.addEventListener('input', refresh);
     amountEl.addEventListener('blur', () => setAmount(parseInt(amountEl.value, 10)));
-    form.querySelectorAll('input[name="days"]').forEach(r => r.addEventListener('change', refresh));
+    form.querySelectorAll('input[name="dur"]').forEach(r => r.addEventListener('change', refresh));
+    $('fCustomN').addEventListener('input', refresh);
+    $('fCustomUnit').addEventListener('change', refresh);
     scriptEl.addEventListener('change', refresh);
     form.addEventListener('submit', submitKeys);
     refresh();
@@ -650,11 +681,24 @@
     const fd = new FormData(form);
     const scriptId = parseInt(fd.get('scriptId'), 10);
     const amount = Math.min(50, Math.max(1, parseInt(fd.get('amount'), 10) || 1));
-    const days = fd.get('days') ? parseInt(fd.get('days'), 10) : null;
+    // Misma lógica que currentSeconds() del formulario
+    const choice = fd.get('dur') || '';
+    let secs = null;
+    if (choice === 'custom') {
+      const n = parseInt(fd.get('customN'), 10);
+      const unitSecs = { horas: 3600, dias: 86400, meses: 2592000, anios: 31536000 }[fd.get('customUnit')] || 86400;
+      secs = n * unitSecs;
+      if (!Number.isInteger(n) || n < 1 || secs < 3600 || secs > 3650 * 86400) {
+        toast('La duración debe estar entre 1 hora y 10 años', 'error');
+        return;
+      }
+    } else if (choice) {
+      secs = Number(choice);
+    }
     const btn = form.querySelector('[type="submit"]');
     setBusy(btn, true);
     try {
-      const data = await api('/api/keys', { method: 'POST', body: JSON.stringify({ scriptId, amount, days }) });
+      const data = await api('/api/keys', { method: 'POST', body: JSON.stringify({ scriptId, amount, seconds: secs }) });
       await loadData();
       showGenerated(data.keys, scriptName(scriptId));
     } catch (err) {

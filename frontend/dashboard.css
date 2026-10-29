@@ -803,3 +803,7 @@ tbody tr:hover td { background: rgba(255,255,255,.025); }
 .ai-msg.pending { color: var(--text-dim); }
 .ai-form { display: flex; gap: 8px; }
 .ai-form .field { flex: 1; min-width: 0; }
+
+.custom-dur { display: flex; gap: 8px; margin-top: 10px; }
+.custom-dur[hidden] { display: none; }
+.custom-dur .field { flex: 1; min-width: 0; }

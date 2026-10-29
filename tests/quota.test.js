@@ -41,8 +41,8 @@ test('Free: el periodo dura 15 días, pagos un mes', () => {
 });
 
 test('Free: máximo 2 scripts por periodo y 5 ofuscaciones', () => {
-  assert.match(setup('free', { scripts_period: 2 }).quota.quotaError('u1', { isNewScript: true, isFfa: false }), /2 scripts/);
-  assert.equal(setup('free', { scripts_period: 1 }).quota.quotaError('u1', { isNewScript: true, isFfa: false }), null);
+  assert.match(setup('free', { scripts_period: 5 }).quota.quotaError('u1', { isNewScript: true, isFfa: false }), /5 scripts/);
+  assert.equal(setup('free', { scripts_period: 4 }).quota.quotaError('u1', { isNewScript: true, isFfa: false }), null);
   assert.match(setup('free', { obf_used: 5 }).quota.quotaError('u1', { isNewScript: false, isFfa: false }), /5 ofuscaciones/);
   assert.equal(setup('free', { obf_used: 5 }).quota.quotaError('u1', { isNewScript: false, isFfa: true }), null);
 });

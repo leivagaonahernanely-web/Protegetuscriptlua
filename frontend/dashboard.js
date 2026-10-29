@@ -3,7 +3,7 @@
 
   // ---------- CONFIG ----------
   const PLAN_LIMITS = {
-    free:    { scripts: 2,        keys: 100, obf: 5 },
+    free:    { scripts: 5,        keys: 100, obf: 5 },
     premium: { scripts: 10,       keys: Infinity, obf: 30 },
     plus:    { scripts: Infinity, keys: Infinity, obf: Infinity },
   };

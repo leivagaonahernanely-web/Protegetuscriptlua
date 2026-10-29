@@ -206,7 +206,10 @@ db.exec(`
   // Último HWID vinculado: sobrevive al reinicio de HWID, para detectar compartidas aunque se reinicie
   if (!db.prepare("SELECT 1 FROM pragma_table_info('keys') WHERE name = 'last_hwid'").get()) {
     db.exec('ALTER TABLE keys ADD COLUMN last_hwid TEXT');
-    db.exec('UPDATE keys SET last_hwid = hwid WHERE hwid IS NOT NULL');
+    // Copia el HWID actual solo si la tabla tiene esa columna (en algunas bases no existe y el arranque se caía)
+    if (db.prepare("SELECT 1 FROM pragma_table_info('keys') WHERE name = 'hwid'").get()) {
+      db.exec('UPDATE keys SET last_hwid = hwid WHERE hwid IS NOT NULL');
+    }
   }
   // Foto de perfil personalizada (URL). Si es NULL se usa la de Discord.
   if (!db.prepare("SELECT 1 FROM pragma_table_info('users') WHERE name = 'custom_avatar'").get()) db.exec('ALTER TABLE users ADD COLUMN custom_avatar TEXT');

@@ -80,6 +80,8 @@ Hay una página pública con esta explicación en /errores.
 - `/ping` verifica que el bot responde.
 - Si alguien intenta volcar un script (dump), el dueño recibe un aviso con una mención, la key, el HWID y un botón para revocar la key. Si el script tiene la opción de revocación automática, la key se bloquea sola.
 - El bot muestra en cuántos servidores está (en la página principal).
+- Bot de IA de soporte (otro bot, responde preguntas): se le habla mencionándolo o con `! Support responde <pregunta>`.
+- Ideas: `! Support idea <texto>` publica la idea en el canal de ideas del servidor (máximo 500 caracteres, 5 por hora). Si el servidor no tiene canal de ideas, el dueño debe crearlo con `! Create ideas channel`, y solo el dueño del servidor puede usar ese comando.
 - Si el usuario tiene dudas sobre cómo usar un comando, explica el paso a paso con la lista anterior.
 
 ## Dashboard

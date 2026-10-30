@@ -107,7 +107,7 @@ Hay una página pública con esta explicación en /errores.
 - El código fuente y el protegido se guardan en el servidor para que el loader funcione.
 - Los logs de scripts se borran después de 1 día.
 - Los conteos de ejecuciones se conservan 60 días.
-- La caché de compilaciones se borra después de 7 días.
+- La caché de compilaciones se borra después de 1 día.
 
 ## Soporte humano
 Si el asistente no puede resolver algo, el usuario debe abrir un ticket desde la sección Soporte. El equipo responde ahí mismo. Pide siempre el mensaje de error exacto y el nombre del script (no la key completa).

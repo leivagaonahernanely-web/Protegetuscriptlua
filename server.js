@@ -302,7 +302,7 @@ function snapshotVersion(scriptId, { name, obfuscator, ffa, source }) {
   if (last?.source_hash === hash) return;
   db.prepare('INSERT INTO script_versions (script_id, name, obfuscator, ffa, source_hash, source, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
     .run(scriptId, String(name ?? ''), String(obfuscator ?? ''), ffa ? 1 : 0, hash, String(source ?? ''), Math.floor(Date.now() / 1000));
-  db.prepare('DELETE FROM script_versions WHERE script_id = ? AND id NOT IN (SELECT id FROM script_versions WHERE script_id = ? ORDER BY id DESC LIMIT 10)').run(scriptId, scriptId);
+  db.prepare('DELETE FROM script_versions WHERE script_id = ? AND id NOT IN (SELECT id FROM script_versions WHERE script_id = ? ORDER BY id DESC LIMIT 5)').run(scriptId, scriptId);
 }
 // Soporte web: tickets y mensajes (el dueño responde como soporte)
 db.exec(`CREATE TABLE IF NOT EXISTS support_tickets (
@@ -2646,7 +2646,8 @@ function pruneOldData() {
     db.prepare('DELETE FROM execution_country WHERE day < ?').run(ecuadorDay(Date.now() - 60 * 86400_000));
     db.prepare('DELETE FROM execution_script_country WHERE day < ?').run(ecuadorDay(Date.now() - 60 * 86400_000));
     db.prepare('DELETE FROM execution_hourly WHERE day < ?').run(ecuadorDay(Date.now() - 60 * 86400_000));
-    db.prepare('DELETE FROM obf_cache WHERE created_at < ?').run(Math.floor(Date.now() / 1000) - 7 * 86400);
+    // La caché de compilaciones es solo una optimización: se borra a los 1 día para no llenar el volumen
+    db.prepare('DELETE FROM obf_cache WHERE created_at < ?').run(Math.floor(Date.now() / 1000) - 86400);
     if (logs) console.log(`[Limpieza] ${logs} logs de scripts borrados (más de 1 día).`);
   } catch (err) { console.error('[Limpieza] Error:', err.message); }
 }

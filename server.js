@@ -11,7 +11,7 @@ import os from 'os';
 import { execFile } from 'child_process';
 import { fileURLToPath } from 'url';
 import { obfuscateLua as obfuscateKm } from './lib/obf-km.js';
-import Database from 'better-sqlite3';
+import { openDatabase } from './lib/db-engine.js';
 import { createQuota, PLAN_DAYS_DEFAULT, MONTH_SECONDS, FREE_RESET_SECONDS } from './lib/quota.js';
 import { analyzePerf } from './lib/perf.js';
 import { startDiscordBot, ensureBotSchema } from './bot/discordBot.js';
@@ -132,7 +132,7 @@ if (DATABASE_PATH.startsWith('/')) {
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 }
 
-const db = new Database(DATABASE_PATH);
+const db = openDatabase(DATABASE_PATH);
 db.exec(`
   CREATE TABLE IF NOT EXISTS users (
     id TEXT PRIMARY KEY,

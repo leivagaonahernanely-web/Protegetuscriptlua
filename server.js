@@ -1861,7 +1861,7 @@ app.get('/api/owner/obfuscators', requireOwnerApi, (req, res) => {
 app.get('/api/owner/users', requireOwnerApi, (req, res) => {
   res.json(db.prepare(`SELECT u.id, u.username, u.avatar, u.custom_avatar, u.plan, u.obf_used, u.staff_role, u.plan_expires_at,
       (SELECT COUNT(*) FROM scripts s WHERE s.user_id = u.id) AS scripts
-    FROM users u ORDER BY u.rowid DESC LIMIT 500`).all().map(({ custom_avatar, avatar, ...u }) => ({
+    FROM users u ORDER BY u.id DESC LIMIT 500`).all().map(({ custom_avatar, avatar, ...u }) => ({
       ...u,
       avatar_url: custom_avatar || (avatar ? `https://cdn.discordapp.com/avatars/${u.id}/${avatar}.png?size=64` : defaultDiscordAvatar(u.id)),
       role: roleOf(u.id, u.plan, u.staff_role),

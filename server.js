@@ -387,8 +387,14 @@ app.use((req, res, next) => {
 });
 // Si ya hay sesión, la portada y el login llevan directo al dashboard.
 // Va ANTES de servir las páginas (que no miran la sesión).
+const userExistsStmt = db.prepare('SELECT 1 FROM users WHERE id = ?');
 app.get(['/', '/login'], (req, res, next) => {
-  if (getSession(req)) return res.redirect('/dashboard');
+  const session = getSession(req);
+  if (session) {
+    if (userExistsStmt.get(session.id)) return res.redirect('/dashboard');
+    // Cookie de un usuario que ya no existe (p. ej. tras cambiar de base de datos): se borra para poder iniciar sesión
+    res.clearCookie(SESSION_COOKIE);
+  }
   next();
 });
 app.use(express.static(path.join(__dirname, 'frontend'), { index: false }));
@@ -1350,7 +1356,10 @@ app.get('/auth/logout', (req, res) => {
 // ==========================================
 app.get('/api/me', requireAuth, (req, res) => {
   const user = stmt.userById.get(req.userId);
-  if (!user) return res.status(401).json({ error: 'Usuario no encontrado' });
+  if (!user) {
+    res.clearCookie(SESSION_COOKIE);
+    return res.status(401).json({ error: 'Usuario no encontrado' });
+  }
   res.json({ ...user, owner: isOwnerId(req.userId) });
 });
 

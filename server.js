@@ -551,7 +551,8 @@ function runObfuscatorCli(bin, args, cwd, luaPath) {
         if (/Parsing Error|syntax|unexpected token|expected <|expected/i.test(detail)) {
           return reject(Object.assign(new Error('Tu script tiene sintaxis que el ofuscador no entiende. Revisa que sea Lua/Luau válido o usa Sin ofuscar.'), { status: 422 }));
         }
-        return reject(Object.assign(new Error(`El ofuscador falló: ${detail}`), { status: 500 }));
+        console.error('[Ofuscador] fallo:', detail);
+        return reject(Object.assign(new Error('El ofuscador falló con este script. Inténtalo de nuevo; si sigue, avisa al equipo.'), { status: 500 }));
       }
       resolve(stdout);
     });
@@ -663,7 +664,8 @@ async function obfuscateUncached(source, obfuscator, opts = {}) {
   const cfg = OBF_CONFIG[obfuscator];
   if (!cfg) throw Object.assign(new Error('Elige un ofuscador válido'), { status: 400 });
   if (!cfg.dir) {
-    throw Object.assign(new Error(`Ofuscador no instalado en el servidor (no encuentro su archivo principal dentro de ${OBF_DIR}). Revisa los logs de arranque.`), { status: 501 });
+    console.error('[Ofuscador] no instalado:', obfuscator);
+    throw Object.assign(new Error('Este ofuscador no está disponible en el servidor en este momento. Elige otro.'), { status: 501 });
   }
 
   const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'vp-obf-'));

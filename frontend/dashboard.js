@@ -9,9 +9,9 @@
   };
   const PLAN_LABELS = { free: 'Free', premium: 'Premium', plus: 'Premium Plus' };
   const OBFUSCATORS = {
-    real:       'RealObfuscator (VM) · recomendado',
-    obscura:    'Obscura',
-    luau:       'Ofuscador 3 (LuaUObfuscator) · Premium Plus · 2 compilaciones por día',
+    real:       'Ofuscador 1 · recomendado',
+    obscura:    'Ofuscador 2',
+    luau:       'Ofuscador 3 · Premium Plus · 2 compilaciones por día',
     none:       'Sin ofuscar (solo key)',
   };
   const NAV = {
@@ -357,7 +357,7 @@
           ${Object.entries(OBFUSCATORS).map(([val, label]) =>
             `<option value="${val}" ${val === currentObf ? 'selected' : ''} ${val === 'luau' && !hasPlusPlan() ? 'disabled' : ''}>${label}</option>`).join('')}
         </select>
-        <div class="hint">Se aplica en el servidor al guardar el script. Para Roblox (Luau) recomendamos RealObfuscator.</div>
+        <div class="hint">Se aplica en el servidor al guardar el script. Para Roblox (Luau) recomendamos el Ofuscador 1.</div>
         <label id="vmGroup" style="display:flex;gap:10px;align-items:flex-start;margin-top:12px;cursor:pointer">
           <input type="checkbox" name="clydeVm" ${s.clyde_vm ? 'checked' : ''} style="margin-top:3px">
           <span><b>Máquina virtual</b><small style="display:block;color:var(--text-soft)">Más protección, pero puede bajar los FPS del juego. Solo aplica al Ofuscador 1.</small></span>

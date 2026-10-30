@@ -12,6 +12,7 @@
     real:       'Ofuscador 1 · recomendado',
     obscura:    'Ofuscador 2',
     luau:       'Ofuscador 3 · Premium Plus · 2 compilaciones por día',
+    km:         'Ofuscador 4 · máquina virtual propia',
     none:       'Sin ofuscar (solo key)',
   };
   const NAV = {

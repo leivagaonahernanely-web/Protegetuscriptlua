@@ -52,6 +52,10 @@ export function ensureBotSchema(db) {
       script_id INTEGER, discord_id TEXT, reason TEXT, created_at INTEGER,
       PRIMARY KEY (script_id, discord_id)
     );
+    CREATE TABLE IF NOT EXISTS bot_blacklist_roles (
+      script_id INTEGER, role_id TEXT, reason TEXT, created_at INTEGER,
+      PRIMARY KEY (script_id, role_id)
+    );
     CREATE TABLE IF NOT EXISTS bot_settings (
       owner TEXT, name TEXT, value TEXT, PRIMARY KEY (owner, name)
     );
@@ -131,12 +135,14 @@ export const commands = [
     .addStringOption(o => scriptOpt(o))
     .addUserOption(o => userOpt(o))
     .addRoleOption(o => roleOpt(o)),
-  new SlashCommandBuilder().setName('blacklist').setDescription('Bloquea a un usuario en un script')
-    .addUserOption(o => userOpt(o, true))
+  new SlashCommandBuilder().setName('blacklist').setDescription('Bloquea a un usuario o a un rol en un script')
+    .addUserOption(o => userOpt(o, false))
+    .addRoleOption(o => roleOpt(o, false))
     .addStringOption(o => scriptOpt(o))
     .addStringOption(o => o.setName('reason').setDescription('Razón')),
-  new SlashCommandBuilder().setName('unblacklist').setDescription('Quita el bloqueo de un usuario en un script')
-    .addUserOption(o => userOpt(o, true))
+  new SlashCommandBuilder().setName('unblacklist').setDescription('Quita el bloqueo de un usuario o un rol en un script')
+    .addUserOption(o => userOpt(o, false))
+    .addRoleOption(o => roleOpt(o, false))
     .addStringOption(o => scriptOpt(o)),
   new SlashCommandBuilder().setName('getrole').setDescription('Configura el rol que recibe un comprador (dueño)')
     .addRoleOption(o => roleOpt(o, true)),
@@ -222,6 +228,9 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
     unbanKeys: db.prepare('UPDATE keys SET banned = 0, ban_reason = NULL WHERE script_id = ? AND discord_id = ?'),
     resetHwid: db.prepare('UPDATE keys SET hwid = NULL, hwid_reset_at = ? WHERE key = ?'),
     blacklisted: db.prepare('SELECT 1 FROM bot_blacklist WHERE script_id = ? AND discord_id = ?'),
+    roleBlacklisted: db.prepare('SELECT 1 FROM bot_blacklist_roles WHERE script_id = ? AND role_id = ?'),
+    roleBlacklistInsert: db.prepare('INSERT OR REPLACE INTO bot_blacklist_roles (script_id, role_id, reason, created_at) VALUES (?, ?, ?, ?)'),
+    roleBlacklistDelete: db.prepare('DELETE FROM bot_blacklist_roles WHERE script_id = ? AND role_id = ?'),
     blacklistInsert: db.prepare('INSERT OR REPLACE INTO bot_blacklist (script_id, discord_id, reason, created_at) VALUES (?, ?, ?, ?)'),
     blacklistDelete: db.prepare('DELETE FROM bot_blacklist WHERE script_id = ? AND discord_id = ?'),
     rulesForScript: db.prepare('SELECT kind, discord_id, expires_at FROM bot_access_rules WHERE script_id = ?'),
@@ -370,12 +379,13 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
   const KEY_LIMIT_MSG = '⛔ El creador de este script alcanzó el límite de keys de su plan en este periodo. Vuelve a intentar cuando se reinicie.';
 
   // Bloqueo: blacklist o key baneada en ese script
-  const isBlocked = (script, userId) =>
-    Boolean(q.blacklisted.get(script.id, userId) || q.bannedKeyFor.get(script.id, userId));
+  const isBlocked = (script, userId, roleIds = []) =>
+    Boolean(q.blacklisted.get(script.id, userId) || q.bannedKeyFor.get(script.id, userId)
+      || roleIds.some(r => q.roleBlacklisted.get(script.id, r)));
 
   // Acceso a un script: blacklist, whitelist (usuario o rol), creador/dueño, o key existente
   function resolveAccess(script, userId, roleIds) {
-    if (isBlocked(script, userId)) return { status: 'blacklisted' };
+    if (isBlocked(script, userId, roleIds)) return { status: 'blacklisted' };
     const existing = q.activeKeyFor.get(script.id, userId, now());
     if (existing) return { status: 'ok', key: existing.key };
     const allowed = userId === owner() || userId === script.user_id
@@ -862,11 +872,24 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
       case 'blacklist': {
         const script = findScript(interaction.options.getString('script'));
         if (script && !canUse(interaction, script.user_id)) return reply(denied);
-        const target = interaction.options.getUser('user', true);
+        const target = interaction.options.getUser('user');
+        const role = interaction.options.getRole('role');
         const reason = interaction.options.getString('reason') || 'Sin razón indicada';
+        if (!target && !role) return reply('❌ Elige un usuario o un rol.');
         // Sin script: solo afecta a los scripts que el actor puede gestionar
         const targets = script ? [script] : q.scriptsList.all().filter(s => canUse(interaction, s.user_id));
         if (!targets.length) return reply(denied);
+        if (role) {
+          // Bloqueo por rol: la regla impide nuevas keys a quien tenga el rol; las keys de los miembros actuales se banean
+          if (!interaction.guild) return reply('❌ Usa este comando dentro de un servidor.');
+          const members = (await interaction.guild.members.fetch()).filter(m => !m.user.bot && m.roles.cache.has(role.id));
+          for (const s of targets) {
+            q.roleBlacklistInsert.run(s.id, role.id, reason, now());
+            for (const m of members.values()) q.banKeys.run(reason, s.id, m.id);
+            logScriptEvent(s, `⛔ Rol <@&${role.id}> bloqueado por <@${actor}> · ${reason}`);
+          }
+          return reply(`⛔ Rol <@&${role.id}> bloqueado en **${script ? script.name : 'todos tus scripts'}**.\nMiembros con el rol: ${members.size} (keys baneadas).\nRazón: ${reason}`);
+        }
         for (const s of targets) {
           q.blacklistInsert.run(s.id, target.id, reason, now());
           q.banKeys.run(reason, s.id, target.id);
@@ -878,9 +901,23 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
       case 'unblacklist': {
         const script = findScript(interaction.options.getString('script'));
         if (script && !canUse(interaction, script.user_id)) return reply(denied);
-        const target = interaction.options.getUser('user', true);
+        const target = interaction.options.getUser('user');
+        const role = interaction.options.getRole('role');
+        if (!target && !role) return reply('❌ Elige un usuario o un rol.');
         const targets = script ? [script] : q.scriptsList.all().filter(s => canUse(interaction, s.user_id));
         if (!targets.length) return reply(denied);
+        if (role) {
+          if (!interaction.guild) return reply('❌ Usa este comando dentro de un servidor.');
+          const members = (await interaction.guild.members.fetch()).filter(m => !m.user.bot && m.roles.cache.has(role.id));
+          let removedRole = 0;
+          for (const s of targets) {
+            removedRole += q.roleBlacklistDelete.run(s.id, role.id).changes;
+            // Solo se restauran las keys de miembros que no tengan un bloqueo individual
+            for (const m of members.values()) if (!q.blacklisted.get(s.id, m.id)) q.unbanKeys.run(s.id, m.id);
+            logScriptEvent(s, `✅ Bloqueo de rol <@&${role.id}> quitado por <@${actor}>`);
+          }
+          return reply(removedRole ? `✅ Bloqueo quitado para el rol <@&${role.id}>.` : `ℹ️ El rol <@&${role.id}> no tenía bloqueo activo.`);
+        }
         let removed = 0;
         for (const s of targets) {
           removed += q.blacklistDelete.run(s.id, target.id).changes;
@@ -1316,7 +1353,7 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
     if (!script) return interaction.reply({ content: NO_ACCESS_MSG, flags: MessageFlags.Ephemeral });
 
     // Bloqueados no pueden usar ningún botón del panel
-    if (isBlocked(script, interaction.user.id)) {
+    if (isBlocked(script, interaction.user.id, memberRoleIds(interaction))) {
       return interaction.reply({ content: `⛔ Estás bloqueado para **${script.name}**. No puedes usar este panel.`, flags: MessageFlags.Ephemeral });
     }
 

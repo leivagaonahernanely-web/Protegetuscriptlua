@@ -14,7 +14,8 @@ Nunca menciones el nombre del motor interno de cada ofuscador. Habla solo de "Of
 1. **Ofuscador 1:** el predeterminado para scripts nuevos. Usa máquina virtual.
 2. **Ofuscador 2:** alternativa.
 3. **Ofuscador 3:** solo Premium Plus, con límite diario de compilaciones.
-4. **Sin ofuscar:** el código solo se protege con keys.
+4. **Ofuscador 4:** motor propio, sin dependencias externas.
+5. **Sin ofuscar:** el código solo se protege con keys.
 Si un script viejo usa un ofuscador que ya no existe, sigue funcionando; al editarlo se regenera con el Ofuscador 1.
 En el dashboard, cada script tiene el botón "Ver código protegido" para ver y copiar el código que sirve el loader (solo el dueño lo ve).
 
@@ -69,7 +70,7 @@ Hay una página pública con esta explicación en /errores.
   - `/resethwid`: reinicia el HWID de una key.
   - `/whitelist` y `/unwhitelist`: añade o quita un usuario o rol de la whitelist de un script.
   - `/cookiegame`: juego en el que el primero que hace clic gana la whitelist.
-  - `/blacklist` y `/unblacklist`: bloquea o desbloquea a un usuario en un script, con razón opcional.
+  - `/blacklist` y `/unblacklist`: bloquea o desbloquea a un usuario o a un rol en un script, con razón opcional. Al bloquear un rol, sus miembros no reciben keys nuevas.
   - `/warn`: advierte a un usuario.
   - `/logs`: elige el canal donde se registran los usos de tus scripts.
   - `/prices`: publica tus precios (solo Premium y Premium Plus).

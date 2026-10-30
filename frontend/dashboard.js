@@ -81,7 +81,7 @@
 
   // Protección del script: 'ffa' (sin key) o 'protected' (con key y ofuscador)
   const protectionOf = s => (s.ffa ? 'ffa' : 'protected');
-  // Scripts viejos con Clyde se muestran como Obscura al editarlos: al guardar se regeneran con Obscura
+  // Scripts viejos con Clyde se muestran como Ofuscador 1 al editarlos: al guardar se regeneran con ese
   const obfuscatorOf = s => (OBFUSCATORS[s.obfuscator] ? s.obfuscator : 'real');
 
   async function api(path, opts = {}) {
@@ -397,7 +397,7 @@
       // El ofuscador se elige en FFA y en protegido; el reinicio de HWID solo aplica a protegido
       $('hwidGroup').hidden = !isProtected;
       $('macroBtn').hidden = $('fObf').value !== 'luau';
-      $('vmGroup').hidden = true; // la máquina virtual era solo de Clyde
+        $('vmGroup').hidden = true; // la máquina virtual ya no se ofrece
       const vmOn = $('vmGroup').querySelector('input')?.checked;
       const hot = hotRanges($('fCode')?.value || '').length > 0;
       $('vmWarn').hidden = true;

@@ -73,7 +73,7 @@ const jsonLimit = rateLimit({
 // 0. CONSTANTES Y CONFIGURACIÓN
 // ==========================================
 const MAX_CODE_BYTES = 2 * 1024 * 1024;           // 2 MB por script
-const OBFUSCATORS = ['clyde', 'obscura', 'luau', 'none'];   // Ofuscador 1 (Clyde), Ofuscador 2 (Obscura), Ofuscador 3 (LuaUObfuscator, solo Premium Plus); 'none' = sin ofuscar (solo key)
+const OBFUSCATORS = ['obscura', 'luau', 'none'];   // Obscura (predeterminado), Ofuscador 3 (LuaUObfuscator, solo Premium Plus); 'none' = sin ofuscar (solo key). Clyde se quitó (fallaba mucho).
 const KEY_ALPHABET = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
 // Un error suelto no debe tirar el servidor ni dejar al bot a medias: se registra y el proceso sigue
 process.on('unhandledRejection', err => console.error('[Proceso] Promesa sin manejar:', err));
@@ -459,7 +459,8 @@ function validateScriptInput({ name, ffa, obfuscator, code, hwidResetHours, shar
 
   const isFfa = ffa === undefined ? !!current?.ffa : !!ffa;
   // FFA también se ofusca: el ofuscador se elige igual que en modo protegido
-  const obf = obfuscator === undefined ? current?.obfuscator : obfuscator;
+  // Scripts viejos con Clyde: si no mandan ofuscador, se regeneran con Obscura
+  const obf = obfuscator === undefined ? (current?.obfuscator === 'clyde' ? 'obscura' : current?.obfuscator) : obfuscator;
   if (!OBFUSCATORS.includes(obf)) return { error: 'Elige un ofuscador válido' };
 
   const source = code === undefined ? current?.source : code;
@@ -2043,7 +2044,7 @@ const perfLimit = rateLimit({
 app.post('/api/perf-check', requireAuth, perfLimit, (req, res) => {
   const source = String(req.body?.source || '');
   if (Buffer.byteLength(source) > MAX_CODE_BYTES) return res.status(400).json({ error: 'El código supera 2 MB' });
-  const obfuscator = OBFUSCATORS.includes(req.body?.obfuscator) ? req.body.obfuscator : 'clyde';
+  const obfuscator = OBFUSCATORS.includes(req.body?.obfuscator) ? req.body.obfuscator : 'obscura';
   res.json(analyzePerf(source, { obfuscator, vm: req.body?.clydeVm !== false }));
 });
 

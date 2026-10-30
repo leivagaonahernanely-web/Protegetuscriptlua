@@ -9,8 +9,7 @@
   };
   const PLAN_LABELS = { free: 'Free', premium: 'Premium', plus: 'Premium Plus' };
   const OBFUSCATORS = {
-    clyde:      'Ofuscador 1 (Clyde)',
-    obscura:    'Ofuscador 2 (Obscura)',
+    obscura:    'Obscura (predeterminado)',
     luau:       'Ofuscador 3 (LuaUObfuscator) · Premium Plus · 2 compilaciones por día',
     none:       'Sin ofuscar (solo key)',
   };
@@ -81,6 +80,7 @@
 
   // Protección del script: 'ffa' (sin key) o 'protected' (con key y ofuscador)
   const protectionOf = s => (s.ffa ? 'ffa' : 'protected');
+  // Scripts viejos con Clyde se muestran como Obscura al editarlos: al guardar se regeneran con Obscura
   const obfuscatorOf = s => (OBFUSCATORS[s.obfuscator] ? s.obfuscator : 'obscura');
 
   async function api(path, opts = {}) {
@@ -280,7 +280,7 @@
     const seq = ++perfSeq;
     const body = {
       source,
-      obfuscator: $('fObf')?.value || 'clyde',
+      obfuscator: $('fObf')?.value || 'obscura',
       clydeVm: $('vmGroup')?.querySelector('input')?.checked ?? true,
     };
     try {
@@ -335,7 +335,7 @@
   // Selector de protección: FFA o Protegido, y si es Protegido, el ofuscador
   function protectionHtml(s = {}) {
     const current = s.ffa === undefined ? 'protected' : protectionOf(s);
-    const currentObf = s.id ? obfuscatorOf(s) : 'clyde';
+    const currentObf = s.id ? obfuscatorOf(s) : 'obscura';
     return `
       <div class="input-group">
         <span class="label">Protección</span>
@@ -356,7 +356,7 @@
           ${Object.entries(OBFUSCATORS).map(([val, label]) =>
             `<option value="${val}" ${val === currentObf ? 'selected' : ''} ${val === 'luau' && !hasPlusPlan() ? 'disabled' : ''}>${label}</option>`).join('')}
         </select>
-        <div class="hint">Se aplica en el servidor al guardar el script. Para Roblox (Luau) recomendamos el Ofuscador 1.</div>
+        <div class="hint">Se aplica en el servidor al guardar el script. Para Roblox (Luau) recomendamos Obscura.</div>
         <label id="vmGroup" style="display:flex;gap:10px;align-items:flex-start;margin-top:12px;cursor:pointer">
           <input type="checkbox" name="clydeVm" ${s.clyde_vm ? 'checked' : ''} style="margin-top:3px">
           <span><b>Máquina virtual</b><small style="display:block;color:var(--text-soft)">Más protección, pero puede bajar los FPS del juego. Solo aplica al Ofuscador 1.</small></span>
@@ -396,10 +396,10 @@
       // El ofuscador se elige en FFA y en protegido; el reinicio de HWID solo aplica a protegido
       $('hwidGroup').hidden = !isProtected;
       $('macroBtn').hidden = $('fObf').value !== 'luau';
-      $('vmGroup').hidden = $('fObf').value !== 'clyde';
+      $('vmGroup').hidden = true; // la máquina virtual era solo de Clyde
       const vmOn = $('vmGroup').querySelector('input')?.checked;
       const hot = hotRanges($('fCode')?.value || '').length > 0;
-      $('vmWarn').hidden = !($('fObf').value === 'clyde' && vmOn && hot);
+      $('vmWarn').hidden = true;
       schedulePerf();
     };
     document.querySelectorAll('input[name="protection"]').forEach(r => r.addEventListener('change', sync));
@@ -637,7 +637,7 @@
     const name = String(fd.get('name') || '').trim();
     const code = $('fCode').value;
     const protection = fd.get('protection') || 'protected';
-    const obfuscator = fd.get('obfuscator') || 'clyde';
+    const obfuscator = fd.get('obfuscator') || 'obscura';
 
     if (!name) { toast('Escribe un nombre', 'error'); return; }
     if (!editId && !code.trim()) { toast('Agrega el código del script', 'error'); return; }

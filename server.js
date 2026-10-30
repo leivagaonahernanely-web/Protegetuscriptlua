@@ -73,7 +73,7 @@ const jsonLimit = rateLimit({
 // 0. CONSTANTES Y CONFIGURACIÓN
 // ==========================================
 const MAX_CODE_BYTES = 2 * 1024 * 1024;           // 2 MB por script
-const OBFUSCATORS = ['obscura', 'luau', 'none'];   // Obscura (predeterminado), Ofuscador 3 (LuaUObfuscator, solo Premium Plus); 'none' = sin ofuscar (solo key). Clyde se quitó (fallaba mucho).
+const OBFUSCATORS = ['real', 'obscura', 'luau', 'none'];   // RealObfuscator (predeterminado, modo VM), Obscura, Ofuscador 3 (LuaUObfuscator, solo Premium Plus); 'none' = sin ofuscar. Clyde se quitó.
 const KEY_ALPHABET = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
 // Un error suelto no debe tirar el servidor ni dejar al bot a medias: se registra y el proceso sigue
 process.on('unhandledRejection', err => console.error('[Proceso] Promesa sin manejar:', err));
@@ -460,7 +460,7 @@ function validateScriptInput({ name, ffa, obfuscator, code, hwidResetHours, shar
   const isFfa = ffa === undefined ? !!current?.ffa : !!ffa;
   // FFA también se ofusca: el ofuscador se elige igual que en modo protegido
   // Scripts viejos con Clyde: si no mandan ofuscador, se regeneran con Obscura
-  const obf = obfuscator === undefined ? (current?.obfuscator === 'clyde' ? 'obscura' : current?.obfuscator) : obfuscator;
+  const obf = obfuscator === undefined ? (current?.obfuscator === 'clyde' ? 'real' : current?.obfuscator) : obfuscator;
   if (!OBFUSCATORS.includes(obf)) return { error: 'Elige un ofuscador válido' };
 
   const source = code === undefined ? current?.source : code;
@@ -507,6 +507,13 @@ const OBF_CONFIG = {
     dir: findEntryDir(path.join(OBF_DIR, 'clyde'), path.join('dist', 'cli', 'obfuscate.js')),
     // Sin VM: rápido (casi no baja FPS). Con VM: más protección, pero más lento al ejecutarse
     args: (input, out, vm) => [path.join('dist', 'cli', 'obfuscate.js'), input, ...(vm ? ['--vm'] : []), '-o', out],
+    output: (input, out) => out,
+  },
+  // RealObfuscator (Python, GPL-3.0). Modo VM. CLI: python main.py <entrada> --mode vm --output <salida>
+  real: {
+    bin: process.env.REAL_PYTHON || 'python3',
+    dir: findEntryDir(path.join(OBF_DIR, 'real'), 'main.py'),
+    args: (input, out) => ['main.py', input, '--mode', 'vm', '--output', out],
     output: (input, out) => out,
   },
   // Ofuscador 2 = Obscura (Python, MIT). CLI: python main.py <entrada> -o <salida> --mode lightweight
@@ -2044,7 +2051,7 @@ const perfLimit = rateLimit({
 app.post('/api/perf-check', requireAuth, perfLimit, (req, res) => {
   const source = String(req.body?.source || '');
   if (Buffer.byteLength(source) > MAX_CODE_BYTES) return res.status(400).json({ error: 'El código supera 2 MB' });
-  const obfuscator = OBFUSCATORS.includes(req.body?.obfuscator) ? req.body.obfuscator : 'obscura';
+  const obfuscator = OBFUSCATORS.includes(req.body?.obfuscator) ? req.body.obfuscator : 'real';
   res.json(analyzePerf(source, { obfuscator, vm: req.body?.clydeVm !== false }));
 });
 
@@ -2256,6 +2263,12 @@ app.post('/api/scripts/:id/maintenance', requireAuth, (req, res) => {
   res.json({ ok: true, maintenance: on === 1 });
 });
 
+// Código protegido (lo que sirve el loader). Solo lo ve el dueño del script.
+app.get('/api/scripts/:id/protected', requireAuth, (req, res) => {
+  const script = stmt.scriptOwned.get(Number(req.params.id), req.userId);
+  if (!script) return res.status(404).json({ error: 'Script no encontrado' });
+  res.json({ name: script.name, obfuscator: script.obfuscator, content: script.content || '' });
+});
 app.get('/api/scripts/:id/versions', requireAuth, (req, res) => {
   const script = stmt.scriptOwned.get(Number(req.params.id), req.userId);
   if (!script) return res.status(404).json({ error: 'Script no encontrado' });

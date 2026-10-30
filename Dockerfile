@@ -2,7 +2,7 @@ FROM node:22-bookworm-slim
 
 # Toolchain por si better-sqlite3 necesita compilarse, y git/Python para el ofuscador
 RUN apt-get update \
- && apt-get install -y --no-install-recommends git ca-certificates python3 python3-click make g++ cmake \
+ && apt-get install -y --no-install-recommends git ca-certificates python3 python3-pip python3-click make g++ cmake \
  && rm -rf /var/lib/apt/lists/*
 
 # Ofuscadores 1 y 2 (CLI locales, no se usan sus webs)
@@ -19,6 +19,11 @@ RUN (git clone --depth 1 https://github.com/luau-lang/luau.git /opt/luau \
  && cmake --build /opt/luau/build --target Luau.Compile -j2 >/dev/null \
  && find /opt/luau/build -maxdepth 2 -name 'luau-compile' -type f -exec cp {} /usr/local/bin/luau-compile \;) \
  || echo "[build] luau-compile no disponible: sin validación de sintaxis"
+
+# Ofuscador RealObfuscator (Python, GPL-3.0, modo VM). Se instalan sus dependencias si las trae.
+RUN (git clone --depth 1 https://github.com/linkoro57/RealObfuscator.git /opt/obfuscators/real \
+ && (pip3 install --break-system-packages -r /opt/obfuscators/real/requirements.txt || true)) \
+ || echo "[build] RealObfuscator no disponible: el build sigue sin el"
 
 # Ofuscador 2 = Obscura
 RUN git clone --depth 1 https://github.com/vo3pal/obscura.git /opt/obfuscators/obscura

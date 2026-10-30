@@ -9,7 +9,8 @@
   };
   const PLAN_LABELS = { free: 'Free', premium: 'Premium', plus: 'Premium Plus' };
   const OBFUSCATORS = {
-    obscura:    'Obscura (predeterminado)',
+    real:       'RealObfuscator (VM) · recomendado',
+    obscura:    'Obscura',
     luau:       'Ofuscador 3 (LuaUObfuscator) · Premium Plus · 2 compilaciones por día',
     none:       'Sin ofuscar (solo key)',
   };
@@ -81,7 +82,7 @@
   // Protección del script: 'ffa' (sin key) o 'protected' (con key y ofuscador)
   const protectionOf = s => (s.ffa ? 'ffa' : 'protected');
   // Scripts viejos con Clyde se muestran como Obscura al editarlos: al guardar se regeneran con Obscura
-  const obfuscatorOf = s => (OBFUSCATORS[s.obfuscator] ? s.obfuscator : 'obscura');
+  const obfuscatorOf = s => (OBFUSCATORS[s.obfuscator] ? s.obfuscator : 'real');
 
   async function api(path, opts = {}) {
     const headers = opts.body ? { 'Content-Type': 'application/json' } : {};
@@ -280,7 +281,7 @@
     const seq = ++perfSeq;
     const body = {
       source,
-      obfuscator: $('fObf')?.value || 'obscura',
+      obfuscator: $('fObf')?.value || 'real',
       clydeVm: $('vmGroup')?.querySelector('input')?.checked ?? true,
     };
     try {
@@ -335,7 +336,7 @@
   // Selector de protección: FFA o Protegido, y si es Protegido, el ofuscador
   function protectionHtml(s = {}) {
     const current = s.ffa === undefined ? 'protected' : protectionOf(s);
-    const currentObf = s.id ? obfuscatorOf(s) : 'obscura';
+    const currentObf = s.id ? obfuscatorOf(s) : 'real';
     return `
       <div class="input-group">
         <span class="label">Protección</span>
@@ -356,7 +357,7 @@
           ${Object.entries(OBFUSCATORS).map(([val, label]) =>
             `<option value="${val}" ${val === currentObf ? 'selected' : ''} ${val === 'luau' && !hasPlusPlan() ? 'disabled' : ''}>${label}</option>`).join('')}
         </select>
-        <div class="hint">Se aplica en el servidor al guardar el script. Para Roblox (Luau) recomendamos Obscura.</div>
+        <div class="hint">Se aplica en el servidor al guardar el script. Para Roblox (Luau) recomendamos RealObfuscator.</div>
         <label id="vmGroup" style="display:flex;gap:10px;align-items:flex-start;margin-top:12px;cursor:pointer">
           <input type="checkbox" name="clydeVm" ${s.clyde_vm ? 'checked' : ''} style="margin-top:3px">
           <span><b>Máquina virtual</b><small style="display:block;color:var(--text-soft)">Más protección, pero puede bajar los FPS del juego. Solo aplica al Ofuscador 1.</small></span>
@@ -637,7 +638,7 @@
     const name = String(fd.get('name') || '').trim();
     const code = $('fCode').value;
     const protection = fd.get('protection') || 'protected';
-    const obfuscator = fd.get('obfuscator') || 'obscura';
+    const obfuscator = fd.get('obfuscator') || 'real';
 
     if (!name) { toast('Escribe un nombre', 'error'); return; }
     if (!editId && !code.trim()) { toast('Agrega el código del script', 'error'); return; }
@@ -673,6 +674,23 @@
       toast(err.message, 'error');
       setBusy(btn, false);
     }
+  }
+
+  async function openProtectedCode(id) {
+    try {
+      const d = await api(`/api/scripts/${encodeURIComponent(id)}/protected`);
+      const label = OBFUSCATORS[d.obfuscator] || d.obfuscator;
+      openModal(`Código protegido: ${d.name}`, `
+        <p class="card-sub" style="margin:-6px 0 12px">Ofuscador: <strong>${esc(label)}</strong>. Este es el código que sirve el loader.</p>
+        <pre class="code-view">${esc(d.content)}</pre>
+        <div class="form-actions">
+          <button type="button" class="btn ghost" data-close>Cerrar</button>
+          <button type="button" class="btn" id="protCopy">Copiar</button>
+        </div>`);
+      $('protCopy').addEventListener('click', () => {
+        navigator.clipboard.writeText(d.content).then(() => toast('Código copiado'), () => toast('No se pudo copiar', 'error'));
+      });
+    } catch (err) { toast(err.message, 'error'); }
   }
 
   async function submitKeys(e) {
@@ -832,6 +850,7 @@
           </button>
           <div class="row">
             <button class="btn ghost sm" data-edit="${esc(s.id)}">Editar</button>
+            <button class="btn ghost sm" data-protected="${esc(s.id)}">Ver código protegido</button>
             <button class="btn ghost sm" data-maint="${esc(s.id)}" data-on="${s.maintenance ? 1 : 0}">${s.maintenance ? 'Quitar mantenimiento' : 'Poner en mantenimiento'}</button>
             <button class="btn ghost sm" data-delete="${esc(s.id)}" data-name="${esc(s.name)}">Eliminar</button>
             <button class="btn ghost sm" data-view-keys="${esc(s.id)}">Ver keys</button>
@@ -2570,6 +2589,9 @@
 
     const edit = t.closest('[data-edit]');
     if (edit) { openEditScriptModal(edit.dataset.edit); return; }
+
+    const prot = t.closest('[data-protected]');
+    if (prot) { openProtectedCode(prot.dataset.protected); return; }
 
     const del = t.closest('[data-delete]');
     if (del) {

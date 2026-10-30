@@ -10,10 +10,12 @@ Vantarmor protege scripts de Roblox escritos en Lua/Luau. El creador sube su có
 - Las cuotas exactas y el precio dependen del plan actual; si el usuario pregunta cifras concretas, dile que las revise en la página de Planes.
 
 ## Ofuscadores
-1. **Obscura:** el predeterminado para scripts nuevos.
-2. **Ofuscador 3 (LuaUObfuscator):** solo Premium Plus, con límite diario de compilaciones.
-3. **Sin ofuscar:** el código solo se protege con keys.
-Clyde ya no está disponible. Si un script viejo lo usa, sigue funcionando; al editarlo se regenera con Obscura.
+1. **RealObfuscator (VM):** el predeterminado para scripts nuevos. Usa máquina virtual.
+2. **Obscura:** alternativa.
+3. **Ofuscador 3 (LuaUObfuscator):** solo Premium Plus, con límite diario de compilaciones.
+4. **Sin ofuscar:** el código solo se protege con keys.
+Clyde ya no está disponible. Si un script viejo lo usa, sigue funcionando; al editarlo se regenera con el predeterminado.
+En el dashboard, cada script tiene el botón "Ver código protegido" para ver y copiar el código que sirve el loader (solo el dueño lo ve).
 
 Si el ofuscador o el código protegido falla, el creador ve un mensaje específico. Un script demasiado grande (más de 2 MB de código) se rechaza.
 

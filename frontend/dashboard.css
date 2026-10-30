@@ -807,3 +807,5 @@ tbody tr:hover td { background: rgba(255,255,255,.025); }
 .custom-dur { display: flex; gap: 8px; margin-top: 10px; }
 .custom-dur[hidden] { display: none; }
 .custom-dur .field { flex: 1; min-width: 0; }
+
+.code-view { max-height: 60vh; overflow: auto; margin: 0 0 14px; padding: 12px; border-radius: 10px; background: rgba(0,0,0,.35); border: 1px solid var(--border); font: 12px/1.45 ui-monospace, Menlo, Consolas, monospace; white-space: pre; color: var(--text); }

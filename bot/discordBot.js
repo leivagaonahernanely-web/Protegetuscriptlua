@@ -455,10 +455,18 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
     return { embeds: [embed], components: [row] };
   }
 
+  // Bloque de código para PC + botón que responde con el mismo loader sin comillas (para copiar en el celular)
+  function mobileRow(script) {
+    return new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId(`vanta:mobile:${script.id}`).setLabel('📱 Vista móvil').setStyle(ButtonStyle.Secondary),
+    );
+  }
+  const loaderPayload = (script, text) => ({ content: '```lua\n' + text + '\n```', components: [mobileRow(script)] });
+
   // Lógica compartida entre comandos y botones del panel
   function getScriptReply(script, userId, roleIds) {
     if (inMaintenance(script)) return maintenanceCard(script);
-    if (script.ffa) return loaderText(script);
+    if (script.ffa) return loaderPayload(script, loaderText(script));
     const access = resolveAccess(script, userId, roleIds);
     if (access.status === 'blacklisted') return `⛔ Estás bloqueado para **${script.name}**.`;
     if (access.status === 'limit') return KEY_LIMIT_MSG;
@@ -467,6 +475,15 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
       return noAccessCard(script);
     }
     logScriptEvent(script, `📜 <@${userId}> obtuvo el loader`);
+    return loaderPayload(script, loaderText(script, access.key));
+  }
+
+  // Vista móvil: el mismo loader sin bloque de código, para copiarlo limpio
+  function mobileLoaderReply(script, userId, roleIds) {
+    if (inMaintenance(script)) return maintenanceCard(script);
+    if (script.ffa) return loaderText(script);
+    const access = resolveAccess(script, userId, roleIds);
+    if (access.status !== 'ok') return getScriptReply(script, userId, roleIds);
     return loaderText(script, access.key);
   }
 
@@ -1435,6 +1452,7 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
     const actor = interaction.user.id;
 
     if (action === 'script') return reply(getScriptReply(script, actor, memberRoleIds(interaction)));
+    if (action === 'mobile') return reply(mobileLoaderReply(script, actor, memberRoleIds(interaction)));
     if (action === 'stats') return reply(statsReply(actor, script, memberRoleIds(interaction)));
     if (action === 'role') {
       if (inMaintenance(script)) return reply(maintenanceCard(script));

@@ -14,7 +14,7 @@ Nunca menciones el nombre del motor interno de cada ofuscador. Habla solo de "Of
 1. **Ofuscador 1:** el predeterminado para scripts nuevos. Usa máquina virtual.
 2. **Ofuscador 2:** alternativa.
 3. **Ofuscador 3:** solo Premium Plus, con límite diario de compilaciones.
-4. **Ofuscador 4:** motor propio, sin dependencias externas.
+4. **Seguro:** cifra los textos del script y renombra sus variables; no necesita cargar código al ejecutarse.
 5. **Sin ofuscar:** el código solo se protege con keys.
 Si un script viejo usa un ofuscador que ya no existe, sigue funcionando; al editarlo se regenera con el Ofuscador 1.
 En el dashboard, cada script tiene el botón "Ver código protegido" para ver y copiar el código que sirve el loader (solo el dueño lo ve).

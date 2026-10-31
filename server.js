@@ -10,7 +10,6 @@ import fs from 'fs';
 import os from 'os';
 import { execFile } from 'child_process';
 import { fileURLToPath } from 'url';
-import { obfuscateLua as obfuscateKm } from './lib/obf-km.js';
 import { obfuscateLuaLight, obfuscateLuaLuau51 } from './lib/obf-kingmor-modes.js';
 import { normalizeLuaSource } from './lib/lua-source.js';
 import { obfuscateLuaPro } from './lib/obf-pro.js';
@@ -77,7 +76,7 @@ const jsonLimit = rateLimit({
 // 0. CONSTANTES Y CONFIGURACIÓN
 // ==========================================
 const MAX_CODE_BYTES = 2 * 1024 * 1024;           // 2 MB por script
-const OBFUSCATORS = ['real', 'obscura', 'luau', 'km', 'light', 'luau51', 'pro', 'none'];   // RealObfuscator (predeterminado, modo VM), Obscura, Ofuscador 3 (LuaUObfuscator, solo Premium Plus); 'none' = sin ofuscar. Clyde se quitó.
+const OBFUSCATORS = ['real', 'obscura', 'luau', 'light', 'luau51', 'pro', 'none'];   // RealObfuscator (predeterminado, modo VM), Obscura, Ofuscador 3 (LuaUObfuscator, solo Premium Plus); 'none' = sin ofuscar. Clyde se quitó.
 const KEY_ALPHABET = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
 // Un error suelto no debe tirar el servidor ni dejar al bot a medias: se registra y el proceso sigue
 process.on('unhandledRejection', err => console.error('[Proceso] Promesa sin manejar:', err));
@@ -470,7 +469,9 @@ function validateScriptInput({ name, ffa, obfuscator, code, hwidResetHours, shar
   const isFfa = ffa === undefined ? !!current?.ffa : !!ffa;
   // FFA también se ofusca: el ofuscador se elige igual que en modo protegido
   // Scripts viejos con Clyde: si no mandan ofuscador, se regeneran con Obscura
-  const obf = obfuscator === undefined ? (current?.obfuscator === 'clyde' ? 'real' : current?.obfuscator) : obfuscator;
+  // Scripts viejos con Clyde o Ofuscador 4 (km, quitado): si no mandan ofuscador, se regeneran con Ofuscador 1 o Seguro
+  const legacy = { clyde: 'real', km: 'pro' };
+  const obf = obfuscator === undefined ? (legacy[current?.obfuscator] ?? current?.obfuscator) : obfuscator;
   if (!OBFUSCATORS.includes(obf)) return { error: 'Elige un ofuscador válido' };
 
   const source = code === undefined ? current?.source : code;
@@ -697,7 +698,6 @@ async function obfuscateProFull(source) {
 
 async function obfuscateUncached(source, obfuscator, opts = {}) {
   if (obfuscator === 'luau') return obfuscateLuau(source);
-  if (obfuscator === 'km') return obfuscateKm(source);
   if (obfuscator === 'light') return obfuscateLuaLight(source);
   if (obfuscator === 'luau51') return obfuscateLuaLuau51(source);
   if (obfuscator === 'pro') return obfuscateProFull(source);

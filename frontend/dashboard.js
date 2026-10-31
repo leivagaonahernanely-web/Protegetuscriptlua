@@ -150,13 +150,9 @@
     document.querySelectorAll('.view').forEach(v => v.classList.toggle('active', v.dataset.view === name));
     if (name === 'soporte') loadSupport();
     if (name === 'stats') { loadExecStats(); }
-    if (name === 'profile') { loadWebhooks(); loadActivity(); }
+    if (name === 'profile' && hasPerkPlan()) { loadWebhooks(); loadActivity(); }
     $('pageTitle').firstChild.textContent = NAV[name].title;
     $('pageSub').textContent = NAV[name].sub;
-    if (name === 'profile' && !hasPerkPlan()) {
-      toast('Esta sección es solo para Premium y Premium Plus', 'error');
-      return showView('plans');
-    }
     if (name === 'profile') renderProfile();
     if (name === 'precios') loadPricesForm();
     if (name === 'bienvenida') loadWelcomeForm();
@@ -1155,7 +1151,7 @@
   const hasPlusPlan = () => !!user && user.plan === 'plus';
   // Precios y Bienvenida se ven siempre; si no hay plan, aparecen con candado (sin redirigir)
   function applyLocks() {
-    const locked = { precios: !hasPerkPlan(), bienvenida: !hasPlusPlan() };
+    const locked = { precios: !hasPerkPlan(), bienvenida: !hasPlusPlan(), profile: !hasPerkPlan() };
     document.querySelectorAll('[data-lockable]').forEach(b => {
       const on = !!locked[b.dataset.lockable];
       b.classList.toggle('locked', on);

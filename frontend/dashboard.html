@@ -88,9 +88,10 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 2 3 7v6c0 5 4 9 9 9s9-4 9-9V7l-9-5z"/></svg>
           Planes
         </button>
-        <button class="nav-item" data-nav="profile" data-plan-only style="display:none">
+        <button class="nav-item" data-nav="profile" data-lockable="profile">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 3.6-7 8-7s8 3 8 7"/></svg>
           Perfil
+          <svg class="nav-lock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>
         </button>
         <button class="nav-item" data-nav="precios" data-lockable="precios">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M20.6 13.4 13.4 20.6a2 2 0 0 1-2.8 0L2 12V2h10l8.6 8.6a2 2 0 0 1 0 2.8z"/><circle cx="7" cy="7" r="1.5"/></svg>
@@ -550,6 +551,12 @@
       </section>
 
       <section class="view" data-view="profile">
+        <div class="lock-card" role="status">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>
+          <h3>Función Premium</h3>
+          <p>Mejorar a Premium para acceder aquí</p>
+          <button type="button" class="btn" data-go="plans">Ver planes</button>
+        </div>
         <article class="card profile-hero">
           <div class="profile-hero-main">
             <div id="pfHeroAv" class="profile-hero-av" aria-hidden="true"></div>

@@ -243,6 +243,9 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
     unbanKeys: db.prepare('UPDATE keys SET banned = 0, ban_reason = NULL WHERE script_id = ? AND discord_id = ?'),
     resetHwid: db.prepare('UPDATE keys SET hwid = NULL, hwid_reset_at = ? WHERE key = ?'),
     blacklisted: db.prepare('SELECT 1 FROM bot_blacklist WHERE script_id = ? AND discord_id = ?'),
+    blacklistReason: db.prepare('SELECT reason FROM bot_blacklist WHERE script_id = ? AND discord_id = ?'),
+    roleBlacklistReason: db.prepare('SELECT reason FROM bot_blacklist_roles WHERE script_id = ? AND role_id = ?'),
+    banReasonFor: db.prepare('SELECT ban_reason AS reason FROM keys WHERE script_id = ? AND discord_id = ? AND banned = 1 LIMIT 1'),
     roleBlacklisted: db.prepare('SELECT 1 FROM bot_blacklist_roles WHERE script_id = ? AND role_id = ?'),
     roleBlacklistInsert: db.prepare('INSERT OR REPLACE INTO bot_blacklist_roles (script_id, role_id, reason, created_at) VALUES (?, ?, ?, ?)'),
     roleBlacklistDelete: db.prepare('DELETE FROM bot_blacklist_roles WHERE script_id = ? AND role_id = ?'),
@@ -510,7 +513,7 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
     if (inMaintenance(script)) return maintenanceCard(script);
     if (script.ffa) return loaderPayload(script, loaderText(script));
     const access = resolveAccess(script, userId, roleIds);
-    if (access.status === 'blacklisted') return `⛔ Estás bloqueado para **${script.name}**.`;
+    if (access.status === 'blacklisted') return card({ title: '⛔ Bloqueado', color: C.err, description: `Estás bloqueado para **${script.name}**.`, fields: [['Razón', blockReasonFor(script, userId, roleIds)]] });
     if (access.status === 'limit') return KEY_LIMIT_MSG;
     if (access.status === 'none') {
       console.log(`[Bot] Sin acceso: script ${script.id} (${script.name}), usuario ${userId}, roles vistos ${roleIds.length}`);
@@ -578,9 +581,17 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
 
   // Get Stats del panel: estado del usuario en ese script.
   // Whitelist y key se tratan igual: resolveAccess crea la key de whitelist si aún no existe.
+  // Razón del bloqueo: por usuario, por rol o por key baneada
+  function blockReasonFor(script, userId, roleIds = []) {
+    const reason = q.blacklistReason.get(script.id, userId)?.reason
+      ?? roleIds.map(id => q.roleBlacklistReason.get(script.id, id)?.reason).find(Boolean)
+      ?? q.banReasonFor.get(script.id, userId)?.reason;
+    return reason || 'Sin razón indicada';
+  }
+
   function scriptStatsReply(userId, script, roleIds) {
     const granted = resolveAccess(script, userId, roleIds);
-    if (granted.status === 'blacklisted') return card({ title: '⛔ Bloqueado', color: C.err, description: `Estás bloqueado para **${script.name}**.` });
+    if (granted.status === 'blacklisted') return card({ title: '⛔ Bloqueado', color: C.err, description: `Estás bloqueado para **${script.name}**.`, fields: [['Razón', blockReasonFor(script, userId, roleIds)]] });
     if (granted.status === 'limit') return KEY_LIMIT_MSG;
     if (granted.status === 'none') return noAccessCard(script);
     const k = q.keyForScriptUser.get(script.id, userId);

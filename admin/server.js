@@ -89,6 +89,7 @@ const ALLOWED = {
   announce: { POST: '/announce' },
   overview: { GET: '/overview' },
   servers: { GET: '/servers' },
+  'loader-downloads': { GET: '/loader-downloads' },
   settings: { POST: '/settings' },
 };
 

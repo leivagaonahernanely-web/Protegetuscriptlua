@@ -162,7 +162,6 @@
     if (name === 'bienvenida') loadWelcomeForm();
     if (name === 'chat') startChatPolling(); else stopChatPolling();
     if (name === 'blacklist') loadBlacklist();
-    if (name === 'ownerpanel') loadLoaderLog();
     if (isMobile()) setSidebar(false);
   }
 
@@ -1173,21 +1172,8 @@
     if (ov.status === 'fulfilled') ownerData.overview = ov.value;
     renderOwner();
     renderOverview();
-    loadLoaderLog();
   }
 
-  // Descargas del loader con IP: solo el dueño (el endpoint también lo exige)
-  async function loadLoaderLog() {
-    if (!user || !user.owner) return;
-    try {
-      const rows = await api('/api/owner/loader-downloads');
-      $('ownLoaders').innerHTML = rows.length ? `<div class="owner-audit">${rows.map(r => `
-        <div class="owner-audit-row"><span class="hint">${fmtWhen(r.created_at)}</span><span class="mono">${esc(r.ip || 'desconocida')}</span><span>${esc(r.script_name || r.slug || '—')}</span></div>`).join('')}</div>`
-        : '<p class="hint">Aún no hay descargas registradas.</p>';
-    } catch (err) {
-      $('ownLoaders').innerHTML = `<p class="hint">No pude cargar las descargas: ${esc(err.message)}</p>`;
-    }
-  }
 
   // ---- Panel del dueño: Ofuscador 3, mantenimiento, ventas y registro ----
   function renderOverview() {

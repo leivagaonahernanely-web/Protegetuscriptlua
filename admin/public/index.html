@@ -101,6 +101,7 @@ pre{white-space:pre-wrap;word-break:break-all;background:#040407;border:1px soli
       <button class="tab" data-tab="prices">Prices &amp; Plans</button>
       <button class="tab" data-tab="changelog">Changelog</button>
       <button class="tab" data-tab="servers">Servers</button>
+      <button class="tab" data-tab="loaders">Descargas IP</button>
       <button class="tab" data-tab="site">Mantenimiento</button>
     </nav>
 
@@ -133,6 +134,12 @@ pre{white-space:pre-wrap;word-break:break-all;background:#040407;border:1px soli
     <section class="card hidden" data-panel="users">
       <div class="row"><input class="field" id="userSearch" placeholder="Search username"><select class="field" id="userRoleFilter"><option value="">Todos los roles</option><option value="owner">Owner</option><option value="admin">Admin</option><option value="plus">Premium Plus</option><option value="premium">Premium</option><option value="free">Free</option></select></div>
       <table><thead><tr><th>User</th><th>Scripts</th><th>Obfuscations</th><th>Plan</th><th></th><th>Staff</th><th></th></tr></thead><tbody id="usersBody"></tbody></table>
+    </section>
+
+    <section class="card hidden" data-panel="loaders">
+      <div class="row" style="justify-content:space-between"><strong id="ldCount">Cargando…</strong><button class="btn ghost sm" id="ldRefresh" type="button">Actualizar</button></div>
+      <p class="muted" style="margin:8px 0 12px">IP de cada descarga del loader. Se guardan 30 días.</p>
+      <table><thead><tr><th>Fecha</th><th>IP</th><th>Script</th></tr></thead><tbody id="ldBody"></tbody></table>
     </section>
 
     <section class="card hidden" data-panel="servers">
@@ -304,6 +311,7 @@ document.querySelectorAll('.tab').forEach(t => t.addEventListener('click', () =>
   if (t.dataset.tab === 'prices' || t.dataset.tab === 'changelog') loadChannels();
   if (t.dataset.tab === 'site') loadSite();
   if (t.dataset.tab === 'servers') loadServers();
+  if (t.dataset.tab === 'loaders') loadLoaders();
 }));
 
 // ---- Mantenimiento y banner ----
@@ -580,6 +588,19 @@ async function withSkeleton(tbodyId, cols, load) {
 async function loadKeys() { await withSkeleton('keysBody', 5, async () => { cache.keys = await api('GET', '/admin/api/plan-keys'); renderKeys(); }); }
 async function loadUsers() { await withSkeleton('usersBody', 7, async () => { cache.users = await api('GET', '/admin/api/users'); renderUsers(); }); }
 async function loadPublisher() { await withSkeleton('pubBody', 4, async () => { cache.publisher = await api('GET', '/admin/api/publisher'); renderPublisher(); }); }
+async function loadLoaders() {
+  const body = $('ldBody');
+  try {
+    const rows = await api('GET', '/admin/api/loader-downloads');
+    $('ldCount').textContent = rows.length + (rows.length === 1 ? ' descarga' : ' descargas') + ' (últimos 30 días)';
+    body.innerHTML = rows.length
+      ? rows.map(r => '<tr><td>' + esc(when(r.created_at)) + '</td><td>' + esc(r.ip || 'desconocida') + '</td><td>' + esc(r.script_name || r.slug || '—') + '</td></tr>').join('')
+      : '<tr><td colspan="3" class="muted">Aún no hay descargas registradas.</td></tr>';
+  } catch (err) {
+    body.innerHTML = '<tr><td colspan="3" class="muted">No se pudo cargar: ' + esc(err.message) + '</td></tr>';
+  }
+}
+$('ldRefresh').addEventListener('click', loadLoaders);
 async function loadServers() {
   const body = $('srvBody');
   try {

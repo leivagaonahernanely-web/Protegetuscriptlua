@@ -129,6 +129,21 @@
   .lock-card p { font-size: 14px; color: var(--text-soft); }
   .view.locked .lock-card { display: flex; }
   .view.locked > .card { filter: blur(4px); opacity: .45; pointer-events: none; user-select: none; }
+
+  /* Perfil: encabezado con foto, plan y contadores */
+  .profile-hero { display: flex; flex-direction: column; gap: 22px; padding: 24px; background: radial-gradient(120% 140% at 0% 0%, rgba(88, 101, 242, .22), transparent 60%), linear-gradient(180deg, var(--panel-2), var(--panel)); }
+  .profile-hero-main { display: flex; align-items: center; gap: 18px; min-width: 0; }
+  .profile-hero-av { width: 88px; height: 88px; flex-shrink: 0; border-radius: 22px; overflow: hidden; display: grid; place-items: center; background: #fff; color: #000; font-weight: 900; font-size: 32px; box-shadow: 0 10px 28px rgba(0, 0, 0, .3); }
+  .profile-hero-info { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+  .profile-hero-info h2 { font-size: 26px; font-weight: 900; letter-spacing: -.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .profile-hero-meta { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 4px; }
+  .profile-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 14px; }
+  .profile-grid .card h3 { font-size: 17px; font-weight: 800; }
+  @media (max-width: 560px) {
+    .profile-hero { padding: 18px; }
+    .profile-hero-av { width: 70px; height: 70px; border-radius: 18px; font-size: 26px; }
+    .profile-hero-info h2 { font-size: 21px; }
+  }
   @keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
 
   .section-head { display: flex; justify-content: space-between; align-items: center; gap: 16px; flex-wrap: wrap; }

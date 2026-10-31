@@ -220,6 +220,19 @@
       : null;
     setPreview($('pvProfile'), user.custom_avatar || discordAv, (user.username || '?').charAt(0).toUpperCase());
     setPreview($('pvBot'), user.bot_avatar || null, 'Bot');
+
+    // Encabezado: foto, plan, vencimiento y contadores
+    setPreview($('pfHeroAv'), user.custom_avatar || discordAv, (user.username || '?').charAt(0).toUpperCase());
+    $('pfHeroName').textContent = user.username || 'Usuario';
+    const pk = planKey(user.plan);
+    const planBadge = $('pfHeroPlan');
+    planBadge.textContent = PLAN_LABELS[pk];
+    planBadge.className = `badge ${pk === 'free' ? 'neutral' : 'ok'}`;
+    $('pfHeroExp').textContent = pk === 'free' ? 'Plan gratuito'
+      : user.plan_expires_at ? `Vence ${fmtDate(user.plan_expires_at)}` : 'Sin fecha de vencimiento';
+    $('pfStatScripts').textContent = scriptsLoaded && !scriptsError ? scripts.length : '—';
+    $('pfStatKeys').textContent = keysLoaded && !keysError ? keys.length : '—';
+    $('pfStatObf').textContent = user.obf_used ?? 0;
   }
 
   $('pfProfileSave').addEventListener('click', async () => {

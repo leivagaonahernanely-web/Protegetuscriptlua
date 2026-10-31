@@ -550,7 +550,26 @@
       </section>
 
       <section class="view" data-view="profile">
-        <div class="grid-stats" style="grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));">
+        <article class="card profile-hero">
+          <div class="profile-hero-main">
+            <div id="pfHeroAv" class="profile-hero-av" aria-hidden="true"></div>
+            <div class="profile-hero-info">
+              <span class="card-label">Tu cuenta</span>
+              <h2 id="pfHeroName">Usuario</h2>
+              <div class="profile-hero-meta">
+                <span id="pfHeroPlan" class="badge neutral">Free</span>
+                <span id="pfHeroExp" class="hint"></span>
+              </div>
+            </div>
+          </div>
+          <div class="profile-stats">
+            <div class="kpi"><span class="kpi-label">Scripts</span><strong id="pfStatScripts">—</strong><span class="kpi-sub">Creados por ti</span></div>
+            <div class="kpi"><span class="kpi-label">Keys</span><strong id="pfStatKeys">—</strong><span class="kpi-sub">Generadas en tus scripts</span></div>
+            <div class="kpi"><span class="kpi-label">Ofuscaciones</span><strong id="pfStatObf">—</strong><span class="kpi-sub">Usadas este periodo</span></div>
+          </div>
+        </article>
+
+        <div class="grid-stats profile-grid" style="grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));">
           <article class="card">
             <h3>Foto de perfil</h3>
             <p style="margin:6px 0 14px;font-size:14px;color:var(--text-soft);">Sale en el panel de tus scripts cuando los compradores abren tu panel en Discord.</p>

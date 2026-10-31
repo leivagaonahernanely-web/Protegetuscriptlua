@@ -224,6 +224,7 @@ db.exec(`
   // source = código original (nunca se envía al cliente); content = lo que se sirve al loader
   if (!cols.includes('source')) db.exec('ALTER TABLE scripts ADD COLUMN source TEXT');
   if (!cols.includes('hwid_reset_hours')) db.exec('ALTER TABLE scripts ADD COLUMN hwid_reset_hours INTEGER DEFAULT 24');
+  if (!cols.includes('hwid_lock')) db.exec('ALTER TABLE scripts ADD COLUMN hwid_lock INTEGER DEFAULT 1');
   // Detección de keys compartidas (1 = activa)
   if (!cols.includes('share_detection')) db.exec('ALTER TABLE scripts ADD COLUMN share_detection INTEGER DEFAULT 1');
   if (!cols.includes('auto_revoke_dump')) db.exec('ALTER TABLE scripts ADD COLUMN auto_revoke_dump INTEGER DEFAULT 0');
@@ -348,16 +349,16 @@ const stmt = {
   `),
   // Nunca se seleccionan source ni content aquí
   scriptsByUser: db.prepare(`
-    SELECT id, user_id, name, slug, loader_id, ffa, obfuscator, hwid_reset_hours, share_detection, auto_revoke_dump, maintenance, clyde_vm, perf_level, project_id FROM scripts
+    SELECT id, user_id, name, slug, loader_id, ffa, obfuscator, hwid_reset_hours, share_detection, auto_revoke_dump, maintenance, clyde_vm, perf_level, project_id, hwid_lock FROM scripts
     WHERE user_id = ? ORDER BY id DESC
   `),
   scriptOwned: db.prepare('SELECT * FROM scripts WHERE id = ? AND user_id = ?'),
   scriptInsert: db.prepare(`
-    INSERT INTO scripts (user_id, name, slug, ffa, obfuscator, source, content, hwid_reset_hours, share_detection, clyde_vm, auto_revoke_dump)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO scripts (user_id, name, slug, ffa, obfuscator, source, content, hwid_reset_hours, share_detection, clyde_vm, auto_revoke_dump, hwid_lock)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `),
   scriptUpdate: db.prepare(`
-    UPDATE scripts SET name = ?, ffa = ?, obfuscator = ?, source = ?, content = ?, hwid_reset_hours = ?, share_detection = ?, clyde_vm = ?, auto_revoke_dump = ?
+    UPDATE scripts SET name = ?, ffa = ?, obfuscator = ?, source = ?, content = ?, hwid_reset_hours = ?, share_detection = ?, clyde_vm = ?, auto_revoke_dump = ?, hwid_lock = ?
     WHERE id = ? AND user_id = ?
   `),
   keysByUser: db.prepare(`
@@ -467,7 +468,7 @@ const luauUsedStmt = db.prepare('SELECT n FROM luau_usage WHERE user_id = ? AND 
 const luauBumpStmt = db.prepare('INSERT INTO luau_usage (user_id, day, n) VALUES (?, ?, 1) ON CONFLICT(user_id, day) DO UPDATE SET n = n + 1');
 const luauUsedToday = userId => luauUsedStmt.get(userId, luauDay())?.n ?? 0;
 
-function validateScriptInput({ name, ffa, obfuscator, code, hwidResetHours, shareDetection, clydeVm, autoRevokeDump }, current = null) {
+function validateScriptInput({ name, ffa, obfuscator, code, hwidResetHours, shareDetection, clydeVm, autoRevokeDump, hwidLock }, current = null) {
   const cleanName = name === undefined ? current?.name : String(name).trim();
   if (!cleanName || cleanName.length > 60) return { error: 'Nombre inválido (1 a 60 caracteres)' };
 
@@ -489,7 +490,9 @@ function validateScriptInput({ name, ffa, obfuscator, code, hwidResetHours, shar
 
   const vm = clydeVm === undefined ? (current?.clyde_vm ?? 1) : (clydeVm ? 1 : 0);
   const autoRevoke = autoRevokeDump === undefined ? (current?.auto_revoke_dump ?? 0) : (autoRevokeDump ? 1 : 0);
-  return { name: cleanName, isFfa, obfuscator: obf, source, hwidResetHours: hwid, shareDetection: share, clydeVm: vm, autoRevokeDump: autoRevoke };
+  // Solo en el equipo que la usó: apagado por defecto (la key sirve en otros equipos). Scripts existentes: encendido.
+  const lock = hwidLock === undefined ? (current?.hwid_lock ?? 0) : (hwidLock ? 1 : 0);
+  return { name: cleanName, isFfa, obfuscator: obf, source, hwidResetHours: hwid, shareDetection: share, clydeVm: vm, autoRevokeDump: autoRevoke, hwidLock: lock };
 }
 
 // ==========================================
@@ -1320,8 +1323,10 @@ app.get('/scripts/hosted/:slug/auth', loaderLimit, (req, res) => {
   if (k.discord_id && db.prepare('SELECT 1 FROM bot_blacklist WHERE script_id = ? AND discord_id = ?').get(script.id, k.discord_id)) {
     return reply('BLACKLISTED');
   }
+  if (hwid && scriptBanned(script.id, 'hwid', hwid)) return reply('BLACKLISTED');
+  // Bloqueo de equipo apagado: la key sirve en cualquier equipo, sin vincularla ni avisar de compartida
+  if (script.hwid_lock !== 0) {
   if (!hwid) return reply('VERIFY_FAILED');
-  if (scriptBanned(script.id, 'hwid', hwid)) return reply('BLACKLISTED');
   // Tras reiniciar el HWID la key queda sin equipo: si el HWID nuevo no es el último vinculado, cuenta como compartida
   if (!k.hwid && k.last_hwid && k.last_hwid !== hwid && script.share_detection !== 0) return reportKeyShare(script, k, hwid, reply);
   if (!k.hwid) {
@@ -1333,6 +1338,7 @@ app.get('/scripts/hosted/:slug/auth', loaderLimit, (req, res) => {
       if (current.hwid !== hwid) return reportKeyShare(script, k, hwid, reply);
     }
   } else if (k.hwid !== hwid) return reportKeyShare(script, k, hwid, reply);
+  }
   const run = db.prepare('UPDATE keys SET last_ip = ?, exec_count = COALESCE(exec_count, 0) + 1 WHERE key = ? RETURNING exec_count')
     .get(req.ip || null, key);
   countExecution(script.id, req.ip, script.user_id);
@@ -2221,7 +2227,7 @@ app.post('/api/scripts', requireAuth, async (req, res) => {
     if (outErr) return res.status(422).json({ error: `La versión ofuscada no compila. Avisa al equipo con este mensaje: ${outErr}` });
     const info = stmt.scriptInsert.run(
       req.userId, input.name, uniqueSlug(input.name), input.isFfa ? 1 : 0,
-      input.obfuscator, input.source, content, input.hwidResetHours, input.shareDetection, input.clydeVm, input.autoRevokeDump,
+      input.obfuscator, input.source, content, input.hwidResetHours, input.shareDetection, input.clydeVm, input.autoRevokeDump, input.hwidLock,
     );
     db.prepare('UPDATE scripts SET loader_id = ? WHERE id = ?').run(crypto.randomBytes(20).toString('hex'), info.lastInsertRowid);
     db.prepare('UPDATE scripts SET perf_level = ? WHERE id = ?').run(analyzePerf(input.source, { obfuscator: input.obfuscator, vm: input.clydeVm === 1 }).level, info.lastInsertRowid);
@@ -2270,7 +2276,7 @@ app.put('/api/scripts/:id', requireAuth, async (req, res) => {
     const outErr = input.obfuscator === 'none' ? null : await checkLuauSyntax(content);
     if (outErr) return res.status(422).json({ error: `La versión ofuscada no compila. Avisa al equipo con este mensaje: ${outErr}` });
     stmt.scriptUpdate.run(
-      input.name, input.isFfa ? 1 : 0, input.obfuscator, input.source, content, input.hwidResetHours, input.shareDetection, input.clydeVm, input.autoRevokeDump,
+      input.name, input.isFfa ? 1 : 0, input.obfuscator, input.source, content, input.hwidResetHours, input.shareDetection, input.clydeVm, input.autoRevokeDump, input.hwidLock,
       script.id, req.userId,
     );
     db.prepare('UPDATE scripts SET perf_level = ? WHERE id = ?').run(analyzePerf(input.source, { obfuscator: input.obfuscator, vm: input.clydeVm === 1 }).level, script.id);

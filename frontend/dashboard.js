@@ -439,6 +439,10 @@
           <span><b>Detectar keys compartidas</b><small style="display:block;color:var(--text-soft)">A la 1.ª vez que se use desde otro equipo, avisa al dueño de la key. A la 2.ª, avisa con más fuerza. A la 3.ª, elimina la key y bloquea al usuario en este script.</small></span>
         </label>
         <label style="display:flex;gap:10px;align-items:flex-start;margin-top:12px;cursor:pointer">
+          <input type="checkbox" name="hwidLock" ${(s.hwid_lock ?? 0) === 1 ? 'checked' : ''} style="margin-top:3px">
+          <span><b>Solo en el equipo que la usó</b><small style="display:block;color:var(--text-soft)">Cada key queda vinculada al primer equipo que la ejecuta. Apagado (por defecto), la misma key funciona en otros equipos.</small></span>
+        </label>
+        <label style="display:flex;gap:10px;align-items:flex-start;margin-top:12px;cursor:pointer">
           <input type="checkbox" name="autoRevokeDump" ${s.auto_revoke_dump ? 'checked' : ''} style="margin-top:3px">
           <span><b>Revocar key al detectar dump</b><small style="display:block;color:var(--text-soft)">Si el loader detecta un volcador con una key de este script, la key queda bloqueada al instante. Te avisamos igual, y puedes devolverle el acceso desde el aviso.</small></span>
         </label>
@@ -706,6 +710,7 @@
       obfuscator,
       hwidResetHours: Number(fd.get('hwidReset') ?? 24),
       shareDetection: fd.get('shareDetection') === 'on',
+      hwidLock: fd.get('hwidLock') === 'on',
       autoRevokeDump: fd.get('autoRevokeDump') === 'on',
       clydeVm: fd.get('clydeVm') === 'on',
     };

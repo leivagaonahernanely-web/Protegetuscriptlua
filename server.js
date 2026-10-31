@@ -1124,14 +1124,14 @@ app.get('/scripts/hosted/:slug', async (req, res) => {
 });
 
 // Loader con URL de archivo: /files/v1/loaders/<loader_id>.lua (mismo contenido que /scripts/hosted/<slug>)
-app.get('/files/v1/loaders/:file', (req, res) => {
+app.get('/files/v1/loaders/:file', async (req, res) => {
   const m = /^([0-9a-f]{40})\.lua$/.exec(req.params.file);
   const script = m ? stmt.scriptByLoaderId.get(m[1]) : null;
   if (!script) return res.status(404).type('text/plain').send('-- script no encontrado');
   if (/text\/html/.test(req.get('accept') || '')) {
     return res.set({ ...PAGE_HEADERS, 'Content-Security-Policy': LOADER_CSP }).type('html').send(loaderPage(script));
   }
-  res.type('text/plain').send(loaderBootstrap(script.slug, !!script.ffa));
+  res.type('text/plain').send(await protectLoader(loaderBootstrap(script.slug, !!script.ffa)));
 });
 
 // Tokens de un solo uso para entregar el código: /auth los emite, /payload los consume.

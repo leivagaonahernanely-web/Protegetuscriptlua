@@ -285,8 +285,14 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
   const keyState = k => (k.banned ? 'baneada' : k.expires_at && k.expires_at <= now() ? 'expirada' : 'activa');
   // Tarjetas para las respuestas del bot (verde éxito, azul info, naranja aviso, rojo error)
   const C = { ok: 0x57f287, info: 0x5865f2, warn: 0xfaa61a, err: 0xed4245 };
-  function card({ title, color = C.info, description = '', fields = [] }) {
-    const embed = new EmbedBuilder().setColor(color).setTitle(title);
+  // Tarjeta con identidad de Vantarmor: autor con el logo, pie y hora. Campos cortos en línea.
+  function card({ title, color = C.info, description = '', fields = [], footer = 'Vantarmor' }) {
+    const embed = new EmbedBuilder()
+      .setColor(color)
+      .setAuthor({ name: 'VANTARMOR', iconURL: `${publicUrl}/favicon-64.png` })
+      .setTitle(title)
+      .setFooter({ text: footer })
+      .setTimestamp();
     if (description) embed.setDescription(description);
     if (fields.length) embed.addFields(fields.map(([name, value, inline = true]) => ({ name, value: String(value || '—'), inline })));
     return { embeds: [embed] };
@@ -951,11 +957,11 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
           const where = panel ? ` en el panel <#${panel.channel_id}>` : '';
           const roleGuild = user ? await grantBuyerRole(script, id) : null;
           const roleNote = roleGuild ? ` Se le dio el rol comprador en **${roleGuild.name}**.` : '';
-          return reply(card({ title: '✅ Whitelist actualizada', color: C.ok, description: `${label} puede obtener **${script.name}** con Get Script${where}.${roleNote}${keyLimited ? ' Su key se creará cuando se reinicie el límite de keys del plan.' : ''}`, fields: [['Destino', label], ['Script', script.name], ['Vence', expires ? `<t:${expires}:f>` : 'Permanente']] }));
+          return reply(card({ footer: 'Whitelist', title: '✅ Whitelist actualizada', color: C.ok, description: `${label} puede obtener **${script.name}** con Get Script${where}.${roleNote}${keyLimited ? ' Su key se creará cuando se reinicie el límite de keys del plan.' : ''}`, fields: [['Destino', label], ['Script', script.name], ['Vence', expires ? `<t:${expires}:f>` : 'Permanente']] }));
         }
         q.ruleDelete.run(script.id, kind, id);
         logScriptEvent(script, `➖ ${label} quitado de la whitelist por <@${actor}>`);
-        return reply(card({ title: '➖ Quitado de la whitelist', color: C.info, fields: [['Destino', label], ['Script', script.name]] }));
+        return reply(card({ footer: 'Whitelist', title: '➖ Quitado de la whitelist', color: C.info, fields: [['Destino', label], ['Script', script.name]] }));
       }
 
       case 'cookiegame': {
@@ -989,14 +995,14 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
             for (const m of members.values()) q.banKeys.run(reason, s.id, m.id);
             logScriptEvent(s, `⛔ Rol <@&${role.id}> bloqueado por <@${actor}> · ${reason}`);
           }
-          return reply(card({ title: '⛔ Rol bloqueado', color: C.err, fields: [['Rol', `<@&${role.id}>`], ['Alcance', script ? script.name : 'Todos tus scripts'], ['Miembros afectados', `${members.size} (keys baneadas)`], ['Razón', reason]] }));
+          return reply(card({ footer: 'Blacklist', title: '⛔ Rol bloqueado', color: C.err, fields: [['Rol', `<@&${role.id}>`], ['Alcance', script ? script.name : 'Todos tus scripts'], ['Miembros afectados', `${members.size} (keys baneadas)`], ['Razón', reason]] }));
         }
         for (const s of targets) {
           q.blacklistInsert.run(s.id, target.id, reason, now());
           q.banKeys.run(reason, s.id, target.id);
           logScriptEvent(s, `⛔ <@${target.id}> bloqueado por <@${actor}> · ${reason}`);
         }
-        return reply(card({ title: '⛔ Usuario bloqueado', color: C.err, fields: [['Usuario', `<@${target.id}>`], ['Alcance', script ? script.name : 'Todos tus scripts'], ['Razón', reason]] }));
+        return reply(card({ footer: 'Blacklist', title: '⛔ Usuario bloqueado', color: C.err, fields: [['Usuario', `<@${target.id}>`], ['Alcance', script ? script.name : 'Todos tus scripts'], ['Razón', reason]] }));
       }
 
       case 'unblacklist': {
@@ -1017,7 +1023,7 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
             for (const m of members.values()) if (!q.blacklisted.get(s.id, m.id)) q.unbanKeys.run(s.id, m.id);
             logScriptEvent(s, `✅ Bloqueo de rol <@&${role.id}> quitado por <@${actor}>`);
           }
-          return reply(removedRole ? card({ title: '✅ Bloqueo de rol quitado', color: C.ok, fields: [['Rol', `<@&${role.id}>`], ['Alcance', script ? script.name : 'Todos tus scripts']] }) : card({ title: 'ℹ️ Sin bloqueo', color: C.info, description: `El rol <@&${role.id}> no tenía bloqueo activo.` }));
+          return reply(removedRole ? card({ footer: 'Blacklist', title: '✅ Bloqueo de rol quitado', color: C.ok, fields: [['Rol', `<@&${role.id}>`], ['Alcance', script ? script.name : 'Todos tus scripts']] }) : card({ footer: 'Blacklist', title: 'ℹ️ Sin bloqueo', color: C.info, description: `El rol <@&${role.id}> no tenía bloqueo activo.` }));
         }
         let removed = 0;
         for (const s of targets) {
@@ -1025,7 +1031,7 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
           q.unbanKeys.run(s.id, target.id);
           logScriptEvent(s, `✅ Bloqueo quitado a <@${target.id}> por <@${actor}>`);
         }
-        return reply(removed ? card({ title: '✅ Bloqueo quitado', color: C.ok, fields: [['Usuario', `<@${target.id}>`], ['Alcance', script ? script.name : 'Todos tus scripts']] }) : card({ title: 'ℹ️ Sin bloqueo', color: C.info, description: `<@${target.id}> no tenía bloqueo activo.` }));
+        return reply(removed ? card({ footer: 'Blacklist', title: '✅ Bloqueo quitado', color: C.ok, fields: [['Usuario', `<@${target.id}>`], ['Alcance', script ? script.name : 'Todos tus scripts']] }) : card({ footer: 'Blacklist', title: 'ℹ️ Sin bloqueo', color: C.info, description: `<@${target.id}> no tenía bloqueo activo.` }));
       }
 
       // Cada creador configura su propio rol comprador (solo para sus scripts)

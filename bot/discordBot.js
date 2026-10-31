@@ -458,7 +458,7 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
   // Lógica compartida entre comandos y botones del panel
   function getScriptReply(script, userId, roleIds) {
     if (inMaintenance(script)) return maintenanceCard(script);
-    if (script.ffa) return `\`\`\`lua\n${loaderText(script)}\n\`\`\``;
+    if (script.ffa) return loaderText(script);
     const access = resolveAccess(script, userId, roleIds);
     if (access.status === 'blacklisted') return `⛔ Estás bloqueado para **${script.name}**.`;
     if (access.status === 'limit') return KEY_LIMIT_MSG;
@@ -467,7 +467,7 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
       return noAccessCard(script);
     }
     logScriptEvent(script, `📜 <@${userId}> obtuvo el loader`);
-    return `\`\`\`lua\n${loaderText(script, access.key)}\n\`\`\``;
+    return loaderText(script, access.key);
   }
 
   function redeemKey(code, userId) {

@@ -263,7 +263,8 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
     panelInsert: db.prepare('INSERT INTO bot_panels (script_id, channel_id, message_id, created_at) VALUES (?, ?, ?, ?)'),
     managerRoleRows: db.prepare("SELECT owner, value FROM bot_settings WHERE name = 'manager_role' AND value IS NOT NULL"),
     logInsert: db.prepare('INSERT INTO script_logs (script_id, script_name, text, created_at) VALUES (?, ?, ?, ?)'),
-    panelForScript: db.prepare('SELECT channel_id FROM bot_panels WHERE script_id = ? ORDER BY created_at DESC LIMIT 1'),
+    panelForScript: db.prepare('SELECT channel_id, message_id FROM bot_panels WHERE script_id = ? ORDER BY created_at DESC LIMIT 1'),
+    // Enlace al mensaje del panel (botón Stats) de un script
     warnInsert: db.prepare('INSERT INTO bot_warnings (discord_id, reason, created_at) VALUES (?, ?, ?)'),
     planKeyInsert: db.prepare('INSERT INTO plan_keys (key, plan, created_at) VALUES (?, ?, ?)'),
   };
@@ -346,6 +347,15 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
       for (const row of q.managerRoleRows.all()) if (roleIds.includes(row.value)) creators.add(row.owner);
     }
     return q.scriptsList.all().filter(s => creators.has(s.user_id));
+  }
+
+  // Enlace al mensaje del panel de alguno de estos scripts (el botón Stats sale ahí)
+  function blockLink(targets, guildId) {
+    for (const s of targets) {
+      const p = q.panelForScript.get(s.id);
+      if (p?.message_id) return `https://discord.com/channels/${guildId}/${p.channel_id}/${p.message_id}`;
+    }
+    return null;
   }
 
   // Proyectos que puede gestionar quien escribe (mismo criterio que los scripts)
@@ -755,7 +765,8 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
       roleGuild ? `Se le dio el rol comprador en **${roleGuild.name}**.` : '',
       limited ? `${limited} key(s) se crearán cuando se reinicie el límite del plan.` : '',
     ].filter(Boolean).join(' ');
-    return { payload: card({ ...who_, title: '✅ Whitelist', description: `${label} puede obtener los scripts de **${project.name}** con Get Script.${notes ? ' ' + notes : ''}`, fields: [['Proyecto', project.name], ['Scripts', String(scripts.length)], ['Vence', expires ? `<t:${expires}:f>` : 'Nunca']] }) };
+    const pp = scripts.map(s => q.panelForScript.get(s.id)).find(Boolean);
+    return { payload: `${label} You have been whitelisted!\nYou can access the scripts of **${project.name}** via this message --> ${pp ? `<#${pp.channel_id}>` : 'the script panel'}${limited ? '\nSome keys will be created when the plan key limit resets.' : ''}` };
   }
 
   async function handleChat(interaction) {
@@ -1025,7 +1036,7 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
           const where = panel ? ` en el panel <#${panel.channel_id}>` : '';
           const roleGuild = user ? await grantBuyerRole(script, id) : null;
           const roleNote = roleGuild ? ` Se le dio el rol comprador en **${roleGuild.name}**.` : '';
-          return reply(card({ footer: `Whitelist by ${who}`, footerIcon: whoIcon, title: '✅ Whitelist', description: `${label} puede obtener **${script.name}** con Get Script${where}.${roleNote}${keyLimited ? ' Su key se creará al reiniciarse el límite del plan.' : ''}`, fields: [['Vence', expires ? `<t:${expires}:f>` : 'Nunca']] }));
+          return reply(`${label} You have been whitelisted!\nYou can access the script via this message --> ${panel ? `<#${panel.channel_id}>` : 'the script panel'}${keyLimited ? '\nSome keys will be created when the plan key limit resets.' : ''}`);
         }
         q.ruleDelete.run(script.id, kind, id);
         logScriptEvent(script, `➖ ${label} quitado de la whitelist por <@${actor}>`);
@@ -1063,14 +1074,14 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
             for (const m of members.values()) q.banKeys.run(reason, s.id, m.id);
             logScriptEvent(s, `⛔ Rol <@&${role.id}> bloqueado por <@${actor}> · ${reason}`);
           }
-          return reply(card({ footer: `Blacklist by ${who}`, footerIcon: whoIcon, title: '⛔ Blacklist de rol', description: `<@&${role.id}> bloqueado · ${members.size} miembros con keys baneadas.`, fields: [['Alcance', script ? script.name : 'Todos tus scripts'], ['Razón', reason]] }));
+          return reply(`<@&${role.id}> You have been blacklisted! ⛔\nTo find out why, go to ${blockLink(targets, interaction.guildId) ?? 'the script panel'} and click on **Stats** button`);
         }
         for (const s of targets) {
           q.blacklistInsert.run(s.id, target.id, reason, now());
           q.banKeys.run(reason, s.id, target.id);
           logScriptEvent(s, `⛔ <@${target.id}> bloqueado por <@${actor}> · ${reason}`);
         }
-        return reply(card({ footer: `Blacklist by ${who}`, footerIcon: whoIcon, title: '⛔ Blacklist', description: `<@${target.id}> quedó bloqueado.`, fields: [['Alcance', script ? script.name : 'Todos tus scripts'], ['Razón', reason]] }));
+        return reply(`<@${target.id}> You have been blacklisted! ⛔\nTo find out why, go to ${blockLink(targets, interaction.guildId) ?? 'the script panel'} and click on **Stats** button`);
       }
 
       case 'unblacklist': {

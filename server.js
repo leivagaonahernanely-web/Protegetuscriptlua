@@ -1389,6 +1389,17 @@ app.get('/auth/logout', (req, res) => {
 // ==========================================
 // 6. API
 // ==========================================
+// Actividad reciente del usuario: canjes de plan y últimos eventos de sus scripts
+app.get('/api/me/activity', requireAuth, (req, res) => {
+  const redemptions = db.prepare(`SELECT plan, used_at FROM plan_keys
+    WHERE used_by = ? AND used_at IS NOT NULL ORDER BY used_at DESC LIMIT 10`).all(req.userId);
+  const logs = db.prepare(`SELECT l.script_name, l.text, l.created_at FROM script_logs l
+    JOIN scripts s ON s.id = l.script_id
+    WHERE s.user_id = ? ORDER BY l.id DESC LIMIT 25`).all(req.userId)
+    .map(l => ({ script_name: l.script_name, text: String(l.text || '').slice(0, 160), created_at: l.created_at }));
+  res.json({ redemptions, logs });
+});
+
 app.get('/api/me', requireAuth, (req, res) => {
   const user = stmt.userById.get(req.userId);
   if (!user) {

@@ -150,7 +150,7 @@
     document.querySelectorAll('.view').forEach(v => v.classList.toggle('active', v.dataset.view === name));
     if (name === 'soporte') loadSupport();
     if (name === 'stats') { loadExecStats(); }
-    if (name === 'profile') loadWebhooks();
+    if (name === 'profile') { loadWebhooks(); loadActivity(); }
     $('pageTitle').firstChild.textContent = NAV[name].title;
     $('pageSub').textContent = NAV[name].sub;
     if (name === 'profile' && !hasPerkPlan()) {
@@ -2370,6 +2370,24 @@
 
   // ---------- WEBHOOKS (perfil) ----------
   const WH_EVENT_LABEL = { 'key.created': 'Key creada', 'key.banned': 'Key baneada', 'key.shared': 'Key compartida', 'script.tamper': 'Intento de dump', 'webhook.test': 'Prueba' };
+  async function loadActivity() {
+    const box = $('pfActivity');
+    if (!box) return;
+    box.innerHTML = '<p class="hint">Cargando actividad…</p>';
+    try {
+      const { redemptions, logs } = await api('/api/me/activity');
+      const rows = [
+        ...redemptions.map(r => ({ at: r.used_at, text: `Canjeaste una key de ${PLAN_LABELS[planKey(r.plan)] || r.plan}` })),
+        ...logs.map(l => ({ at: l.created_at, text: `${l.script_name || 'Script'}: ${l.text}` })),
+      ].sort((a, b) => b.at - a.at).slice(0, 30);
+      box.innerHTML = rows.length
+        ? rows.map(r => `<div class="activity-row"><span class="hint">${fmtDate(r.at)}</span><span>${esc(r.text)}</span></div>`).join('')
+        : '<p class="hint">Aún no hay actividad.</p>';
+    } catch (err) {
+      box.innerHTML = `<p class="hint">No pude cargar la actividad: ${esc(err.message)}</p>`;
+    }
+  }
+
   async function loadWebhooks() {
     const box = $('whList');
     if (!box) return;

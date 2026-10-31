@@ -139,6 +139,11 @@
   .profile-hero-meta { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 4px; }
   .profile-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 14px; }
   .profile-grid .card h3 { font-size: 17px; font-weight: 800; }
+  .activity-list { max-height: 360px; overflow-y: auto; }
+  .activity-row { display: grid; grid-template-columns: 160px 1fr; gap: 12px; padding: 9px 0; border-top: 1px solid var(--border); font-size: 13px; align-items: baseline; }
+  .activity-row .hint { margin: 0; }
+  .activity-row > span:last-child { overflow-wrap: anywhere; }
+  @media (max-width: 560px) { .activity-row { grid-template-columns: 1fr; gap: 2px; } }
   @media (max-width: 560px) {
     .profile-hero { padding: 18px; }
     .profile-hero-av { width: 70px; height: 70px; border-radius: 18px; font-size: 26px; }

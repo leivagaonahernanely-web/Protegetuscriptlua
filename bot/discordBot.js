@@ -287,8 +287,8 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
   // Todas las tarjetas en un solo color (monocromo) y sin autor: el pie dice quién lo hizo y la hora
   const MONO = 0xc9c9d6;
   const C = { ok: MONO, info: MONO, warn: MONO, err: MONO };
-  function card({ title, color = MONO, description = '', fields = [], footer = 'Vantarmor' }) {
-    const embed = new EmbedBuilder().setColor(color).setTitle(title).setFooter({ text: footer }).setTimestamp();
+  function card({ title, color = MONO, description = '', fields = [], footer = 'Vantarmor', footerIcon = null }) {
+    const embed = new EmbedBuilder().setColor(color).setTitle(title).setFooter({ text: footer, ...(footerIcon ? { iconURL: footerIcon } : {}) }).setTimestamp();
     if (description) embed.setDescription(description);
     if (fields.length) embed.addFields(fields.map(([name, value, inline = true]) => ({ name, value: String(value || '—'), inline })));
     return { embeds: [embed] };
@@ -445,7 +445,7 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
   const inMaintenance = script => Boolean(script.maintenance) || maintenanceAllOn();
   function maintenanceCard(script) {
     const embed = new EmbedBuilder()
-      .setColor(0xfaa61a)
+      .setColor(0xc9c9d6)
       .setTitle(`En mantenimiento · ${script.name}`)
       .setDescription('Este script está en mantenimiento. Vuelve a intentarlo en unos minutos.');
     return { embeds: [embed], components: [] };
@@ -454,7 +454,7 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
   // Tarjeta para quien no tiene acceso: explica cómo conseguirlo y trae los botones correspondientes
   function noAccessCard(script) {
     const embed = new EmbedBuilder()
-      .setColor(0x2b2d31)
+      .setColor(0xc9c9d6)
       .setTitle(`Acceso restringido · ${script.name}`)
       .setDescription([
         '🔑 Tienes una key → **Redeem Key**',
@@ -696,6 +696,8 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
 
   async function handleChat(interaction) {
     const actor = interaction.user.id;
+    const who = interaction.member?.displayName ?? interaction.user.displayName ?? interaction.user.username;
+    const whoIcon = interaction.user.displayAvatarURL({ size: 64 });
     const cmd = interaction.commandName;
     const isPublic = PUBLIC_COMMANDS.has(cmd);
     const visibility = isPublic ? {} : { flags: MessageFlags.Ephemeral };
@@ -953,11 +955,11 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
           const where = panel ? ` en el panel <#${panel.channel_id}>` : '';
           const roleGuild = user ? await grantBuyerRole(script, id) : null;
           const roleNote = roleGuild ? ` Se le dio el rol comprador en **${roleGuild.name}**.` : '';
-          return reply(card({ footer: `Whitelist by ${interaction.user.username}`, title: '✅ Whitelist', description: `${label} puede obtener **${script.name}** con Get Script${where}.${roleNote}${keyLimited ? ' Su key se creará al reiniciarse el límite del plan.' : ''}`, fields: [['Vence', expires ? `<t:${expires}:f>` : 'Permanente']] }));
+          return reply(card({ footer: `Whitelist by ${who}`, footerIcon: whoIcon, title: '✅ Whitelist', description: `${label} puede obtener **${script.name}** con Get Script${where}.${roleNote}${keyLimited ? ' Su key se creará al reiniciarse el límite del plan.' : ''}`, fields: [['Vence', expires ? `<t:${expires}:f>` : 'Nunca']] }));
         }
         q.ruleDelete.run(script.id, kind, id);
         logScriptEvent(script, `➖ ${label} quitado de la whitelist por <@${actor}>`);
-        return reply(card({ footer: `Whitelist by ${interaction.user.username}`, title: '➖ Whitelist', description: `${label} quitado de **${script.name}**.` }));
+        return reply(card({ footer: `Whitelist by ${who}`, footerIcon: whoIcon, title: '➖ Whitelist', description: `${label} quitado de **${script.name}**.` }));
       }
 
       case 'cookiegame': {
@@ -991,14 +993,14 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
             for (const m of members.values()) q.banKeys.run(reason, s.id, m.id);
             logScriptEvent(s, `⛔ Rol <@&${role.id}> bloqueado por <@${actor}> · ${reason}`);
           }
-          return reply(card({ footer: `Blacklist by ${interaction.user.username}`, title: '⛔ Blacklist de rol', description: `<@&${role.id}> bloqueado · ${members.size} miembros con keys baneadas.`, fields: [['Alcance', script ? script.name : 'Todos tus scripts'], ['Razón', reason]] }));
+          return reply(card({ footer: `Blacklist by ${who}`, footerIcon: whoIcon, title: '⛔ Blacklist de rol', description: `<@&${role.id}> bloqueado · ${members.size} miembros con keys baneadas.`, fields: [['Alcance', script ? script.name : 'Todos tus scripts'], ['Razón', reason]] }));
         }
         for (const s of targets) {
           q.blacklistInsert.run(s.id, target.id, reason, now());
           q.banKeys.run(reason, s.id, target.id);
           logScriptEvent(s, `⛔ <@${target.id}> bloqueado por <@${actor}> · ${reason}`);
         }
-        return reply(card({ footer: `Blacklist by ${interaction.user.username}`, title: '⛔ Blacklist', description: `<@${target.id}> quedó bloqueado.`, fields: [['Alcance', script ? script.name : 'Todos tus scripts'], ['Razón', reason]] }));
+        return reply(card({ footer: `Blacklist by ${who}`, footerIcon: whoIcon, title: '⛔ Blacklist', description: `<@${target.id}> quedó bloqueado.`, fields: [['Alcance', script ? script.name : 'Todos tus scripts'], ['Razón', reason]] }));
       }
 
       case 'unblacklist': {
@@ -1019,7 +1021,7 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
             for (const m of members.values()) if (!q.blacklisted.get(s.id, m.id)) q.unbanKeys.run(s.id, m.id);
             logScriptEvent(s, `✅ Bloqueo de rol <@&${role.id}> quitado por <@${actor}>`);
           }
-          return reply(removedRole ? card({ footer: `Blacklist by ${interaction.user.username}`, title: '✅ Bloqueo de rol quitado', description: `<@&${role.id}> ya no está bloqueado.` }) : card({ footer: `Blacklist by ${interaction.user.username}`, title: 'ℹ️ Sin bloqueo', description: `<@&${role.id}> no tenía bloqueo.` }));
+          return reply(removedRole ? card({ footer: `Blacklist by ${who}`, footerIcon: whoIcon, title: '✅ Bloqueo de rol quitado', description: `<@&${role.id}> ya no está bloqueado.` }) : card({ footer: `Blacklist by ${who}`, footerIcon: whoIcon, title: 'ℹ️ Sin bloqueo', description: `<@&${role.id}> no tenía bloqueo.` }));
         }
         let removed = 0;
         for (const s of targets) {
@@ -1027,7 +1029,7 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
           q.unbanKeys.run(s.id, target.id);
           logScriptEvent(s, `✅ Bloqueo quitado a <@${target.id}> por <@${actor}>`);
         }
-        return reply(removed ? card({ footer: `Blacklist by ${interaction.user.username}`, title: '✅ Bloqueo quitado', description: `<@${target.id}> ya no está bloqueado.` }) : card({ footer: `Blacklist by ${interaction.user.username}`, title: 'ℹ️ Sin bloqueo', description: `<@${target.id}> no tenía bloqueo.` }));
+        return reply(removed ? card({ footer: `Blacklist by ${who}`, footerIcon: whoIcon, title: '✅ Bloqueo quitado', description: `<@${target.id}> ya no está bloqueado.` }) : card({ footer: `Blacklist by ${who}`, footerIcon: whoIcon, title: 'ℹ️ Sin bloqueo', description: `<@${target.id}> no tenía bloqueo.` }));
       }
 
       // Cada creador configura su propio rol comprador (solo para sus scripts)

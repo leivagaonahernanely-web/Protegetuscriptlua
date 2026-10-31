@@ -10,9 +10,7 @@ import fs from 'fs';
 import os from 'os';
 import { execFile } from 'child_process';
 import { fileURLToPath } from 'url';
-import { obfuscateLuaLight, obfuscateLuaLuau51 } from './lib/obf-kingmor-modes.js';
 import { normalizeLuaSource } from './lib/lua-source.js';
-import { obfuscateLuaPro } from './lib/obf-pro.js';
 import { openDatabase } from './lib/db-engine.js';
 import { createQuota, PLAN_DAYS_DEFAULT, MONTH_SECONDS, FREE_RESET_SECONDS } from './lib/quota.js';
 import { analyzePerf } from './lib/perf.js';
@@ -76,7 +74,7 @@ const jsonLimit = rateLimit({
 // 0. CONSTANTES Y CONFIGURACIÓN
 // ==========================================
 const MAX_CODE_BYTES = 2 * 1024 * 1024;           // 2 MB por script
-const OBFUSCATORS = ['real', 'obscura', 'luau', 'light', 'luau51', 'pro', 'none'];   // RealObfuscator (predeterminado, modo VM), Obscura, Ofuscador 3 (LuaUObfuscator, solo Premium Plus); 'none' = sin ofuscar. Clyde se quitó.
+const OBFUSCATORS = ['real', 'obscura', 'luau', 'none'];   // RealObfuscator (predeterminado, modo VM), Obscura, Ofuscador 3 (LuaUObfuscator, solo Premium Plus); 'none' = sin ofuscar. Clyde se quitó.
 const KEY_ALPHABET = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
 // Un error suelto no debe tirar el servidor ni dejar al bot a medias: se registra y el proceso sigue
 process.on('unhandledRejection', err => console.error('[Proceso] Promesa sin manejar:', err));
@@ -471,8 +469,8 @@ function validateScriptInput({ name, ffa, obfuscator, code, hwidResetHours, shar
   const isFfa = ffa === undefined ? !!current?.ffa : !!ffa;
   // FFA también se ofusca: el ofuscador se elige igual que en modo protegido
   // Scripts viejos con Clyde: si no mandan ofuscador, se regeneran con Obscura
-  // Scripts viejos con Clyde o Ofuscador 4 (km, quitado): si no mandan ofuscador, se regeneran con Ofuscador 1 o Seguro
-  const legacy = { clyde: 'real', km: 'pro' };
+  // Scripts viejos con Clyde, Ofuscador 4 o los modos propios (quitados): si no mandan ofuscador, se regeneran con Ofuscador 1
+  const legacy = { clyde: 'real', km: 'real', pro: 'real', light: 'real', luau51: 'real' };
   const obf = obfuscator === undefined ? (legacy[current?.obfuscator] ?? current?.obfuscator) : obfuscator;
   if (!OBFUSCATORS.includes(obf)) return { error: 'Elige un ofuscador válido' };
 
@@ -673,36 +671,8 @@ async function obfuscate(source, obfuscator, opts = {}) {
   try { obfCachePut.run(hash, content, Math.floor(Date.now() / 1000)); } catch { /* la caché nunca rompe el guardado */ }
   return content;
 }
-// Seguro: primero renombra las variables locales con Obscura (que sí analiza el código como Luau),
-// y después cifra los strings. Si Obscura no puede analizar el script (por ejemplo, strings
-// interpolados o sintaxis que no soporta), se usa el original: el script sigue funcionando,
-// solo sin renombrar.
-async function obfuscateProFull(source) {
-  let base = source;
-  const cfg = OBF_CONFIG.obscura;
-  if (cfg?.dir) {
-    const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'vp-pro-'));
-    try {
-      const input = path.join(dir, 'script.lua');
-      const out = path.join(dir, 'renamed.lua');
-      await fs.promises.writeFile(input, source, 'utf8');
-      await runObfuscatorCli(cfg.bin, ['main.py', input, '--mode', 'rename', '-o', out], cfg.dir, cfg.dir);
-      const renamed = await fs.promises.readFile(out, 'utf8').catch(() => '');
-      if (renamed.trim()) base = renamed;
-    } catch (err) {
-      console.warn('[Seguro] sin renombrar (Obscura no pudo analizar el script):', String(err.message || err).slice(0, 200));
-    } finally {
-      await fs.promises.rm(dir, { recursive: true, force: true });
-    }
-  }
-  return obfuscateLuaPro(base);
-}
-
 async function obfuscateUncached(source, obfuscator, opts = {}) {
   if (obfuscator === 'luau') return obfuscateLuau(source);
-  if (obfuscator === 'light') return obfuscateLuaLight(source);
-  if (obfuscator === 'luau51') return obfuscateLuaLuau51(source);
-  if (obfuscator === 'pro') return obfuscateProFull(source);
   const cfg = OBF_CONFIG[obfuscator];
   if (!cfg) throw Object.assign(new Error('Elige un ofuscador válido'), { status: 400 });
   if (!cfg.dir) {

@@ -12,9 +12,6 @@
     real:       'Ofuscador 1 · recomendado',
     obscura:    'Ofuscador 2',
     luau:       'Ofuscador 3 · Premium Plus · 2 compilaciones por día',
-    light:      'Ligero · compatible con todos los ejecutores',
-    luau51:     'Luau / Lua 5.1 · portable',
-    pro:        'Seguro · cifra los textos, sin carga en ejecución · recomendado',
     none:       'Sin ofuscar (solo key)',
   };
   const NAV = {
@@ -85,7 +82,7 @@
   // Protección del script: 'ffa' (sin key) o 'protected' (con key y ofuscador)
   const protectionOf = s => (s.ffa ? 'ffa' : 'protected');
   // Scripts viejos con Clyde se muestran como Ofuscador 1 al editarlos: al guardar se regeneran con ese
-  const obfuscatorOf = s => (OBFUSCATORS[s.obfuscator] ? s.obfuscator : (s.obfuscator === 'km' ? 'pro' : 'real'));
+  const obfuscatorOf = s => (OBFUSCATORS[s.obfuscator] ? s.obfuscator : 'real');
 
   async function api(path, opts = {}) {
     const headers = opts.body ? { 'Content-Type': 'application/json' } : {};

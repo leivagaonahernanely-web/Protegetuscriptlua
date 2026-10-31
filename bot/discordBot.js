@@ -106,7 +106,7 @@ export const commands = [
   new SlashCommandBuilder().setName('hostproyect').setDescription('Ofusca un archivo .lua con tu plan, sin publicarlo en la web')
     .addAttachmentOption(o => o.setName('archivo').setDescription('Archivo .lua a ofuscar').setRequired(true))
     .addStringOption(o => o.setName('ofuscador').setDescription('Ofuscador a usar (por defecto el 4)')
-      .addChoices({ name: 'Ofuscador 1', value: 'real' }, { name: 'Ofuscador 2', value: 'obscura' }, { name: 'Ligero', value: 'light' }, { name: 'Luau / Lua 5.1', value: 'luau51' }, { name: 'Seguro', value: 'pro' })),
+      .addChoices({ name: 'Ofuscador 1', value: 'real' }, { name: 'Ofuscador 2', value: 'obscura' })),
   new SlashCommandBuilder().setName('redeem').setDescription('Canjea una key')
     .addStringOption(o => o.setName('key').setDescription('Tu key').setRequired(true).setMinLength(32).setMaxLength(64)),
   new SlashCommandBuilder().setName('generatekey').setDescription('Genera keys para un script (dueño o gestor)')
@@ -687,8 +687,8 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
       case 'hostproyect': {
         // Mismo flujo que el obfuscador de la web: cuenta contra las cuotas de tu plan
         const file = interaction.options.getAttachment('archivo', true);
-        const obf = interaction.options.getString('ofuscador') || 'pro';
-        const names = { real: 'Ofuscador 1', obscura: 'Ofuscador 2', light: 'Ligero', luau51: 'Luau / Lua 5.1', pro: 'Seguro' };
+        const obf = interaction.options.getString('ofuscador') || 'real';
+        const names = { real: 'Ofuscador 1', obscura: 'Ofuscador 2' };
         if (!/\.(lua|luau|txt)$/i.test(file.name || '')) return reply('❌ Adjunta un archivo .lua');
         if (file.size > 2 * 1024 * 1024) return reply('❌ El archivo supera 2 MB.');
         const limitMsg = quota.quotaError(actor, { isNewScript: false, isFfa: false });

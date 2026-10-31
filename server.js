@@ -241,6 +241,11 @@ db.exec(`
   if (!userCols.includes('obf_used')) db.exec('ALTER TABLE users ADD COLUMN obf_used INTEGER DEFAULT 0');
 }
 ensureBotSchema(db);
+
+// Proyectos: agrupan scripts. La whitelist por proyecto aplica a todos sus scripts.
+db.exec(`CREATE TABLE IF NOT EXISTS projects (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id TEXT NOT NULL, name TEXT NOT NULL, created_at INTEGER)`);
+db.exec(`CREATE TABLE IF NOT EXISTS bot_project_rules (project_id INTEGER NOT NULL, kind TEXT NOT NULL, discord_id TEXT NOT NULL, label TEXT, expires_at INTEGER, PRIMARY KEY (project_id, kind, discord_id))`);
+if (!db.prepare("SELECT 1 FROM pragma_table_info('scripts') WHERE name = 'project_id'").get()) db.exec('ALTER TABLE scripts ADD COLUMN project_id INTEGER');
 // Planes con vencimiento: días de cada key y fecha de vencimiento del plan del usuario
 for (const sql of [
   "ALTER TABLE plan_keys ADD COLUMN days INTEGER",
@@ -343,7 +348,7 @@ const stmt = {
   `),
   // Nunca se seleccionan source ni content aquí
   scriptsByUser: db.prepare(`
-    SELECT id, user_id, name, slug, loader_id, ffa, obfuscator, hwid_reset_hours, share_detection, auto_revoke_dump, maintenance, clyde_vm, perf_level FROM scripts
+    SELECT id, user_id, name, slug, loader_id, ffa, obfuscator, hwid_reset_hours, share_detection, auto_revoke_dump, maintenance, clyde_vm, perf_level, project_id FROM scripts
     WHERE user_id = ? ORDER BY id DESC
   `),
   scriptOwned: db.prepare('SELECT * FROM scripts WHERE id = ? AND user_id = ?'),
@@ -2106,6 +2111,51 @@ app.post('/api/owner/announce', requireOwnerApi, async (req, res) => {
 
 app.get('/api/scripts', requireAuth, (req, res) => {
   res.json(stmt.scriptsByUser.all(req.userId));
+});
+
+// ---------- Proyectos (agrupan scripts) ----------
+const PROJECT_LIMIT = 30;
+app.get('/api/projects', requireAuth, (req, res) => {
+  res.json(db.prepare(`SELECT p.id, p.name, (SELECT COUNT(*) FROM scripts s WHERE s.project_id = p.id) AS scripts
+    FROM projects p WHERE p.user_id = ? ORDER BY p.id DESC`).all(req.userId));
+});
+
+app.post('/api/projects', requireAuth, (req, res) => {
+  if (maintenanceBlock(req, res)) return;
+  const name = String(req.body?.name ?? '').trim();
+  if (!name || name.length > 40) return res.status(400).json({ error: 'El nombre debe tener entre 1 y 40 caracteres' });
+  const count = db.prepare('SELECT COUNT(*) AS n FROM projects WHERE user_id = ?').get(req.userId).n;
+  if (count >= PROJECT_LIMIT) return res.status(403).json({ error: `Máximo ${PROJECT_LIMIT} proyectos` });
+  const info = db.prepare('INSERT INTO projects (user_id, name, created_at) VALUES (?, ?, ?)').run(req.userId, name, Math.floor(Date.now() / 1000));
+  res.json({ id: Number(info.lastInsertRowid), name, scripts: 0 });
+});
+
+// Borrar un proyecto no borra sus scripts: quedan sin proyecto
+app.post('/api/projects/:id/delete', requireAuth, (req, res) => {
+  const id = Number(req.params.id);
+  if (!db.prepare('SELECT id FROM projects WHERE id = ? AND user_id = ?').get(id, req.userId)) return res.status(404).json({ error: 'Proyecto no encontrado' });
+  db.transaction(() => {
+    db.prepare('UPDATE scripts SET project_id = NULL WHERE project_id = ? AND user_id = ?').run(id, req.userId);
+    db.prepare('DELETE FROM bot_project_rules WHERE project_id = ?').run(id);
+    db.prepare('DELETE FROM projects WHERE id = ? AND user_id = ?').run(id, req.userId);
+  })();
+  res.json({ ok: true });
+});
+
+// Mover un script a un proyecto (projectId vacío = sin proyecto)
+app.post('/api/scripts/:id/project', requireAuth, (req, res) => {
+  const script = stmt.scriptOwned.get(Number(req.params.id), req.userId);
+  if (!script) return res.status(403).json({ error: 'No autorizado' });
+  const raw = req.body?.projectId;
+  let projectId = null;
+  if (raw !== null && raw !== undefined && raw !== '') {
+    projectId = Number(raw);
+    if (!Number.isInteger(projectId) || !db.prepare('SELECT 1 FROM projects WHERE id = ? AND user_id = ?').get(projectId, req.userId)) {
+      return res.status(400).json({ error: 'Proyecto inválido' });
+    }
+  }
+  db.prepare('UPDATE scripts SET project_id = ? WHERE id = ?').run(projectId, script.id);
+  res.json({ ok: true });
 });
 
 // Cuotas del plan: scripts creados y ofuscaciones usadas (borrar un script no devuelve la cuota)

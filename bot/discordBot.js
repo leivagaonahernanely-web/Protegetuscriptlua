@@ -93,6 +93,8 @@ export function ensureBotSchema(db) {
 // Comandos slash
 // ==========================================
 const scriptOpt = (o, desc = 'Script') => o.setName('script').setDescription(desc).setRequired(true).setAutocomplete(true);
+const scriptOptOptional = o => o.setName('script').setDescription('Script (o elige un proyecto)').setRequired(false).setAutocomplete(true);
+const projectOpt = o => o.setName('project').setDescription('Proyecto: aplica a todos sus scripts').setRequired(false).setAutocomplete(true);
 const userOpt = (o, required = false) => o.setName('user').setDescription('Usuario de Discord').setRequired(required);
 const roleOpt = (o, required = false) => o.setName('role').setDescription('Rol del servidor').setRequired(required);
 const durationOpt = (o, required = false) => o.setName('duration').setDescription('30d, 12h, 1w, 1mo, 1y. Vacío = forever').setRequired(required);
@@ -129,7 +131,8 @@ export const commands = [
     .addStringOption(o => scriptOpt(o))
     .addUserOption(o => userOpt(o)),
   new SlashCommandBuilder().setName('whitelist').setDescription('Añade un usuario o rol a la whitelist')
-    .addStringOption(o => scriptOpt(o))
+    .addStringOption(o => scriptOptOptional(o))
+    .addStringOption(o => projectOpt(o))
     .addUserOption(o => userOpt(o))
     .addRoleOption(o => roleOpt(o))
     .addStringOption(o => durationOpt(o)),
@@ -137,7 +140,8 @@ export const commands = [
     .addStringOption(o => scriptOpt(o))
     .addStringOption(o => durationOpt(o)),
   new SlashCommandBuilder().setName('unwhitelist').setDescription('Quita un usuario o rol de la whitelist')
-    .addStringOption(o => scriptOpt(o))
+    .addStringOption(o => scriptOptOptional(o))
+    .addStringOption(o => projectOpt(o))
     .addUserOption(o => userOpt(o))
     .addRoleOption(o => roleOpt(o)),
   new SlashCommandBuilder().setName('blacklist').setDescription('Bloquea a un usuario o a un rol en un script')
@@ -245,6 +249,12 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
     blacklistInsert: db.prepare('INSERT OR REPLACE INTO bot_blacklist (script_id, discord_id, reason, created_at) VALUES (?, ?, ?, ?)'),
     blacklistDelete: db.prepare('DELETE FROM bot_blacklist WHERE script_id = ? AND discord_id = ?'),
     rulesForScript: db.prepare('SELECT kind, discord_id, expires_at FROM bot_access_rules WHERE script_id = ?'),
+    projectRulesForScript: db.prepare('SELECT pr.kind, pr.discord_id, pr.expires_at FROM bot_project_rules pr JOIN scripts s ON s.project_id = pr.project_id WHERE s.id = ?'),
+    projectRuleInsert: db.prepare('INSERT OR REPLACE INTO bot_project_rules (project_id, kind, discord_id, label, expires_at) VALUES (?, ?, ?, ?, ?)'),
+    projectRuleDelete: db.prepare('DELETE FROM bot_project_rules WHERE project_id = ? AND kind = ? AND discord_id = ?'),
+    projectById: db.prepare('SELECT id, user_id, name FROM projects WHERE id = ?'),
+    scriptsInProject: db.prepare('SELECT id, name, user_id FROM scripts WHERE project_id = ? ORDER BY id'),
+    projectsList: db.prepare('SELECT id, name, user_id FROM projects ORDER BY id DESC LIMIT 100'),
     ruleInsert: db.prepare('INSERT OR REPLACE INTO bot_access_rules (script_id, kind, discord_id, label, expires_at) VALUES (?, ?, ?, ?, ?)'),
     insertKeyExp: db.prepare('INSERT INTO keys (key, script_id, expires_at, discord_id) VALUES (?, ?, ?, ?)'),
     ruleDelete: db.prepare('DELETE FROM bot_access_rules WHERE script_id = ? AND kind = ? AND discord_id = ?'),
@@ -338,6 +348,14 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
     return q.scriptsList.all().filter(s => creators.has(s.user_id));
   }
 
+  // Proyectos que puede gestionar quien escribe (mismo criterio que los scripts)
+  function projectsForAutocomplete(interaction) {
+    const creators = new Set([interaction.user.id]);
+    const roleIds = memberRoleIds(interaction);
+    for (const row of q.managerRoleRows.all()) if (roleIds.includes(row.value)) creators.add(row.owner);
+    return q.projectsList.all().filter(p => creators.has(p.user_id));
+  }
+
   // Comandos que el rol gestor (/generatekeyrole) puede usar. El resto solo lo usa el creador.
   const MANAGER_COMMANDS = new Set(['whitelist', 'unwhitelist', 'blacklist', 'unblacklist', 'generatekey', 'deletekey', 'dropkey', 'cookiegame']);
 
@@ -388,12 +406,14 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
 
   // Una regla de whitelist vale solo mientras no venza (expires_at NULL = permanente)
   const ruleActive = r => r.expires_at == null || r.expires_at > now();
+  // Reglas del script: las suyas y las de su proyecto (la whitelist por proyecto aplica a todos sus scripts)
+  const rulesFor = script => [...q.rulesForScript.all(script.id), ...q.projectRulesForScript.all(script.id)];
 
   // Ya tiene acceso (key activa, creador, o whitelist por usuario o rol). No crea keys.
   function hasAccess(script, userId, roleIds) {
     if (q.activeKeyFor.get(script.id, userId, now())) return true;
     if (userId === owner() || userId === script.user_id) return true;
-    return q.rulesForScript.all(script.id).filter(ruleActive).some(r =>
+    return rulesFor(script).filter(ruleActive).some(r =>
       (r.kind === 'user' && r.discord_id === userId) || (r.kind === 'role' && roleIds.includes(r.discord_id)));
   }
 
@@ -412,7 +432,7 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
     const existing = q.activeKeyFor.get(script.id, userId, now());
     if (existing) return { status: 'ok', key: existing.key };
     const allowed = userId === owner() || userId === script.user_id
-      || q.rulesForScript.all(script.id).filter(ruleActive).some(r =>
+      || rulesFor(script).filter(ruleActive).some(r =>
         (r.kind === 'user' && r.discord_id === userId) || (r.kind === 'role' && roleIds.includes(r.discord_id)));
     if (!allowed) return { status: 'none' };
     // Las keys automáticas también cuentan para el límite del plan del creador
@@ -694,6 +714,50 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
 
   // ---------- Manejadores ----------
 
+  // Whitelist o quitar por proyecto: el usuario/rol queda dentro de todos los scripts del proyecto
+  async function projectRule(interaction, adding, who, whoIcon) {
+    const actor = interaction.user.id;
+    const project = q.projectById.get(Number(interaction.options.getString('project', true)));
+    if (!project) return { private: true, payload: '❌ Proyecto no encontrado.' };
+    if (!canUse(interaction, project.user_id)) return { private: true, payload: '⛔ No tienes permiso para esta acción.' };
+    const user = interaction.options.getUser('user');
+    const role = interaction.options.getRole('role');
+    if (!user && !role) return { private: true, payload: '❌ Selecciona un usuario o un rol.' };
+    if (user && role) return { private: true, payload: '❌ Selecciona solo un destino: usuario o rol.' };
+    const kind = user ? 'user' : 'role';
+    const id = (user ?? role).id;
+    const label = user ? `<@${id}>` : `<@&${id}>`;
+    const scripts = q.scriptsInProject.all(project.id);
+    const who_ = { footer: `Whitelist by ${who}`, footerIcon: whoIcon };
+    if (!adding) {
+      q.projectRuleDelete.run(project.id, kind, id);
+      for (const s of scripts) logScriptEvent(s, `➖ ${label} quitado de la whitelist del proyecto **${project.name}** por <@${actor}>`);
+      return { payload: card({ ...who_, title: '➖ Whitelist', description: `${label} quitado del proyecto: **${project.name}**.`, fields: [['Scripts', String(scripts.length)]] }) };
+    }
+    const raw = interaction.options.getString('duration');
+    const secs = raw ? parseDuration(raw) : null;
+    if (raw && !secs) return { private: true, payload: '❌ Duración inválida. Usa 30d, 12h, 1w, 1mo o 1y, o déjalo vacío para permanente.' };
+    const expires = secs ? now() + secs : null;
+    q.projectRuleInsert.run(project.id, kind, id, user ? user.username : role.name, expires);
+    let limited = 0;
+    if (user) {
+      for (const s of scripts) {
+        if (isBlocked(s, id)) continue;
+        const active = q.activeKeyFor.get(s.id, id, now());
+        if (active) q.setExpiry.run(expires, active.key);
+        else if (keyCapOk(project.user_id, 1)) q.insertKeyExp.run(makeKey(), s.id, expires, id);
+        else limited++;
+      }
+    }
+    for (const s of scripts) logScriptEvent(s, `✅ ${label} añadido a la whitelist del proyecto **${project.name}** por <@${actor}>`);
+    const roleGuild = user && scripts[0] ? await grantBuyerRole(scripts[0], id) : null;
+    const notes = [
+      roleGuild ? `Se le dio el rol comprador en **${roleGuild.name}**.` : '',
+      limited ? `${limited} key(s) se crearán cuando se reinicie el límite del plan.` : '',
+    ].filter(Boolean).join(' ');
+    return { payload: card({ ...who_, title: '✅ Whitelist', description: `${label} puede obtener los scripts de **${project.name}** con Get Script.${notes ? ' ' + notes : ''}`, fields: [['Proyecto', project.name], ['Scripts', String(scripts.length)], ['Vence', expires ? `<t:${expires}:f>` : 'Nunca']] }) };
+  }
+
   async function handleChat(interaction) {
     const actor = interaction.user.id;
     const who = interaction.member?.displayName ?? interaction.user.displayName ?? interaction.user.username;
@@ -920,6 +984,12 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
 
       case 'whitelist':
       case 'unwhitelist': {
+        if (interaction.options.getString('project')) {
+          if (interaction.options.getString('script')) return replyPrivate('❌ Elige solo un destino: script o proyecto.');
+          const r = await projectRule(interaction, cmd === 'whitelist', who, whoIcon);
+          return r.private ? replyPrivate(r.payload) : reply(r.payload);
+        }
+        if (!interaction.options.getString('script')) return replyPrivate('❌ Elige un script o un proyecto.');
         const rawScript = String(interaction.options.getString('script', true) ?? '').trim().replace(/^#/, '');
         // Con nombre escrito a mano y varios scripts con ese nombre, no adivina: obliga a elegir de la lista
         if (!/^\d+$/.test(rawScript) && q.scriptsNamed.all(rawScript).length > 1) {
@@ -959,7 +1029,7 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
         }
         q.ruleDelete.run(script.id, kind, id);
         logScriptEvent(script, `➖ ${label} quitado de la whitelist por <@${actor}>`);
-        return reply(card({ footer: `Whitelist by ${who}`, footerIcon: whoIcon, title: '➖ Whitelist', description: `${label} quitado de **${script.name}**.` }));
+        return reply(card({ footer: `Whitelist by ${who}`, footerIcon: whoIcon, title: '➖ Whitelist', description: `${label} quitado del script: **${script.name}**.` }));
       }
 
       case 'cookiegame': {
@@ -1784,8 +1854,10 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
       }
       if (interaction.isAutocomplete()) {
         // Sin esperas aquí: Discord solo da 3 s para responder el autocompletado
-        const focused = interaction.options.getFocused().toLowerCase();
-        const choices = scriptsForAutocomplete(interaction)
+        const focusedOpt = interaction.options.getFocused(true);
+        const focused = String(focusedOpt.value ?? '').toLowerCase();
+        const source = focusedOpt.name === 'project' ? projectsForAutocomplete(interaction) : scriptsForAutocomplete(interaction);
+        const choices = source
           .filter(s => s.name.toLowerCase().includes(focused))
           .slice(0, 25)
           .map(s => ({ name: s.name.slice(0, 100), value: String(s.id) }));

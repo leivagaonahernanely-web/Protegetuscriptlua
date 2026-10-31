@@ -64,6 +64,10 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
           Estadísticas
         </button>
+        <button class="nav-item" data-nav="projects">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
+          Proyectos
+        </button>
         <button class="nav-item" data-nav="keys">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="7.5" cy="15.5" r="5.5"/><path d="m21 2-9.6 9.6"/></svg>
           Keys
@@ -301,6 +305,18 @@
       </section>
 
       <!-- SCRIPTS -->
+      <section class="view" data-view="projects">
+        <article class="card">
+          <div class="panel-head"><h3>Nuevo proyecto</h3></div>
+          <form id="formProject" class="proj-form" autocomplete="off">
+            <input id="pjName" class="field" type="text" maxlength="40" placeholder="Nombre del proyecto" aria-label="Nombre del proyecto" required>
+            <button class="btn" type="submit">Crear proyecto</button>
+          </form>
+          <p class="hint" style="margin-top:10px">Agrupa scripts. En el bot, /whitelist con un proyecto da acceso a todos sus scripts.</p>
+        </article>
+        <div id="pjGroups" class="proj-groups"></div>
+      </section>
+
       <section class="view" data-view="scripts">
         <div class="section-head">
           <div>

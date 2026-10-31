@@ -20,6 +20,7 @@
     precios:   { title: 'Precios', sub: 'Publica tu tabla de precios en tu servidor (solo planes pagos)' },
     bienvenida: { title: 'Bienvenida', sub: 'Mensaje para nuevos miembros de tu servidor (solo Premium Plus)' },
     scripts:   { title: 'Scripts',   sub: 'Código, protección y loader de cada script' },
+    projects:  { title: 'Proyectos', sub: 'Agrupa tus scripts. La whitelist por proyecto aplica a todos sus scripts' },
     keys:      { title: 'Keys',      sub: 'Licencias generadas' },
     blacklist: { title: 'Blacklist', sub: 'Bloquea usuarios de Discord, IPs o HWID en tus scripts' },
     chat:      { title: 'Chat',      sub: 'Chat de la comunidad de Vantarmor' },
@@ -158,6 +159,7 @@
     if (name === 'bienvenida') loadWelcomeForm();
     if (name === 'chat') startChatPolling(); else stopChatPolling();
     if (name === 'blacklist') loadBlacklist();
+    if (name === 'projects') loadProjects();
     if (isMobile()) setSidebar(false);
   }
 
@@ -2708,6 +2710,86 @@
 
     renderAll();
   }
+
+  // ---------- PROYECTOS (agrupan scripts) ----------
+  let projects = [];
+  async function loadProjects() {
+    try {
+      projects = await api('/api/projects');
+    } catch (err) {
+      toast(err.message, 'error');
+    }
+    renderProjects();
+  }
+  function renderProjects() {
+    const box = $('pjGroups');
+    if (!box) return;
+    const inProject = pid => scripts.filter(s => String(s.project_id ?? '') === String(pid ?? ''));
+    const groups = [
+      ...projects.map(p => ({ id: p.id, name: p.name, list: inProject(p.id), removable: true })),
+      { id: null, name: 'Sin proyecto', list: inProject(null), removable: false },
+    ];
+    box.innerHTML = groups.map(g => {
+      const options = ['<option value="">Sin proyecto</option>', ...projects.map(p =>
+        `<option value="${esc(p.id)}" ${String(p.id) === String(g.id) ? 'selected' : ''}>${esc(p.name)}</option>`)].join('');
+      return `
+        <article class="card proj-card">
+          <div class="panel-head">
+            <h3>${esc(g.name)} <span class="badge neutral">${g.list.length} ${g.list.length === 1 ? 'script' : 'scripts'}</span></h3>
+            ${g.removable ? `<button type="button" class="btn ghost sm" data-pj-del="${esc(g.id)}">Eliminar proyecto</button>` : ''}
+          </div>
+          ${g.list.length ? g.list.map(s => `
+            <div class="proj-row">
+              <span>${esc(s.name)}</span>
+              <select class="field proj-move" data-pj-move="${esc(s.id)}" aria-label="Mover ${esc(s.name)} a otro proyecto">${options}</select>
+            </div>`).join('') : '<p class="hint">Sin scripts aquí todavía.</p>'}
+        </article>`;
+    }).join('');
+    // Cada select marca su proyecto actual
+    box.querySelectorAll('[data-pj-move]').forEach(sel => {
+      const script = scripts.find(s => String(s.id) === sel.dataset.pjMove);
+      sel.value = script && script.project_id != null ? String(script.project_id) : '';
+    });
+  }
+  $('formProject').addEventListener('submit', async e => {
+    e.preventDefault();
+    const name = $('pjName').value.trim();
+    if (!name) return;
+    try {
+      await api('/api/projects', { method: 'POST', body: JSON.stringify({ name }) });
+      $('pjName').value = '';
+      toast('Proyecto creado');
+      await loadProjects();
+    } catch (err) {
+      toast(err.message, 'error');
+    }
+  });
+  $('pjGroups').addEventListener('click', async e => {
+    const del = e.target.closest('[data-pj-del]');
+    if (!del) return;
+    if (!confirm('¿Eliminar este proyecto? Sus scripts quedan sin proyecto (no se borran).')) return;
+    try {
+      await api(`/api/projects/${encodeURIComponent(del.dataset.pjDel)}/delete`, { method: 'POST' });
+      toast('Proyecto eliminado');
+      await loadData();
+      await loadProjects();
+    } catch (err) {
+      toast(err.message, 'error');
+    }
+  });
+  $('pjGroups').addEventListener('change', async e => {
+    const sel = e.target.closest('[data-pj-move]');
+    if (!sel) return;
+    try {
+      await api(`/api/scripts/${encodeURIComponent(sel.dataset.pjMove)}/project`, { method: 'POST', body: JSON.stringify({ projectId: sel.value || null }) });
+      toast('Script movido');
+      await loadData();
+      await loadProjects();
+    } catch (err) {
+      toast(err.message, 'error');
+      await loadProjects();
+    }
+  });
 
   // ---------- EVENTS ----------
   document.addEventListener('click', e => {

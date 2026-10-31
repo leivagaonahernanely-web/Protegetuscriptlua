@@ -153,11 +153,7 @@
     if (name === 'profile') loadWebhooks();
     $('pageTitle').firstChild.textContent = NAV[name].title;
     $('pageSub').textContent = NAV[name].sub;
-    if (name === 'bienvenida' && !hasPlusPlan()) {
-      toast('La bienvenida es solo para Premium Plus', 'error');
-      return showView('plans');
-    }
-    if ((name === 'profile' || name === 'precios') && !hasPerkPlan()) {
+    if (name === 'profile' && !hasPerkPlan()) {
       toast('Esta sección es solo para Premium y Premium Plus', 'error');
       return showView('plans');
     }
@@ -1144,8 +1140,20 @@
   const PLAN_OPTIONS = [['free', 'Free'], ['premium', 'Premium'], ['plus', 'Premium Plus']];
   const hasPerkPlan = () => !!user && (user.plan === 'premium' || user.plan === 'plus');
   const hasPlusPlan = () => !!user && user.plan === 'plus';
+  // Precios y Bienvenida se ven siempre; si no hay plan, aparecen con candado (sin redirigir)
+  function applyLocks() {
+    const locked = { precios: !hasPerkPlan(), bienvenida: !hasPlusPlan() };
+    document.querySelectorAll('[data-lockable]').forEach(b => {
+      const on = !!locked[b.dataset.lockable];
+      b.classList.toggle('locked', on);
+      if (on) b.setAttribute('aria-disabled', 'true'); else b.removeAttribute('aria-disabled');
+    });
+    document.querySelectorAll('.view[data-view]').forEach(v => {
+      if (v.dataset.view in locked) v.classList.toggle('locked', locked[v.dataset.view]);
+    });
+  }
   function setPlusNav(allowed) {
-    document.querySelectorAll('[data-plus-only]').forEach(b => { b.style.display = allowed ? '' : 'none'; });
+    applyLocks();
   }
   function setPlanNav(allowed) {
     document.querySelectorAll('[data-plan-only]').forEach(b => { b.style.display = allowed ? '' : 'none'; });
@@ -1164,6 +1172,20 @@
     if (ov.status === 'fulfilled') ownerData.overview = ov.value;
     renderOwner();
     renderOverview();
+    loadLoaderLog();
+  }
+
+  // Descargas del loader con IP: solo el dueño (el endpoint también lo exige)
+  async function loadLoaderLog() {
+    if (!user || !user.owner) return;
+    try {
+      const rows = await api('/api/owner/loader-downloads');
+      $('ownLoaders').innerHTML = rows.length ? `<div class="owner-audit">${rows.map(r => `
+        <div class="owner-audit-row"><span class="hint">${fmtWhen(r.created_at)}</span><span class="mono">${esc(r.ip || 'desconocida')}</span><span>${esc(r.script_name || r.slug || '—')}</span></div>`).join('')}</div>`
+        : '<p class="hint">Aún no hay descargas registradas.</p>';
+    } catch (err) {
+      $('ownLoaders').innerHTML = `<p class="hint">No pude cargar las descargas: ${esc(err.message)}</p>`;
+    }
   }
 
   // ---- Panel del dueño: Ofuscador 3, mantenimiento, ventas y registro ----
@@ -2570,6 +2592,9 @@
 
     const nav = t.closest('[data-nav]');
     if (nav) { showView(nav.dataset.nav); return; }
+
+    const go = t.closest('[data-go]');
+    if (go) { showView(go.dataset.go); return; }
 
     const open = t.closest('[data-open]');
     if (open) {

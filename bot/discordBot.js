@@ -1502,18 +1502,26 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
     guildChannelsCache.set(guild.id, { at: Date.now(), list });
     return list;
   }
+  // Resultado de "¿es dueño o mod?" guardado unos minutos: no vuelve a preguntarle a Discord cada vez
+  const staffCache = new Map();
   async function isStaffOf(guild, userId) {
     if (guild.ownerId === userId) return true;
-    const member = await guild.members.fetch(userId).catch(() => null);
-    return Boolean(member && STAFF_PERMS.some(p => member.permissions.has(p)));
+    const key = `${guild.id}:${userId}`;
+    const hit = staffCache.get(key);
+    if (hit && Date.now() - hit.at < 5 * 60_000) return hit.ok;
+    let member = guild.members.cache.get(userId);
+    if (!member) member = await guild.members.fetch(userId).catch(() => null);
+    const ok = Boolean(member && STAFF_PERMS.some(p => member.permissions.has(p)));
+    staffCache.set(key, { at: Date.now(), ok });
+    return ok;
   }
+  // Todos los servidores a la vez (antes eran uno tras otro, y cada uno esperaba a Discord)
   client.guildsForUser = async userId => {
-    const out = [];
-    for (const guild of client.guilds.cache.values()) {
-      if (!(await isStaffOf(guild, userId))) continue;
-      out.push({ id: guild.id, name: guild.name, channels: await textChannelsOf(guild) });
-    }
-    return out;
+    const guilds = [...client.guilds.cache.values()];
+    const staff = await Promise.all(guilds.map(g => isStaffOf(g, userId)));
+    const mine = guilds.filter((_, i) => staff[i]);
+    const channels = await Promise.all(mine.map(g => textChannelsOf(g)));
+    return mine.map((g, i) => ({ id: g.id, name: g.name, channels: channels[i] }));
   };
   // Canal donde el usuario puede publicar: debe ser dueño o mod del servidor de ese canal
   client.channelForStaff = async (userId, channelId) => {

@@ -1131,6 +1131,7 @@ app.get('/files/v1/loaders/:file', async (req, res) => {
   if (/text\/html/.test(req.get('accept') || '')) {
     return res.set({ ...PAGE_HEADERS, 'Content-Security-Policy': LOADER_CSP }).type('html').send(loaderPage(script));
   }
+  logLoaderDownload(script, req.ip);
   res.type('text/plain').send(await protectLoader(loaderBootstrap(script.slug, !!script.ffa)));
 });
 
@@ -1146,6 +1147,21 @@ function discordJoinDone(userId) {
 // así que borrar los logs viejos no afecta a las estadísticas.
 // Caché de ofuscación: mismo código y mismo modo = mismo resultado, sin volver a ofuscar (ni gastar créditos)
 db.exec(`CREATE TABLE IF NOT EXISTS execution_daily (script_id INTEGER NOT NULL, day TEXT NOT NULL, n INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (script_id, day))`);
+// IP de cada descarga del loader (/files/v1/loaders). Solo lo ve el dueño, en su panel privado.
+db.exec(`CREATE TABLE IF NOT EXISTS loader_downloads (id INTEGER PRIMARY KEY AUTOINCREMENT, script_id INTEGER, slug TEXT, ip TEXT, created_at INTEGER NOT NULL)`);
+const LOADER_LOG_DAYS = 30;
+let loaderLogWrites = 0;
+function logLoaderDownload(script, ip) {
+  try {
+    const now = Math.floor(Date.now() / 1000);
+    db.prepare('INSERT INTO loader_downloads (script_id, slug, ip, created_at) VALUES (?, ?, ?, ?)')
+      .run(script.id, script.slug || '', String(ip || 'unknown').slice(0, 64), now);
+    // Limpieza cada 200 descargas: se borra lo más viejo que LOADER_LOG_DAYS
+    if (++loaderLogWrites % 200 === 0) db.prepare('DELETE FROM loader_downloads WHERE created_at < ?').run(now - LOADER_LOG_DAYS * 86400);
+  } catch (err) {
+    console.warn('[Loader log]', String(err.message || err).slice(0, 200));
+  }
+}
 // Primera vez: se rellena con lo que quedaba en los logs
 if (!db.prepare('SELECT 1 FROM execution_daily LIMIT 1').get()) {
   db.exec(`INSERT OR IGNORE INTO execution_daily (script_id, day, n)
@@ -1956,6 +1972,14 @@ app.get('/api/owner/logs', requireOwnerApi, (req, res) => {
 });
 
 // Resumen del dueño: Ofuscador 3, ventas de planes, ajustes del sitio y registro de acciones
+// Descargas recientes del loader con IP (solo dueño)
+app.get('/api/owner/loader-downloads', requireOwnerApi, (req, res) => {
+  const since = Math.floor(Date.now() / 1000) - LOADER_LOG_DAYS * 86400;
+  res.json(db.prepare(`SELECT ld.slug, ld.ip, ld.created_at, s.name AS script_name
+    FROM loader_downloads ld LEFT JOIN scripts s ON s.id = ld.script_id
+    WHERE ld.created_at >= ? ORDER BY ld.created_at DESC LIMIT 300`).all(since));
+});
+
 app.get('/api/owner/overview', requireOwnerApi, (req, res) => {
   const usage = db.prepare('SELECT COALESCE(SUM(n), 0) AS n FROM luau_usage WHERE day = ?');
   const total = db.prepare('SELECT COALESCE(SUM(n), 0) AS n FROM luau_usage');

@@ -626,9 +626,21 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
     const actor = interaction.user.id;
     const cmd = interaction.commandName;
     const isPublic = PUBLIC_COMMANDS.has(cmd);
-    await interaction.deferReply(isPublic ? {} : { flags: MessageFlags.Ephemeral });
+    const visibility = isPublic ? {} : { flags: MessageFlags.Ephemeral };
+    // Sin "el bot está pensando...": la respuesta llega de una vez. Solo los comandos que tardan
+    // (ej. /hostproyect mientras ofusca) llaman a ensureDeferred() antes de su trabajo pesado.
+    let acked = false;
+    const reply = content => {
+      if (acked) return interaction.editReply({ content });
+      acked = true;
+      return interaction.reply({ content, ...visibility });
+    };
+    const ensureDeferred = async () => {
+      if (acked) return;
+      acked = true;
+      await interaction.deferReply(visibility);
+    };
     await loadRoles(interaction);
-    const reply = content => interaction.editReply({ content });
     const denied = '⛔ No tienes permiso para esta acción.';
 
     switch (cmd) {
@@ -663,6 +675,7 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
         if (file.size > 2 * 1024 * 1024) return reply('❌ El archivo supera 2 MB.');
         const limitMsg = quota.quotaError(actor, { isNewScript: false, isFfa: false });
         if (limitMsg) return reply(`⛔ ${limitMsg}`);
+        await ensureDeferred(); // ofuscar tarda más de 3 s: aquí sí mostramos "pensando"
         const src = await (await fetch(file.url)).text();
         let out;
         try {

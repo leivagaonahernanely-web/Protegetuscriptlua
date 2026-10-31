@@ -503,8 +503,22 @@
             <textarea id="prBody" class="field block" rows="8" maxlength="4000" placeholder="Premium: $5 / mes&#10;Premium Plus: $10 / mes"></textarea>
           </div>
           <div class="input-group">
-            <label for="prImg">Imagen (URL https, opcional)</label>
-            <input id="prImg" class="field block" type="url" maxlength="500" placeholder="https://…/precios.png">
+            <span class="label">Imagen (opcional)</span>
+            <div class="img-pick">
+              <div id="prImgPrev" class="img-pick-prev empty">Sin imagen</div>
+              <div class="photo-actions">
+                <button type="button" class="btn" id="prImgUpload">Elegir de la galería</button>
+                <button type="button" class="btn ghost" id="prImgClear">Quitar</button>
+              </div>
+              <input id="prImgFile" type="file" accept="image/png,image/jpeg,image/webp,image/gif" hidden>
+              <details class="photo-url">
+                <summary>O pegar una URL https</summary>
+                <div class="input-group">
+                  <label for="prImg">URL de la imagen (https)</label>
+                  <input id="prImg" class="field block" type="url" maxlength="500" placeholder="https://…/precios.png">
+                </div>
+              </details>
+            </div>
           </div>
           <div class="form-actions">
             <button type="button" class="btn" id="prSend">Publicar precios</button>
@@ -540,8 +554,22 @@
             <textarea id="weText" class="field block" rows="4" maxlength="1000"></textarea>
           </div>
           <div class="input-group">
-            <label for="weImg">Imagen (URL https, opcional)</label>
-            <input id="weImg" class="field block" type="url" maxlength="500" placeholder="https://…/bienvenida.png">
+            <span class="label">Imagen (opcional)</span>
+            <div class="img-pick">
+              <div id="weImgPrev" class="img-pick-prev empty">Sin imagen</div>
+              <div class="photo-actions">
+                <button type="button" class="btn" id="weImgUpload">Elegir de la galería</button>
+                <button type="button" class="btn ghost" id="weImgClear">Quitar</button>
+              </div>
+              <input id="weImgFile" type="file" accept="image/png,image/jpeg,image/webp,image/gif" hidden>
+              <details class="photo-url">
+                <summary>O pegar una URL https</summary>
+                <div class="input-group">
+                  <label for="weImg">URL de la imagen (https)</label>
+                  <input id="weImg" class="field block" type="url" maxlength="500" placeholder="https://…/bienvenida.png">
+                </div>
+              </details>
+            </div>
           </div>
           <div class="form-actions">
             <button type="button" class="btn ghost" id="weOff">Desactivar</button>

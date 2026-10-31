@@ -1816,9 +1816,21 @@ app.post('/api/me/avatar/upload', requireAuth, requirePerkPlan, async (req, res)
   res.json({ ok: true, avatarUrl: url });
 });
 
+// Imagen de Precios o Bienvenida desde la galería. La URL pública la usa el bot en el embed.
+app.post('/api/me/image/upload', requireAuth, (req, res, next) => (req.body?.kind === 'welcome' ? requirePlusPlan : requirePerkPlan)(req, res, next), (req, res) => {
+  const kind = req.body?.kind;
+  if (kind !== 'prices' && kind !== 'welcome') return res.status(400).json({ error: 'Tipo de imagen inválido' });
+  const m = /^data:(image\/(?:png|jpeg|webp|gif));base64,([A-Za-z0-9+/]+=*)$/.exec(String(req.body?.dataUrl ?? ''));
+  if (!m) return res.status(400).json({ error: 'Elige una imagen (png, jpg, webp o gif)' });
+  const buf = Buffer.from(m[2], 'base64');
+  if (!buf.length || buf.length > 4 * 1024 * 1024) return res.status(400).json({ error: 'La imagen es demasiado grande (máximo 4 MB)' });
+  saveUserImage(req.userId, kind, m[1], m[2]);
+  res.json({ ok: true, url: `${APP_URL}/images/${req.userId}/${kind}?v=${Date.now()}` });
+});
+
 // Imágenes subidas: públicas (son avatares que se ven en el chat y en los paneles)
 app.get('/images/:userId/:kind', (req, res) => {
-  if (!/^\d{5,25}$/.test(req.params.userId) || !['profile', 'bot'].includes(req.params.kind)) return res.status(404).end();
+  if (!/^\d{5,25}$/.test(req.params.userId) || !['profile', 'bot', 'prices', 'welcome'].includes(req.params.kind)) return res.status(404).end();
   const row = db.prepare('SELECT mime, data FROM user_images WHERE user_id = ? AND kind = ?').get(req.params.userId, req.params.kind);
   if (!row) return res.status(404).end();
   res.set({ 'Content-Type': row.mime, 'Cache-Control': 'public, max-age=300', 'X-Content-Type-Options': 'nosniff' });

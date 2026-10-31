@@ -152,6 +152,10 @@
   .photo-url { font-size: 13px; color: var(--text-soft); }
   .photo-url summary { cursor: pointer; padding: 4px 0; }
   .photo-url .input-group { margin-top: 10px; }
+  .img-pick { display: flex; flex-direction: column; gap: 10px; }
+  .img-pick-prev { width: 100%; max-width: 360px; aspect-ratio: 16 / 9; border-radius: 12px; overflow: hidden; display: grid; place-items: center; background: rgba(127, 127, 127, .12); border: 1px dashed rgba(127, 127, 127, .35); color: var(--text-soft); font-size: 13px; }
+  .img-pick-prev.empty { color: var(--text-dim); }
+  .img-pick-prev img { width: 100%; height: 100%; object-fit: cover; display: block; }
   @media (max-width: 560px) { .activity-row { grid-template-columns: 1fr; gap: 2px; } }
   @media (max-width: 560px) {
     .profile-hero { padding: 18px; }

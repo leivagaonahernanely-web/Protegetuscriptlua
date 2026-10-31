@@ -2160,6 +2160,7 @@
       if (saved) $('prCh').value = data.channelId;
       $('prChId').value = '';
       $('prImg').value = data.imageUrl || '';
+      setImgPreview('prImgPrev', data.imageUrl);
     } catch (err) {
       toast(err.message, 'error');
     }
@@ -2183,6 +2184,66 @@
       $('prSend').disabled = false;
     }
   });
+
+  // ---------- IMAGEN DESDE LA GALERÍA (Precios y Bienvenida) ----------
+  function fileToImageDataUrl(file, max = 1280) {
+    return new Promise((resolve, reject) => {
+      if (!file.type.startsWith('image/')) return reject(new Error('Elige una imagen (png, jpg, webp o gif)'));
+      if (file.size > 15 * 1024 * 1024) return reject(new Error('La imagen pesa demasiado (máximo 15 MB)'));
+      const src = URL.createObjectURL(file);
+      const img = new Image();
+      img.onload = () => {
+        const scale = Math.min(1, max / Math.max(img.width, img.height));
+        const w = Math.round(img.width * scale);
+        const h = Math.round(img.height * scale);
+        const canvas = document.createElement('canvas');
+        canvas.width = w;
+        canvas.height = h;
+        canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+        URL.revokeObjectURL(src);
+        resolve(canvas.toDataURL('image/webp', 0.9));
+      };
+      img.onerror = () => { URL.revokeObjectURL(src); reject(new Error('No pude leer esa imagen')); };
+      img.src = src;
+    });
+  }
+  function setImgPreview(prevId, url) {
+    const el = $(prevId);
+    if (!el) return;
+    el.innerHTML = '';
+    el.classList.toggle('empty', !url);
+    if (!url) { el.textContent = 'Sin imagen'; return; }
+    const img = document.createElement('img');
+    img.alt = '';
+    img.src = url;
+    img.onerror = () => { el.textContent = 'No se pudo mostrar la imagen'; };
+    el.appendChild(img);
+  }
+  async function uploadShopImage(kind, file, urlInputId, prevId, btn) {
+    setBusy(btn, true);
+    try {
+      const dataUrl = await fileToImageDataUrl(file);
+      const data = await api('/api/me/image/upload', { method: 'POST', body: JSON.stringify({ kind, dataUrl }) });
+      $(urlInputId).value = data.url;
+      setImgPreview(prevId, data.url);
+      toast('Imagen lista. Guarda para publicarla');
+    } catch (err) {
+      toast(err.message, 'error');
+    } finally {
+      setBusy(btn, false);
+    }
+  }
+  for (const [pre, kind] of [['pr', 'prices'], ['we', 'welcome']]) {
+    const urlId = pre === 'pr' ? 'prImg' : 'weImg';
+    $(pre + 'ImgUpload').addEventListener('click', () => $(pre + 'ImgFile').click());
+    $(pre + 'ImgFile').addEventListener('change', e => {
+      const file = e.target.files[0];
+      e.target.value = '';
+      if (file) uploadShopImage(kind, file, urlId, pre + 'ImgPrev', $(pre + 'ImgUpload'));
+    });
+    $(pre + 'ImgClear').addEventListener('click', () => { $(urlId).value = ''; setImgPreview(pre + 'ImgPrev', ''); });
+    $(urlId).addEventListener('input', e => setImgPreview(pre + 'ImgPrev', e.target.value.trim()));
+  }
 
   // ---------- BIENVENIDA (solo Premium Plus) ----------
   let welcomeGuilds = [];
@@ -2208,6 +2269,7 @@
       $('weChId').value = '';
       $('weText').value = data.text || WELCOME_DEFAULT_TEXT;
       $('weImg').value = data.imageUrl || '';
+      setImgPreview('weImgPrev', data.imageUrl);
     } catch (err) {
       toast(err.message, 'error');
     }

@@ -185,7 +185,13 @@ export const commands = [
   new SlashCommandBuilder().setName('unlock').setDescription('Desbloquea un canal bloqueado con /lock (staff)')
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageChannels)
     .addChannelOption(o => o.setName('canal').setDescription('Canal a desbloquear (opcional: este canal)').addChannelTypes([ChannelType.GuildText, ChannelType.GuildAnnouncement]).setRequired(false)),
-].map(c => c.toJSON());
+].map(c => {
+  // Discord rechaza el registro entero si una opción obligatoria va después de una opcional.
+  // Las obligatorias van primero (el orden solo cambia cómo se muestran en el menú de Discord).
+  const json = c.toJSON();
+  if (Array.isArray(json.options)) json.options = [...json.options].sort((x, y) => (y.required ? 1 : 0) - (x.required ? 1 : 0));
+  return json;
+});
 
 // Comandos que responden en público
 // /panel no es público: sus errores y su confirmación solo los ve quien lo ejecuta (el panel sí se publica en el canal)

@@ -2,6 +2,7 @@
 // Comparte la base SQLite de server.js: recibe `db` y crea sus tablas con ensureBotSchema().
 import {
   ActionRowBuilder,
+  AttachmentBuilder,
   ButtonBuilder,
   ButtonStyle,
   ChannelType,
@@ -102,6 +103,10 @@ export const commands = [
     .addStringOption(o => scriptOpt(o))
     .addStringOption(o => o.setName('descripcion').setDescription('Descripción del panel (opcional, usa \\n para saltos de línea)').setMaxLength(800)),
   new SlashCommandBuilder().setName('stats').setDescription('Muestra tus keys'),
+  new SlashCommandBuilder().setName('hostproyect').setDescription('Ofusca un archivo .lua con tu plan, sin publicarlo en la web')
+    .addAttachmentOption(o => o.setName('archivo').setDescription('Archivo .lua a ofuscar').setRequired(true))
+    .addStringOption(o => o.setName('ofuscador').setDescription('Ofuscador a usar (por defecto el 4)')
+      .addChoices({ name: 'Ofuscador 1', value: 'real' }, { name: 'Ofuscador 2', value: 'obscura' }, { name: 'Ofuscador 4', value: 'km' })),
   new SlashCommandBuilder().setName('redeem').setDescription('Canjea una key')
     .addStringOption(o => o.setName('key').setDescription('Tu key').setRequired(true).setMinLength(32).setMaxLength(64)),
   new SlashCommandBuilder().setName('generatekey').setDescription('Genera keys para un script (dueño o gestor)')
@@ -189,7 +194,7 @@ const PUBLIC_COMMANDS = new Set(['whitelist', 'unwhitelist', 'blacklist', 'unbla
 // ==========================================
 // Bot
 // ==========================================
-export async function startDiscordBot({ db, token, clientId, guildId, publicUrl, ownerId, quota }) {
+export async function startDiscordBot({ db, token, clientId, guildId, publicUrl, ownerId, quota, obfuscate }) {
   ensureBotSchema(db);
   // Si al arrancar hay 0 scripts o 0 keys cuando esperabas datos, la base se reinició (revisa el volumen)
   const counts = db.prepare('SELECT (SELECT COUNT(*) FROM scripts) AS scripts, (SELECT COUNT(*) FROM keys) AS keys').get();
@@ -647,6 +652,29 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
         q.panelInsert.run(script.id, interaction.channelId, sent.id, now());
         logScriptEvent(script, `📌 Panel publicado por <@${actor}> en <#${interaction.channelId}>`);
         return reply(`✅ Panel de **${script.name}** publicado.`);
+      }
+
+      case 'hostproyect': {
+        // Mismo flujo que el obfuscador de la web: cuenta contra las cuotas de tu plan
+        const file = interaction.options.getAttachment('archivo', true);
+        const obf = interaction.options.getString('ofuscador') || 'km';
+        const names = { real: 'Ofuscador 1', obscura: 'Ofuscador 2', km: 'Ofuscador 4' };
+        if (!/\.(lua|luau|txt)$/i.test(file.name || '')) return reply('❌ Adjunta un archivo .lua');
+        if (file.size > 2 * 1024 * 1024) return reply('❌ El archivo supera 2 MB.');
+        const limitMsg = quota.quotaError(actor, { isNewScript: false, isFfa: false });
+        if (limitMsg) return reply(`⛔ ${limitMsg}`);
+        const src = await (await fetch(file.url)).text();
+        let out;
+        try {
+          out = await obfuscate(src, obf, { vm: obf === 'real' });
+        } catch (err) {
+          return reply(`❌ ${err.message || 'No se pudo ofuscar el archivo.'}`);
+        }
+        db.prepare('UPDATE users SET obf_used = obf_used + 1 WHERE id = ?').run(actor);
+        return interaction.editReply({
+          content: `✅ Archivo ofuscado con ${names[obf] || obf}.`,
+          files: [new AttachmentBuilder(Buffer.from(out, 'utf8'), { name: 'protegido.lua' })],
+        });
       }
 
       case 'stats':

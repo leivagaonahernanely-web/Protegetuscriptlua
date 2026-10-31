@@ -2642,6 +2642,7 @@ if (process.env.DISCORD_BOT_TOKEN && DISCORD_CLIENT_ID) {
     guildId: process.env.DISCORD_GUILD_ID || undefined,
     publicUrl: process.env.PUBLIC_URL || FRONTEND_URL,
     ownerId: process.env.DISCORD_OWNER_ID || undefined, // tu ID de Discord (dueño del workspace)
+    obfuscate: (source, obf, opts) => obfuscate(source, obf, opts), // /hostproyect usa el mismo obfuscador que la web
   }).then(client => { discordBot = client; }).catch(err => console.error('[Bot] No se pudo iniciar:', err.message));
 } else {
   console.warn('[Bot] DISCORD_BOT_TOKEN o DISCORD_CLIENT_ID no definidos: el bot no se inicia.');

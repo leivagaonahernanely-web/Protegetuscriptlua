@@ -162,6 +162,7 @@
     if (name === 'bienvenida') loadWelcomeForm();
     if (name === 'chat') startChatPolling(); else stopChatPolling();
     if (name === 'blacklist') loadBlacklist();
+    if (name === 'ownerpanel') loadLoaderLog();
     if (isMobile()) setSidebar(false);
   }
 

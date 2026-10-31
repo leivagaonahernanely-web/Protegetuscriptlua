@@ -1120,6 +1120,7 @@ app.get('/scripts/hosted/:slug', async (req, res) => {
     return res.set({ ...PAGE_HEADERS, 'Content-Security-Policy': LOADER_CSP }).type('html').send(loaderPage(script));
   }
   const script = stmt.scriptBySlug.get(req.params.slug);
+  if (script) logLoaderDownload(script, req.ip);
   res.type('text/plain').send(await protectLoader(loaderBootstrap(req.params.slug, !!(script && script.ffa))));
 });
 

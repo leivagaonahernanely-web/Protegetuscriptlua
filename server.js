@@ -12,6 +12,7 @@ import { execFile } from 'child_process';
 import { fileURLToPath } from 'url';
 import { obfuscateLua as obfuscateKm } from './lib/obf-km.js';
 import { obfuscateLuaLight, obfuscateLuaLuau51 } from './lib/obf-kingmor-modes.js';
+import { normalizeLuaSource } from './lib/lua-source.js';
 import { openDatabase } from './lib/db-engine.js';
 import { createQuota, PLAN_DAYS_DEFAULT, MONTH_SECONDS, FREE_RESET_SECONDS } from './lib/quota.js';
 import { analyzePerf } from './lib/perf.js';
@@ -660,6 +661,7 @@ function checkLuauSyntax(code) {
 const obfCacheGet = db.prepare('SELECT content FROM obf_cache WHERE hash = ?');
 const obfCachePut = db.prepare('INSERT OR REPLACE INTO obf_cache (hash, content, created_at) VALUES (?, ?, ?)');
 async function obfuscate(source, obfuscator, opts = {}) {
+  source = normalizeLuaSource(source); // BOM y línea #! fuera antes de ofuscar (y de la caché)
   const hash = crypto.createHash('sha256').update(`${obfuscator}|${opts.vm ? 1 : 0}|${source}`).digest('hex');
   const hit = obfCacheGet.get(hash);
   if (hit) return hit.content;

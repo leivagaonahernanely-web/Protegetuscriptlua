@@ -40,9 +40,14 @@ ENV NODE_ENV=production \
     OBSCURA_PYTHON=/opt/obscura-venv/bin/python
 
 WORKDIR /app
-COPY package*.json ./
+# Backend y frontend van en carpetas separadas: el servidor sirve ../frontend
+COPY backend/package*.json ./backend/
+WORKDIR /app/backend
 RUN npm install --omit=dev
-COPY . .
+WORKDIR /app
+COPY backend ./backend
+COPY frontend ./frontend
+WORKDIR /app/backend
 
 EXPOSE 3000
 CMD ["node", "server.js"]

@@ -15,6 +15,7 @@
     km:         'Ofuscador 4 · máquina virtual propia',
     light:      'Ligero · compatible con todos los ejecutores',
     luau51:     'Luau / Lua 5.1 · portable',
+    pro:        'Seguro · cifra los textos, sin carga en ejecución · recomendado',
     none:       'Sin ofuscar (solo key)',
   };
   const NAV = {

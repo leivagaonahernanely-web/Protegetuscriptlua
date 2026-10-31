@@ -13,6 +13,7 @@ import { fileURLToPath } from 'url';
 import { obfuscateLua as obfuscateKm } from './lib/obf-km.js';
 import { obfuscateLuaLight, obfuscateLuaLuau51 } from './lib/obf-kingmor-modes.js';
 import { normalizeLuaSource } from './lib/lua-source.js';
+import { obfuscateLuaPro } from './lib/obf-pro.js';
 import { openDatabase } from './lib/db-engine.js';
 import { createQuota, PLAN_DAYS_DEFAULT, MONTH_SECONDS, FREE_RESET_SECONDS } from './lib/quota.js';
 import { analyzePerf } from './lib/perf.js';
@@ -76,7 +77,7 @@ const jsonLimit = rateLimit({
 // 0. CONSTANTES Y CONFIGURACIÓN
 // ==========================================
 const MAX_CODE_BYTES = 2 * 1024 * 1024;           // 2 MB por script
-const OBFUSCATORS = ['real', 'obscura', 'luau', 'km', 'light', 'luau51', 'none'];   // RealObfuscator (predeterminado, modo VM), Obscura, Ofuscador 3 (LuaUObfuscator, solo Premium Plus); 'none' = sin ofuscar. Clyde se quitó.
+const OBFUSCATORS = ['real', 'obscura', 'luau', 'km', 'light', 'luau51', 'pro', 'none'];   // RealObfuscator (predeterminado, modo VM), Obscura, Ofuscador 3 (LuaUObfuscator, solo Premium Plus); 'none' = sin ofuscar. Clyde se quitó.
 const KEY_ALPHABET = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
 // Un error suelto no debe tirar el servidor ni dejar al bot a medias: se registra y el proceso sigue
 process.on('unhandledRejection', err => console.error('[Proceso] Promesa sin manejar:', err));
@@ -674,6 +675,7 @@ async function obfuscateUncached(source, obfuscator, opts = {}) {
   if (obfuscator === 'km') return obfuscateKm(source);
   if (obfuscator === 'light') return obfuscateLuaLight(source);
   if (obfuscator === 'luau51') return obfuscateLuaLuau51(source);
+  if (obfuscator === 'pro') return obfuscateLuaPro(source);
   const cfg = OBF_CONFIG[obfuscator];
   if (!cfg) throw Object.assign(new Error('Elige un ofuscador válido'), { status: 400 });
   if (!cfg.dir) {

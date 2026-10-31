@@ -401,7 +401,7 @@ app.get(['/', '/login'], (req, res, next) => {
 });
 app.use(express.static(path.join(__dirname, 'frontend'), { index: false }));
 // Icono de la pestaña: el navegador pide /favicon.ico si la página no define uno
-app.get('/favicon.ico', (req, res) => res.redirect(301, 'https://files.catbox.moe/qxl7dn.png'));
+app.get('/favicon.ico', (req, res) => res.sendFile(path.join(__dirname, 'frontend', 'favicon-64.png')));
 for (const [route, file] of Object.entries(CLEAN_PAGES)) {
   app.get(route, (req, res) => res.sendFile(path.join(__dirname, 'frontend', file)));
 }

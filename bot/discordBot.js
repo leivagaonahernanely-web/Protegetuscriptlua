@@ -626,6 +626,29 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
   // Aviso que se muestra cuando Discord responde "Missing Permissions" (código 50013) al publicar en un canal
   const BOT_PERMS_HELP = 'El bot no tiene permisos para publicar en ese canal. Dale al bot (o a su rol) los permisos Ver canal, Enviar mensajes e Insertar enlaces en ese canal. Tutorial: https://files.catbox.moe/ombcj8.mp4';
 
+  // Responde directo. Solo si el trabajo tarda más de 2,5 s se muestra "pensando": así Discord no
+  // expira la interacción (tiene unos 3 s para contestar) y el mensaje casi nunca aparece.
+  function fastReply(interaction, visibility = {}) {
+    let state = 'none'; // none | deferred | replied
+    let deferred = null;
+    const timer = setTimeout(() => {
+      if (state !== 'none') return;
+      state = 'deferred';
+      deferred = interaction.deferReply(visibility).catch(() => {});
+    }, 2500);
+    const send = async payload => {
+      clearTimeout(timer);
+      const p = typeof payload === 'string' ? { content: payload } : payload;
+      if (state === 'none') {
+        state = 'replied';
+        return interaction.reply({ ...p, ...visibility });
+      }
+      if (deferred) await deferred;
+      return interaction.editReply(p);
+    };
+    return { send };
+  }
+
   // ---------- Manejadores ----------
 
   async function handleChat(interaction) {
@@ -633,19 +656,8 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
     const cmd = interaction.commandName;
     const isPublic = PUBLIC_COMMANDS.has(cmd);
     const visibility = isPublic ? {} : { flags: MessageFlags.Ephemeral };
-    // Sin "el bot está pensando...": la respuesta llega de una vez. Solo los comandos que tardan
-    // (ej. /hostproyect mientras ofusca) llaman a ensureDeferred() antes de su trabajo pesado.
-    let acked = false;
-    const reply = content => {
-      if (acked) return interaction.editReply({ content });
-      acked = true;
-      return interaction.reply({ content, ...visibility });
-    };
-    const ensureDeferred = async () => {
-      if (acked) return;
-      acked = true;
-      await interaction.deferReply(visibility);
-    };
+    const rr = fastReply(interaction, visibility);
+    const reply = content => rr.send({ content });
     await loadRoles(interaction);
     const denied = '⛔ No tienes permiso para esta acción.';
 
@@ -681,7 +693,6 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
         if (file.size > 2 * 1024 * 1024) return reply('❌ El archivo supera 2 MB.');
         const limitMsg = quota.quotaError(actor, { isNewScript: false, isFfa: false });
         if (limitMsg) return reply(`⛔ ${limitMsg}`);
-        await ensureDeferred(); // ofuscar tarda más de 3 s: aquí sí mostramos "pensando"
         const src = await (await fetch(file.url)).text();
         let out;
         try {
@@ -690,7 +701,7 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
           return reply(`❌ ${err.message || 'No se pudo ofuscar el archivo.'}`);
         }
         db.prepare('UPDATE users SET obf_used = obf_used + 1 WHERE id = ?').run(actor);
-        return interaction.editReply({
+        return rr.send({
           content: `✅ Archivo ofuscado con ${names[obf] || obf}.`,
           files: [new AttachmentBuilder(Buffer.from(out, 'utf8'), { name: 'protegido.lua' })],
         });
@@ -1307,11 +1318,11 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
       const wait = TICKET_COOLDOWN_MS - (Date.now() - (ticketLastOpen.get(cooldownKey) ?? 0));
       if (wait > 0) return interaction.reply({ content: `⏳ Espera ${Math.ceil(wait / 1000)} s antes de abrir otro ticket.`, ...ephemeral });
 
-      await interaction.deferReply(ephemeral);
+      const tr = fastReply(interaction, ephemeral);
       await guild.roles.fetch();
       const category = guild.channels.cache.get(cfg.categoryId) ?? await guild.channels.fetch(cfg.categoryId).catch(() => null);
       if (!category || category.type !== ChannelType.GuildCategory) {
-        return interaction.editReply({ content: '❌ La categoría de tickets ya no existe. Pide al administrador que elija otra con /ticketperm categoria.' });
+        return tr.send({ content: '❌ La categoría de tickets ya no existe. Pide al administrador que elija otra con /ticketperm categoria.' });
       }
       const staffRoleIds = cfg.staffRoles.filter(id => guild.roles.cache.has(id));
       const base = (interaction.user.username || 'usuario').toLowerCase().replace(/[^a-z0-9-]/g, '').slice(0, 20) || 'usuario';
@@ -1343,7 +1354,7 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
           .setDescription('Explica tu problema con detalle. El staff te atenderá aquí.\nPara cerrarlo usa el botón de abajo.')],
         components: [closeRow],
       }).catch(err => console.warn('[Bot] No se pudo enviar el mensaje del ticket:', err.message));
-      return interaction.editReply({ content: `✅ Ticket creado: <#${channel.id}>` });
+      return tr.send({ content: `✅ Ticket creado: <#${channel.id}>` });
     }
 
     if (action === 'ticket-close') {
@@ -1417,10 +1428,10 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
       return interaction.showModal(modal);
     }
 
-    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+    const br = fastReply(interaction, { flags: MessageFlags.Ephemeral });
     await loadRoles(interaction);
     // Acepta texto o un payload con tarjetas (embeds y botones)
-    const reply = payload => interaction.editReply(typeof payload === 'string' ? { content: payload } : payload);
+    const reply = payload => br.send(typeof payload === 'string' ? { content: payload } : payload);
     const actor = interaction.user.id;
 
     if (action === 'script') return reply(getScriptReply(script, actor, memberRoleIds(interaction)));
@@ -1442,9 +1453,9 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
   async function handleModal(interaction) {
     const [ns, action, rawId] = interaction.customId.split(':');
     if (ns !== 'vanta' || action !== 'redeem-modal') return;
-    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+    const mr = fastReply(interaction, { flags: MessageFlags.Ephemeral });
     const code = interaction.fields.getTextInputValue('key').trim();
-    return interaction.editReply({ content: await redeemWithRole(code, interaction.user.id) });
+    return mr.send({ content: await redeemWithRole(code, interaction.user.id) });
   }
 
   // ---------- Cliente ----------

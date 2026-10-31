@@ -1149,6 +1149,12 @@ function discordJoinDone(userId) {
 // Caché de ofuscación: mismo código y mismo modo = mismo resultado, sin volver a ofuscar (ni gastar créditos)
 db.exec(`CREATE TABLE IF NOT EXISTS execution_daily (script_id INTEGER NOT NULL, day TEXT NOT NULL, n INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (script_id, day))`);
 // IP de cada descarga del loader (/files/v1/loaders). Solo lo ve el dueño, en su panel privado.
+db.exec(`CREATE TABLE IF NOT EXISTS user_images (user_id TEXT NOT NULL, kind TEXT NOT NULL, mime TEXT NOT NULL, data TEXT NOT NULL, updated_at INTEGER, PRIMARY KEY (user_id, kind))`);
+function saveUserImage(userId, kind, mime, b64) {
+  db.prepare('DELETE FROM user_images WHERE user_id = ? AND kind = ?').run(userId, kind);
+  db.prepare('INSERT INTO user_images (user_id, kind, mime, data, updated_at) VALUES (?, ?, ?, ?, ?)')
+    .run(userId, kind, mime, b64, Math.floor(Date.now() / 1000));
+}
 db.exec(`CREATE TABLE IF NOT EXISTS loader_downloads (id INTEGER PRIMARY KEY AUTOINCREMENT, script_id INTEGER, slug TEXT, ip TEXT, created_at INTEGER NOT NULL)`);
 const LOADER_LOG_DAYS = 30;
 let loaderLogWrites = 0;
@@ -1817,6 +1823,7 @@ app.post('/api/me/avatar', requireAuth, requirePerkPlan, (req, res) => {
   const raw = String(req.body?.url ?? '').trim();
   if (!raw) {
     db.prepare('UPDATE users SET custom_avatar = NULL WHERE id = ?').run(req.userId);
+    db.prepare('DELETE FROM user_images WHERE user_id = ? AND kind = ?').run(req.userId, 'profile');
     return res.json({ ok: true, avatarUrl: null });
   }
   let parsed;
@@ -1829,11 +1836,47 @@ app.post('/api/me/avatar', requireAuth, requirePerkPlan, (req, res) => {
   res.json({ ok: true, avatarUrl: url });
 });
 
+// Subida directa de foto (recortada a cuadrado en el navegador). Se guarda en la base y se sirve desde /images.
+app.post('/api/me/avatar/upload', requireAuth, requirePerkPlan, async (req, res) => {
+  const kind = req.body?.kind;
+  if (kind !== 'profile' && kind !== 'bot') return res.status(400).json({ error: 'Tipo de foto inválido' });
+  const m = /^data:(image\/(?:png|jpeg|webp|gif));base64,([A-Za-z0-9+/]+=*)$/.exec(String(req.body?.dataUrl ?? ''));
+  if (!m) return res.status(400).json({ error: 'Elige una imagen (png, jpg, webp o gif)' });
+  const type = m[1];
+  const b64 = m[2];
+  const buf = Buffer.from(b64, 'base64');
+  if (!buf.length || buf.length > 1024 * 1024) return res.status(400).json({ error: 'La imagen es demasiado grande' });
+  if (kind === 'bot') {
+    if (!discordBot?.setGuildAvatarFor) return res.status(503).json({ error: 'El bot todavía no está conectado' });
+    try {
+      await discordBot.setGuildAvatarFor(req.userId, { buf, type });
+    } catch (err) {
+      return res.status(400).json({ error: err.message });
+    }
+  }
+  saveUserImage(req.userId, kind, type, b64);
+  const url = `/images/${req.userId}/${kind}?v=${Date.now()}`;
+  if (kind === 'profile') db.prepare('UPDATE users SET custom_avatar = ? WHERE id = ?').run(url, req.userId);
+  else db.prepare('UPDATE users SET bot_avatar = ? WHERE id = ?').run(url, req.userId);
+  res.json({ ok: true, avatarUrl: url });
+});
+
+// Imágenes subidas: públicas (son avatares que se ven en el chat y en los paneles)
+app.get('/images/:userId/:kind', (req, res) => {
+  if (!/^\d{5,25}$/.test(req.params.userId) || !['profile', 'bot'].includes(req.params.kind)) return res.status(404).end();
+  const row = db.prepare('SELECT mime, data FROM user_images WHERE user_id = ? AND kind = ?').get(req.params.userId, req.params.kind);
+  if (!row) return res.status(404).end();
+  res.set({ 'Content-Type': row.mime, 'Cache-Control': 'public, max-age=300', 'X-Content-Type-Options': 'nosniff' });
+  res.send(Buffer.from(row.data, 'base64'));
+});
+
 // Foto del bot solo en los servidores donde el creador tiene su panel. Vacío = quitarla.
 app.post('/api/me/bot-avatar', requireAuth, requirePerkPlan, async (req, res) => {
   const raw = String(req.body?.url ?? '').trim();
   if (!raw) {
+    if (discordBot?.setGuildAvatarFor) await discordBot.setGuildAvatarFor(req.userId, null).catch(() => {});
     db.prepare('UPDATE users SET bot_avatar = NULL WHERE id = ?').run(req.userId);
+    db.prepare('DELETE FROM user_images WHERE user_id = ? AND kind = ?').run(req.userId, 'bot');
     return res.json({ ok: true });
   }
   let parsed;

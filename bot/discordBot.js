@@ -1542,17 +1542,27 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
   };
 
   // Foto del bot solo en los servidores donde el creador tiene su panel (por servidor, no global)
-  client.setGuildAvatarFor = async (userId, url) => {
+  // source: URL https de una imagen, { buf, type } ya lista, o null para volver a la foto global del bot
+  client.setGuildAvatarFor = async (userId, source) => {
     const rows = db.prepare('SELECT DISTINCT p.channel_id FROM bot_panels p JOIN scripts s ON s.id = p.script_id WHERE s.user_id = ?').all(userId);
     if (!rows.length) throw new Error('Primero publica tu panel en tu servidor con /panel y luego pon la foto.');
-    const res = await fetch(url, { signal: AbortSignal.timeout(10_000) });
-    const type = (res.headers.get('content-type') || '').split(';')[0].trim();
-    if (!res.ok || !['image/png', 'image/jpeg', 'image/gif', 'image/webp'].includes(type)) {
-      throw new Error('La URL no es una imagen válida (png, jpg, gif o webp).');
+    let avatar = null;
+    if (source) {
+      let type;
+      let buf;
+      if (typeof source === 'string') {
+        const res = await fetch(source, { signal: AbortSignal.timeout(10_000) });
+        type = (res.headers.get('content-type') || '').split(';')[0].trim();
+        if (!res.ok || !['image/png', 'image/jpeg', 'image/gif', 'image/webp'].includes(type)) {
+          throw new Error('La URL no es una imagen válida (png, jpg, gif o webp).');
+        }
+        buf = Buffer.from(await res.arrayBuffer());
+      } else {
+        ({ buf, type } = source);
+      }
+      if (buf.length > 5 * 1024 * 1024) throw new Error('La imagen pesa más de 5 MB.');
+      avatar = `data:${type};base64,${buf.toString('base64')}`;
     }
-    const buf = Buffer.from(await res.arrayBuffer());
-    if (buf.length > 5 * 1024 * 1024) throw new Error('La imagen pesa más de 5 MB.');
-    const dataUri = `data:${type};base64,${buf.toString('base64')}`;
     const guilds = new Set();
     for (const r of rows) {
       const channel = await client.channels.fetch(r.channel_id).catch(() => null);
@@ -1560,7 +1570,7 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
     }
     if (!guilds.size) throw new Error('No encuentro tu servidor de Discord.');
     for (const guildId of guilds) {
-      await client.rest.patch(Routes.guildMember(guildId, '@me'), { body: { avatar: dataUri } });
+      await client.rest.patch(Routes.guildMember(guildId, '@me'), { body: { avatar } });
     }
     return guilds.size;
   };

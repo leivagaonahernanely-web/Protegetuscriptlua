@@ -242,6 +242,53 @@
   });
   $('pfProfileClear').addEventListener('click', () => { $('pfProfile').value = ''; $('pfProfileSave').click(); });
 
+  // Foto subida desde el dispositivo: se recorta a cuadrado y se redimensiona en el navegador
+  function fileToSquareDataUrl(file, size = 256) {
+    return new Promise((resolve, reject) => {
+      if (!file.type.startsWith('image/')) return reject(new Error('Elige una imagen (png, jpg, webp o gif)'));
+      if (file.size > 15 * 1024 * 1024) return reject(new Error('La imagen pesa demasiado (máximo 15 MB)'));
+      const src = URL.createObjectURL(file);
+      const img = new Image();
+      img.onload = () => {
+        const side = Math.min(img.width, img.height);
+        const canvas = document.createElement('canvas');
+        canvas.width = canvas.height = size;
+        canvas.getContext('2d').drawImage(img, (img.width - side) / 2, (img.height - side) / 2, side, side, 0, 0, size, size);
+        URL.revokeObjectURL(src);
+        resolve(canvas.toDataURL('image/webp', 0.9));
+      };
+      img.onerror = () => { URL.revokeObjectURL(src); reject(new Error('No pude leer esa imagen')); };
+      img.src = src;
+    });
+  }
+  async function uploadPhoto(kind, file, btn) {
+    setBusy(btn, true);
+    try {
+      const dataUrl = await fileToSquareDataUrl(file);
+      const data = await api('/api/me/avatar/upload', { method: 'POST', body: JSON.stringify({ kind, dataUrl }) });
+      if (kind === 'profile') { user.custom_avatar = data.avatarUrl; renderUser(); }
+      else user.bot_avatar = data.avatarUrl;
+      renderProfile();
+      toast(kind === 'profile' ? 'Foto de perfil guardada' : 'Foto del bot guardada en tu servidor');
+    } catch (err) {
+      toast(err.message, 'error');
+    } finally {
+      setBusy(btn, false);
+    }
+  }
+  $('pfProfileUpload').addEventListener('click', () => $('pfProfileFile').click());
+  $('pfProfileFile').addEventListener('change', e => {
+    const file = e.target.files[0];
+    e.target.value = '';
+    if (file) uploadPhoto('profile', file, $('pfProfileUpload'));
+  });
+  $('pfBotUpload').addEventListener('click', () => $('pfBotFile').click());
+  $('pfBotFile').addEventListener('change', e => {
+    const file = e.target.files[0];
+    e.target.value = '';
+    if (file) uploadPhoto('bot', file, $('pfBotUpload'));
+  });
+
   $('pfBotSave').addEventListener('click', async () => {
     const url = $('pfBot').value.trim();
     try {

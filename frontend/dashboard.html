@@ -577,31 +577,45 @@
         </article>
 
         <div class="grid-stats profile-grid" style="grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));">
-          <article class="card">
-            <h3>Foto de perfil</h3>
-            <p style="margin:6px 0 14px;font-size:14px;color:var(--text-soft);">Sale en el panel de tus scripts cuando los compradores abren tu panel en Discord.</p>
-            <div id="pvProfile" style="width:72px;height:72px;border-radius:14px;overflow:hidden;display:grid;place-items:center;margin-bottom:14px;background:#fff;color:#000;font-weight:900;font-size:24px"></div>
-            <div class="input-group">
-              <label for="pfProfile">URL de la imagen (https)</label>
-              <input id="pfProfile" class="field block" type="url" maxlength="500" placeholder="https://…/foto.png">
+          <article class="card photo-card">
+            <div class="photo-card-head"><h3>Foto de perfil</h3><span class="badge neutral">Tu cuenta</span></div>
+            <p class="photo-card-sub">Sale en el panel de tus scripts cuando los compradores abren tu panel en Discord.</p>
+            <div class="photo-card-body">
+              <div id="pvProfile" class="photo-preview" aria-hidden="true"></div>
+              <div class="photo-actions">
+                <button type="button" class="btn" id="pfProfileUpload">Subir foto</button>
+                <button type="button" class="btn ghost" id="pfProfileClear">Usar la de Discord</button>
+              </div>
             </div>
-            <div class="form-actions">
-              <button type="button" class="btn ghost" id="pfProfileClear">Usar la de Discord</button>
-              <button type="button" class="btn" id="pfProfileSave">Guardar</button>
-            </div>
+            <input id="pfProfileFile" type="file" accept="image/png,image/jpeg,image/webp,image/gif" hidden>
+            <details class="photo-url">
+              <summary>O usar una URL</summary>
+              <div class="input-group">
+                <label for="pfProfile">URL de la imagen (https)</label>
+                <input id="pfProfile" class="field block" type="url" maxlength="500" placeholder="https://…/foto.png">
+              </div>
+              <div class="form-actions"><button type="button" class="btn ghost" id="pfProfileSave">Guardar URL</button></div>
+            </details>
           </article>
-          <article class="card">
-            <h3>Foto del bot en tu servidor</h3>
-            <p style="margin:6px 0 14px;font-size:14px;color:var(--text-soft);">Cambia la foto del bot solo en tu servidor de Discord. Necesitas tener un panel publicado con /panel.</p>
-            <div id="pvBot" style="width:72px;height:72px;border-radius:14px;overflow:hidden;display:grid;place-items:center;margin-bottom:14px;background:#fff;color:#000;font-weight:900;font-size:14px"></div>
-            <div class="input-group">
-              <label for="pfBot">URL de la imagen (https)</label>
-              <input id="pfBot" class="field block" type="url" maxlength="500" placeholder="https://…/bot.png">
+          <article class="card photo-card">
+            <div class="photo-card-head"><h3>Foto del bot en tu servidor</h3><span class="badge neutral">Solo tu servidor</span></div>
+            <p class="photo-card-sub">Cambia la foto del bot solo en tu servidor de Discord. Necesitas tener un panel publicado con /panel.</p>
+            <div class="photo-card-body">
+              <div id="pvBot" class="photo-preview" aria-hidden="true"></div>
+              <div class="photo-actions">
+                <button type="button" class="btn" id="pfBotUpload">Subir foto</button>
+                <button type="button" class="btn ghost" id="pfBotClear">Usar la de Discord</button>
+              </div>
             </div>
-            <div class="form-actions">
-              <button type="button" class="btn ghost" id="pfBotClear">Quitar</button>
-              <button type="button" class="btn" id="pfBotSave">Guardar</button>
-            </div>
+            <input id="pfBotFile" type="file" accept="image/png,image/jpeg,image/webp,image/gif" hidden>
+            <details class="photo-url">
+              <summary>O usar una URL</summary>
+              <div class="input-group">
+                <label for="pfBot">URL de la imagen (https)</label>
+                <input id="pfBot" class="field block" type="url" maxlength="500" placeholder="https://…/bot.png">
+              </div>
+              <div class="form-actions"><button type="button" class="btn ghost" id="pfBotSave">Guardar URL</button></div>
+            </details>
           </article>
         </div>
         <article class="card" style="margin-top:14px">

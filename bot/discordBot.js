@@ -283,6 +283,16 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
     return found ?? null;
   };
   const keyState = k => (k.banned ? 'baneada' : k.expires_at && k.expires_at <= now() ? 'expirada' : 'activa');
+  // Tarjetas para las respuestas del bot (verde éxito, azul info, naranja aviso, rojo error)
+  const C = { ok: 0x57f287, info: 0x5865f2, warn: 0xfaa61a, err: 0xed4245 };
+  function card({ title, color = C.info, description = '', fields = [] }) {
+    const embed = new EmbedBuilder().setColor(color).setTitle(title);
+    if (description) embed.setDescription(description);
+    if (fields.length) embed.addFields(fields.map(([name, value, inline = true]) => ({ name, value: String(value || '—'), inline })));
+    return { embeds: [embed] };
+  }
+  // Ejecuciones totales del script (todas sus keys, todos los días)
+  const scriptExecTotal = id => db.prepare('SELECT COALESCE(SUM(n), 0) AS n FROM execution_daily WHERE script_id = ?').get(id)?.n ?? 0;
   // Roles recordados por usuario: si Discord no trae los roles en una interacción, se usan los últimos conocidos
   const roleCache = new Map();
   const ROLE_CACHE_MS = 10 * 60_000;
@@ -494,12 +504,16 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
     if (k.expires_at && k.expires_at <= now()) return '❌ Esta key expiró.';
     if (k.discord_id && k.discord_id !== userId) return '❌ Esta key ya está vinculada a otra cuenta.';
     if (isBlocked({ id: k.script_id }, userId)) return '⛔ Estás bloqueado para este script.';
-    if (q.activeKeyFor.get(k.script_id, userId, now())) return '✅ Ya tienes acceso a este script. Usa Get Script.';
+    const activeNow = q.activeKeyFor.get(k.script_id, userId, now());
+    if (activeNow) {
+      const sName = q.scriptById.get(k.script_id)?.name ?? 'este script';
+      return card({ title: '✅ Ya tienes acceso', color: C.ok, description: `Ya tienes una key activa para **${sName}**. Usa **Get Script** para obtener tu loader.`, fields: [['Vence', activeNow.expires_at ? `<t:${activeNow.expires_at}:R>` : 'Nunca']] });
+    }
     q.claim.run(userId, code);
     const claimedScript = q.scriptById.get(k.script_id);
     if (claimedScript) logScriptEvent(claimedScript, `🎟️ <@${userId}> canjeó una key`);
     const s = q.scriptById.get(k.script_id);
-    return `✅ Key canjeada para **${s?.name ?? 'tu script'}**. Usa **Get Script** para obtener el loader.`;
+    return card({ title: '🎟️ Key canjeada', color: C.ok, description: `Ya tienes acceso a **${s?.name ?? 'tu script'}**. Usa **Get Script** para obtener tu loader.`, fields: [['Vence', k.expires_at ? `<t:${k.expires_at}:R>` : 'Nunca']] });
   }
 
   // Intervalo de reinicio de HWID del script (horas; 0 = desactivado)
@@ -508,17 +522,22 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
   // bypass = creador del script: ignora el intervalo y el botón desactivado
   function resetHwid(script, targetId, actorId, bypass) {
     const k = q.activeKeyFor.get(script.id, targetId, now());
-    if (!k) return '❌ No hay una key activa para ese usuario en este script.';
+    if (!k) return card({ title: '❌ Sin key activa', color: C.err, description: 'No hay una key activa para ese usuario en este script.' });
+    const cooldown = hwidHours(script) * 3600;
     if (!bypass) {
-      if (hwidHours(script) === 0) return '🔒 El reinicio de HWID está desactivado para este script.';
-      const cooldown = hwidHours(script) * 3600;
+      if (hwidHours(script) === 0) return card({ title: '🔒 Reinicio desactivado', color: C.warn, description: 'El reinicio de HWID está desactivado para este script.' });
       if (k.hwid_reset_at && now() - k.hwid_reset_at < cooldown) {
-        return `⏳ Podrás reiniciar el HWID <t:${k.hwid_reset_at + cooldown}:R>.`;
+        return card({ title: '⏳ Aún no puedes reiniciar', color: C.warn, description: `Podrás reiniciar el HWID <t:${k.hwid_reset_at + cooldown}:R>.` });
       }
     }
     q.resetHwid.run(now(), k.key);
     logScriptEvent(script, `⚙️ HWID reiniciado para <@${targetId}>${targetId !== actorId ? ` por <@${actorId}>` : ''}`);
-    return '✅ HWID reiniciado. Vuelve a ejecutar el loader.';
+    return card({
+      title: '🔄 HWID reiniciado',
+      color: C.ok,
+      description: 'Vuelve a ejecutar el loader para vincular tu nuevo equipo.',
+      fields: [['Script', script.name], ['Próximo reinicio', hwidHours(script) === 0 ? 'Desactivado' : `<t:${now() + cooldown}:R>`]],
+    });
   }
 
   function maskKey(code) {
@@ -529,20 +548,22 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
   // Whitelist y key se tratan igual: resolveAccess crea la key de whitelist si aún no existe.
   function scriptStatsReply(userId, script, roleIds) {
     const granted = resolveAccess(script, userId, roleIds);
-    if (granted.status === 'blacklisted') return `⛔ Estás bloqueado para **${script.name}**.`;
+    if (granted.status === 'blacklisted') return card({ title: '⛔ Bloqueado', color: C.err, description: `Estás bloqueado para **${script.name}**.` });
     if (granted.status === 'limit') return KEY_LIMIT_MSG;
     if (granted.status === 'none') return noAccessCard(script);
     const k = q.keyForScriptUser.get(script.id, userId);
-    const lines = [`📊 **Tu estado en ${script.name}**`, 'Acceso: ✅ Key activa'];
+    const fields = [];
     if (k) {
       const cooldown = hwidHours(script) * 3600;
       const cooldownEnds = k.hwid_reset_at ? k.hwid_reset_at + cooldown : 0;
-      lines.push(`Key: \`${maskKey(k.key)}\` · ${keyState(k)}`);
-      lines.push(`Vence: ${k.expires_at ? `<t:${k.expires_at}:R>` : 'nunca'}`);
-      lines.push(`HWID: ${k.hwid ? 'vinculado' : 'sin vincular'}`);
-      lines.push(`Reinicio HWID: ${hwidHours(script) === 0 ? 'desactivado' : cooldownEnds > now() ? `<t:${cooldownEnds}:R>` : 'disponible'}`);
+      fields.push(['Key', `\`${maskKey(k.key)}\``, false], ['Estado', keyState(k)], ['Vence', k.expires_at ? `<t:${k.expires_at}:R>` : 'Nunca']);
+      fields.push(['HWID', k.hwid ? 'Vinculado' : 'Sin vincular'], ['Reinicio HWID', hwidHours(script) === 0 ? 'Desactivado' : cooldownEnds > now() ? `<t:${cooldownEnds}:R>` : 'Disponible']);
+      fields.push(['Ejecuciones de tu key', String(k.exec_count ?? 0)]);
+    } else {
+      fields.push(['Acceso', 'Whitelist']);
     }
-    return lines.join('\n');
+    fields.push(['Ejecuciones totales', String(scriptExecTotal(script.id))]);
+    return card({ title: `📊 ${script.name}`, color: C.info, description: 'Tu estado en este script', fields });
   }
 
   // /stats: resumen de todas tus keys. Con script (botón del panel): tu estado en ese script
@@ -582,22 +603,25 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
     const script = row ? q.scriptById.get(row.script_id) : null;
     if (script) {
       const guild = await grantBuyerRole(script, userId);
-      if (guild) return `${result}\n🎭 Te dimos el rol comprador en **${guild.name}**.`;
+      if (guild) {
+        if (typeof result === 'string') return `${result}\n🎭 Te dimos el rol comprador en **${guild.name}**.`;
+        result.embeds[0].addFields({ name: 'Rol', value: `Te dimos el rol comprador en **${guild.name}**`, inline: false });
+      }
     }
     return result;
   }
 
   async function giveBuyerRole(interaction, script) {
     const roleId = settingFor(script.user_id, 'buyer_role');
-    if (!roleId) return '👤 El creador de este script todavía no configuró el rol comprador con /getrole.';
+    if (!roleId) return card({ title: '👤 Sin rol configurado', color: C.warn, description: 'El creador de este script todavía no configuró el rol comprador con /getrole.' });
     try {
       const member = await interaction.guild.members.fetch(interaction.user.id);
       await member.roles.add(roleId);
       logScriptEvent(script, `👤 <@${interaction.user.id}> recibió el rol comprador`);
-      return `✅ Rol asignado: <@&${roleId}>`;
+      return card({ title: '🎭 Rol asignado', color: C.ok, description: `Ahora tienes <@&${roleId}>` });
     } catch (err) {
       console.error('[Bot] Error asignando rol:', err);
-      return '❌ No pude asignar el rol. Verifica que el bot tenga Manage Roles y que su rol esté por encima del rol comprador.';
+      return card({ title: '❌ No pude asignar el rol', color: C.err, description: 'Verifica que el bot tenga Manage Roles y que su rol esté por encima del rol comprador.' });
     }
   }
 
@@ -674,7 +698,7 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
     const isPublic = PUBLIC_COMMANDS.has(cmd);
     const visibility = isPublic ? {} : { flags: MessageFlags.Ephemeral };
     const rr = fastReply(interaction, visibility);
-    const reply = content => rr.send({ content });
+    const reply = payload => rr.send(typeof payload === 'string' ? { content: payload } : payload);
     await loadRoles(interaction);
     const denied = '⛔ No tienes permiso para esta acción.';
 
@@ -1435,7 +1459,7 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
     // El modal no puede ir después de deferReply
     if (action === 'redeem') {
       if (hasAccess(script, interaction.user.id, memberRoleIds(interaction))) {
-        return interaction.reply({ content: `✅ Ya tienes acceso a **${script.name}**. Usa **Get Script** para obtener tu loader.`, flags: MessageFlags.Ephemeral });
+        return interaction.reply({ ...card({ title: '✅ Ya tienes acceso', color: C.ok, description: `Ya tienes acceso a **${script.name}**. Usa **Get Script** para obtener tu loader.` }), flags: MessageFlags.Ephemeral });
       }
       const modal = new ModalBuilder().setCustomId(`vanta:redeem-modal:${script.id}`).setTitle('Redeem Key');
       modal.addComponents(new ActionRowBuilder().addComponents(
@@ -1473,7 +1497,8 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
     if (ns !== 'vanta' || action !== 'redeem-modal') return;
     const mr = fastReply(interaction, { flags: MessageFlags.Ephemeral });
     const code = interaction.fields.getTextInputValue('key').trim();
-    return mr.send({ content: await redeemWithRole(code, interaction.user.id) });
+    const out = await redeemWithRole(code, interaction.user.id);
+    return mr.send(typeof out === 'string' ? { content: out } : out);
   }
 
   // ---------- Cliente ----------

@@ -699,6 +699,8 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
     const visibility = isPublic ? {} : { flags: MessageFlags.Ephemeral };
     const rr = fastReply(interaction, visibility);
     const reply = payload => rr.send(typeof payload === 'string' ? { content: payload } : payload);
+    // Errores en comandos públicos: solo los ve quien los usó
+    const replyPrivate = payload => rr.send({ ...(typeof payload === 'string' ? { content: payload } : payload), flags: MessageFlags.Ephemeral });
     await loadRoles(interaction);
     const denied = '⛔ No tienes permiso para esta acción.';
 
@@ -917,22 +919,22 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
         const rawScript = String(interaction.options.getString('script', true) ?? '').trim().replace(/^#/, '');
         // Con nombre escrito a mano y varios scripts con ese nombre, no adivina: obliga a elegir de la lista
         if (!/^\d+$/.test(rawScript) && q.scriptsNamed.all(rawScript).length > 1) {
-          return reply('❌ Hay varios scripts con ese nombre. Elige el correcto de la lista que aparece al escribir el script (autocompletado).');
+          return replyPrivate('❌ Hay varios scripts con ese nombre. Elige el correcto de la lista que aparece al escribir el script (autocompletado).');
         }
         const script = findScript(rawScript);
-        if (!script) return reply('❌ Script no encontrado.');
-        if (!canUse(interaction, script.user_id)) return reply(denied);
+        if (!script) return replyPrivate('❌ Script no encontrado.');
+        if (!canUse(interaction, script.user_id)) return replyPrivate(denied);
         const user = interaction.options.getUser('user');
         const role = interaction.options.getRole('role');
-        if (!user && !role) return reply('❌ Selecciona un usuario o un rol.');
-        if (user && role) return reply('❌ Selecciona solo un destino: usuario o rol.');
+        if (!user && !role) return replyPrivate('❌ Selecciona un usuario o un rol.');
+        if (user && role) return replyPrivate('❌ Selecciona solo un destino: usuario o rol.');
         const kind = user ? 'user' : 'role';
         const id = (user ?? role).id;
         const label = user ? `<@${id}>` : `<@&${id}>`;
         if (cmd === 'whitelist') {
           const raw = interaction.options.getString('duration');
           const secs = raw ? parseDuration(raw) : null;
-          if (raw && !secs) return reply('❌ Duración inválida. Usa 30d, 12h, 1w, 1mo o 1y, o déjalo vacío para permanente.');
+          if (raw && !secs) return replyPrivate('❌ Duración inválida. Usa 30d, 12h, 1w, 1mo o 1y, o déjalo vacío para permanente.');
           const expires = secs ? now() + secs : null;
           const expiryText = expires ? `hasta <t:${expires}:f>` : 'permanente';
           q.ruleInsert.run(script.id, kind, id, user ? user.username : role.name, expires);
@@ -970,17 +972,17 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
 
       case 'blacklist': {
         const script = findScript(interaction.options.getString('script'));
-        if (script && !canUse(interaction, script.user_id)) return reply(denied);
+        if (script && !canUse(interaction, script.user_id)) return replyPrivate(denied);
         const target = interaction.options.getUser('user');
         const role = interaction.options.getRole('role');
         const reason = interaction.options.getString('reason') || 'Sin razón indicada';
-        if (!target && !role) return reply('❌ Elige un usuario o un rol.');
+        if (!target && !role) return replyPrivate('❌ Elige un usuario o un rol.');
         // Sin script: solo afecta a los scripts que el actor puede gestionar
         const targets = script ? [script] : q.scriptsList.all().filter(s => canUse(interaction, s.user_id));
-        if (!targets.length) return reply(denied);
+        if (!targets.length) return replyPrivate(denied);
         if (role) {
           // Bloqueo por rol: la regla impide nuevas keys a quien tenga el rol; las keys de los miembros actuales se banean
-          if (!interaction.guild) return reply('❌ Usa este comando dentro de un servidor.');
+          if (!interaction.guild) return replyPrivate('❌ Usa este comando dentro de un servidor.');
           const members = (await interaction.guild.members.fetch()).filter(m => !m.user.bot && m.roles.cache.has(role.id));
           for (const s of targets) {
             q.roleBlacklistInsert.run(s.id, role.id, reason, now());
@@ -999,14 +1001,14 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
 
       case 'unblacklist': {
         const script = findScript(interaction.options.getString('script'));
-        if (script && !canUse(interaction, script.user_id)) return reply(denied);
+        if (script && !canUse(interaction, script.user_id)) return replyPrivate(denied);
         const target = interaction.options.getUser('user');
         const role = interaction.options.getRole('role');
-        if (!target && !role) return reply('❌ Elige un usuario o un rol.');
+        if (!target && !role) return replyPrivate('❌ Elige un usuario o un rol.');
         const targets = script ? [script] : q.scriptsList.all().filter(s => canUse(interaction, s.user_id));
-        if (!targets.length) return reply(denied);
+        if (!targets.length) return replyPrivate(denied);
         if (role) {
-          if (!interaction.guild) return reply('❌ Usa este comando dentro de un servidor.');
+          if (!interaction.guild) return replyPrivate('❌ Usa este comando dentro de un servidor.');
           const members = (await interaction.guild.members.fetch()).filter(m => !m.user.bot && m.roles.cache.has(role.id));
           let removedRole = 0;
           for (const s of targets) {

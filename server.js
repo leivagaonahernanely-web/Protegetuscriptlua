@@ -1098,15 +1098,29 @@ fn()
 `;
 }
 
+// El bootstrap (validación de key y comprobaciones) se ofusca con el Ofuscador 1 antes de servirlo, para que
+// no se pueda leer cómo valida. Si la ofuscación falla o está apagada (LOADER_OBFUSCATE=0), se sirve el
+// texto normal: el loader nunca deja de funcionar por esto. El resultado queda en caché (obf_cache).
+const LOADER_OBFUSCATE = process.env.LOADER_OBFUSCATE !== '0';
+async function protectLoader(plain) {
+  if (!LOADER_OBFUSCATE) return plain;
+  try {
+    return await obfuscate(plain, 'real');
+  } catch (err) {
+    console.warn('[Loader] sin ofuscar:', String(err.message || err).slice(0, 200));
+    return plain;
+  }
+}
+
 // Página pública: el navegador ve solo el snippet (solo lectura); el ejecutor recibe el bootstrap.
-app.get('/scripts/hosted/:slug', (req, res) => {
+app.get('/scripts/hosted/:slug', async (req, res) => {
   if (/text\/html/.test(req.get('accept') || '')) {
     const script = stmt.scriptBySlug.get(req.params.slug);
     if (!script) return res.status(404).type('text/plain').send('-- script no encontrado');
     return res.set({ ...PAGE_HEADERS, 'Content-Security-Policy': LOADER_CSP }).type('html').send(loaderPage(script));
   }
   const script = stmt.scriptBySlug.get(req.params.slug);
-  res.type('text/plain').send(loaderBootstrap(req.params.slug, !!(script && script.ffa)));
+  res.type('text/plain').send(await protectLoader(loaderBootstrap(req.params.slug, !!(script && script.ffa))));
 });
 
 // Loader con URL de archivo: /files/v1/loaders/<loader_id>.lua (mismo contenido que /scripts/hosted/<slug>)

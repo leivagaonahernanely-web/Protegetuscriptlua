@@ -670,12 +670,37 @@ async function obfuscate(source, obfuscator, opts = {}) {
   try { obfCachePut.run(hash, content, Math.floor(Date.now() / 1000)); } catch { /* la caché nunca rompe el guardado */ }
   return content;
 }
+// Seguro: primero renombra las variables locales con Obscura (que sí analiza el código como Luau),
+// y después cifra los strings. Si Obscura no puede analizar el script (por ejemplo, strings
+// interpolados o sintaxis que no soporta), se usa el original: el script sigue funcionando,
+// solo sin renombrar.
+async function obfuscateProFull(source) {
+  let base = source;
+  const cfg = OBF_CONFIG.obscura;
+  if (cfg?.dir) {
+    const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'vp-pro-'));
+    try {
+      const input = path.join(dir, 'script.lua');
+      const out = path.join(dir, 'renamed.lua');
+      await fs.promises.writeFile(input, source, 'utf8');
+      await runObfuscatorCli(cfg.bin, ['main.py', input, '--mode', 'rename', '-o', out], cfg.dir, cfg.dir);
+      const renamed = await fs.promises.readFile(out, 'utf8').catch(() => '');
+      if (renamed.trim()) base = renamed;
+    } catch (err) {
+      console.warn('[Seguro] sin renombrar (Obscura no pudo analizar el script):', String(err.message || err).slice(0, 200));
+    } finally {
+      await fs.promises.rm(dir, { recursive: true, force: true });
+    }
+  }
+  return obfuscateLuaPro(base);
+}
+
 async function obfuscateUncached(source, obfuscator, opts = {}) {
   if (obfuscator === 'luau') return obfuscateLuau(source);
   if (obfuscator === 'km') return obfuscateKm(source);
   if (obfuscator === 'light') return obfuscateLuaLight(source);
   if (obfuscator === 'luau51') return obfuscateLuaLuau51(source);
-  if (obfuscator === 'pro') return obfuscateLuaPro(source);
+  if (obfuscator === 'pro') return obfuscateProFull(source);
   const cfg = OBF_CONFIG[obfuscator];
   if (!cfg) throw Object.assign(new Error('Elige un ofuscador válido'), { status: 400 });
   if (!cfg.dir) {

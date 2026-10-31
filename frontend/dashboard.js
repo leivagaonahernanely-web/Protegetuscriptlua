@@ -13,6 +13,8 @@
     obscura:    'Ofuscador 2',
     luau:       'Ofuscador 3 · Premium Plus · 2 compilaciones por día',
     km:         'Ofuscador 4 · máquina virtual propia',
+    light:      'Ligero · compatible con todos los ejecutores',
+    luau51:     'Luau / Lua 5.1 · portable',
     none:       'Sin ofuscar (solo key)',
   };
   const NAV = {

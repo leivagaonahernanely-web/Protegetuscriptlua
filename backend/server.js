@@ -14,6 +14,7 @@ import { normalizeLuaSource } from './lib/lua-source.js';
 import { openDatabase } from './lib/db-engine.js';
 import { createQuota, PLAN_DAYS_DEFAULT, MONTH_SECONDS, FREE_RESET_SECONDS } from './lib/quota.js';
 import { analyzePerf } from './lib/perf.js';
+import { buildLua, BuildError } from './lib/nextofuscator/build.js';
 import { startDiscordBot, ensureBotSchema } from './bot/discordBot.js';
 import geoip from 'geoip-lite'; // país por IP, offline (solo se guarda el país, nunca la IP)
 import 'dotenv/config';
@@ -74,7 +75,7 @@ const jsonLimit = rateLimit({
 // 0. CONSTANTES Y CONFIGURACIÓN
 // ==========================================
 const MAX_CODE_BYTES = 2 * 1024 * 1024;           // 2 MB por script
-const OBFUSCATORS = ['real', 'obscura', 'luau', 'none'];   // RealObfuscator (predeterminado, modo VM), Obscura, Ofuscador 3 (LuaUObfuscator, solo Premium Plus); 'none' = sin ofuscar. Clyde se quitó.
+const OBFUSCATORS = ['real', 'obscura', 'luau', 'next', 'none'];   // 'next' = Ofuscador 4 (NextOfuscator, lib/nextofuscator, todos los planes);    // RealObfuscator (predeterminado, modo VM), Obscura, Ofuscador 3 (LuaUObfuscator, solo Premium Plus); 'none' = sin ofuscar. Clyde se quitó.
 const KEY_ALPHABET = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
 // Un error suelto no debe tirar el servidor ni dejar al bot a medias: se registra y el proceso sigue
 process.on('unhandledRejection', err => console.error('[Proceso] Promesa sin manejar:', err));
@@ -679,8 +680,18 @@ async function obfuscate(source, obfuscator, opts = {}) {
   try { obfCachePut.run(hash, content, Math.floor(Date.now() / 1000)); } catch { /* la caché nunca rompe el guardado */ }
   return content;
 }
+// Ofuscador 4 (NextOfuscator): motor en JavaScript dentro del backend, sin CLI externo
+function obfuscateNext(source) {
+  try {
+    return buildLua(source, crypto.randomInt(1, 2 ** 31)).code;
+  } catch (err) {
+    if (err instanceof BuildError) throw Object.assign(new Error(err.message), { status: 400 });
+    throw err;
+  }
+}
 async function obfuscateUncached(source, obfuscator, opts = {}) {
   if (obfuscator === 'luau') return obfuscateLuau(source);
+  if (obfuscator === 'next') return obfuscateNext(source);
   const cfg = OBF_CONFIG[obfuscator];
   if (!cfg) throw Object.assign(new Error('Elige un ofuscador válido'), { status: 400 });
   if (!cfg.dir) {

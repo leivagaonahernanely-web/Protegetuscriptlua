@@ -1,7 +1,7 @@
 // Construcción del archivo de salida con macros de optimización y protección.
 //
 // Reglas:
-// - Por defecto todo el script va en la VM.
+// - Sin macros, el obfuscador decide: bucles, funciones y callbacks van nativos y el resto en la VM.
 // - Bloque "--NXT_LPH_OPTIMIZACION" ... "--NXT_LPH_OPTIMIZACION_END": se emite como Lua nativo (sin lag).
 // - Bloque "--NXT_LPH_PROTECCION" ... "--NXT_LPH_PROTECCION_END": si el archivo tiene alguno,
 //   solo esos bloques van en la VM y el resto queda nativo.
@@ -9,8 +9,10 @@
 // - Un bloque nativo y uno protegido no pueden compartir variables "local" a nivel principal
 //   (cada uno vive en un contexto distinto). Las globales sí se comparten.
 import { compile } from "./compiler.js";
+import { stripComments } from "./comments.js";
 import { payloadLiteral } from "./emit.js";
 import { LuaSyntaxError } from "./lexer.js";
+import { PRELUDE_LUA } from "./prelude.js";
 import { RUNTIME_LUA } from "./runtime.js";
 import { parse } from "./parser.js";
 import { encode } from "./vm.js";
@@ -135,6 +137,13 @@ export function namesOf(block) {
             case "Paren":
                 visitExpr(e.expr);
                 return;
+            case "IfExpr":
+                for (const c of e.clauses) {
+                    visitExpr(c.cond);
+                    visitExpr(c.value);
+                }
+                visitExpr(e.orElse);
+                return;
             default: return;
         }
     };
@@ -197,9 +206,92 @@ export function namesOf(block) {
     visitBlock(block);
     return { declared, referenced };
 }
+const ANY_MACRO = /^\s*--\s*NXT_LPH_(OPTIMIZACION|PROTECCION)(_END)?\s*$/;
+// Sentencias que pueden ir nativas: bucles, funciones y cualquier sentencia con una función
+// literal dentro (callbacks). El resto va en la VM.
+function isNativeCandidate(s) {
+    if (s.kind === "Return")
+        return false;
+    if (["NumericFor", "GenericFor", "While", "Repeat", "FunctionDecl", "LocalFunction"].includes(s.kind))
+        return true;
+    return JSON.stringify(s).includes('"kind":"Function"');
+}
+// Reparto automático (sin macros). Las sentencias que empiezan en la misma línea forman una unidad.
+// Una unidad nativa no puede compartir locales de nivel principal con una protegida: si lo hace,
+// o si dos unidades que comparten locales quedarían en bloques distintos, se vuelve protegida.
+export function autoSegments(source) {
+    const lines = source.split(/\r\n|\n|\r/);
+    let block;
+    try {
+        block = parse(source);
+    }
+    catch (error) {
+        if (error instanceof LuaSyntaxError)
+            throw new BuildError(error.message.replace(/^\d+:\d+: /, ""), error.line);
+        throw error;
+    }
+    const units = [];
+    for (const s of block) {
+        const line = s.line ?? 1;
+        const last = units[units.length - 1];
+        if (last && last.line === line)
+            last.stmts.push(s);
+        else
+            units.push({ line, stmts: [s], native: false, declared: new Set(), referenced: new Set() });
+    }
+    for (const u of units) {
+        const info = namesOf(u.stmts);
+        u.declared = info.declared;
+        u.referenced = info.referenced;
+        u.native = u.stmts.every(isNativeCandidate);
+    }
+    const shares = (a, b) => {
+        for (const n of a)
+            if (b.has(n))
+                return true;
+        return false;
+    };
+    let changed = true;
+    while (changed) {
+        changed = false;
+        for (let j = 0; j < units.length; j++) {
+            for (let k = j + 1; k < units.length; k++) {
+                const a = units[j];
+                const b = units[k];
+                if (!shares(a.declared, b.referenced) && !shares(b.declared, a.referenced))
+                    continue;
+                const flags = units.slice(j, k + 1).map((u) => u.native);
+                if (flags.every((f) => f === flags[0]))
+                    continue; // todas nativas o todas protegidas: mismo bloque
+                for (let m = j; m <= k; m++) {
+                    if (units[m].native) {
+                        units[m].native = false;
+                        changed = true;
+                    }
+                }
+            }
+        }
+    }
+    // Bloques consecutivos del mismo tipo. El primero empieza en la línea 1 para conservar comentarios de cabecera.
+    const segments = [];
+    let i = 0;
+    while (i < units.length) {
+        const kind = units[i].native ? "native" : "protected";
+        let k = i;
+        while (k + 1 < units.length && (units[k + 1].native ? "native" : "protected") === kind)
+            k++;
+        const startLine = i === 0 ? 1 : units[i].line;
+        const endLine = k + 1 < units.length ? units[k + 1].line - 1 : lines.length;
+        segments.push({ kind, source: lines.slice(startLine - 1, endLine).join("\n"), line: startLine });
+        i = k + 1;
+    }
+    return segments;
+}
 // Construye el archivo Lua final a partir del código fuente.
+// Con macros, el reparto lo marca el usuario; sin macros, lo decide autoSegments.
 export function buildLua(source, seed, options = {}) {
-    const segments = splitSegments(source);
+    const hasMacros = source.split(/\r\n|\n|\r/).some((l) => ANY_MACRO.test(l));
+    const segments = hasMacros ? splitSegments(source) : autoSegments(source);
     if (segments.length === 0)
         throw new BuildError("el script está vacío");
     const parsed = segments.map((seg) => {
@@ -228,7 +320,7 @@ export function buildLua(source, seed, options = {}) {
     segments.forEach((seg, i) => {
         const last = i === segments.length - 1;
         if (seg.kind === "native") {
-            chunks.push(`do\n${seg.source}\nend`);
+            chunks.push(`do\n${stripComments(seg.source)}\nend`);
             return;
         }
         let program;
@@ -244,7 +336,7 @@ export function buildLua(source, seed, options = {}) {
         chunks.push(`do local P=${payloadLiteral(bytecode)} ${run} end`);
     });
     return {
-        code: `-- NextOfuscator\n${RUNTIME_LUA}\n${chunks.join("\n")}\n`,
+        code: `-- NextOfuscator\n${PRELUDE_LUA}${RUNTIME_LUA}\n${chunks.join("\n")}\n`,
         segments: segments.length,
     };
 }

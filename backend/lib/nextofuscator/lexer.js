@@ -1,4 +1,5 @@
-// Lexer para Lua 5.1 (el dialecto de Luraph y Roblox).
+// Lexer para Lua 5.1 con las extensiones de Luau que usan los scripts de Roblox
+// (+=, !=, //, backticks con interpolación, _ en números, \u{}, \x, \z, anotaciones de tipo).
 // Sin dependencias: se puede usar desde el servidor y desde pruebas.
 export const KEYWORDS = new Set([
     "and", "break", "do", "else", "elseif", "end", "false", "for", "function",
@@ -7,8 +8,9 @@ export const KEYWORDS = new Set([
 ]);
 // Operadores ordenados de más largo a más corto para el emparejamiento voraz.
 const OPERATORS = [
-    "...", "..", "==", "~=", "<=", ">=",
-    "+", "-", "*", "/", "%", "^", "#", "<", ">", "=",
+    "...", "..=", "..", "==", "~=", "!=", "<=", ">=", "//", "->", "::",
+    "+=", "-=", "*=", "/=", "%=", "^=",
+    "+", "-", "*", "/", "%", "^", "#", "<", ">", "=", "|", "&", "?",
     "(", ")", "{", "}", "[", "]", ";", ":", ",", ".",
 ];
 export class LuaSyntaxError extends Error {
@@ -129,24 +131,94 @@ export function tokenize(source) {
                 out += String.fromCharCode(code);
                 continue;
             }
+            if (e === "x") {
+                const hex = source.slice(pos + 1, pos + 3);
+                if (!/^[0-9a-fA-F]{2}$/.test(hex))
+                    fail("escape hexadecimal inválido (se esperan dos dígitos)");
+                out += String.fromCharCode(Number.parseInt(hex, 16));
+                pos += 3;
+                continue;
+            }
+            if (e === "u") {
+                const m = /^\{([0-9a-fA-F]{1,8})\}/.exec(source.slice(pos + 1, pos + 12));
+                if (!m)
+                    fail("escape \\u inválido (se espera \\u{XXXX})");
+                const code = Number.parseInt(m[1], 16);
+                if (code > 0x10ffff)
+                    fail("escape \\u fuera de rango");
+                out += String.fromCodePoint(code);
+                pos += 1 + m[0].length;
+                continue;
+            }
+            if (e === "z") {
+                // \z salta los espacios que siguen, incluidos saltos de línea.
+                pos++;
+                while (peek() === " " || peek() === "\t" || peek() === "\n" || peek() === "\r" || peek() === "\f" || peek() === "\v") {
+                    if (peek() === "\n" || peek() === "\r")
+                        consumeNewline();
+                    else
+                        pos++;
+                }
+                continue;
+            }
             fail(`escape inválido \\${e}`);
+        }
+    };
+    // Cadena con backticks (interpolación de Luau). Se guarda el texto crudo para que el parser lo interprete.
+    const readBacktick = () => {
+        const startLine = line;
+        const startCol = col();
+        pos++; // backtick de apertura
+        let raw = "";
+        while (true) {
+            const c = peek();
+            if (c === "")
+                throw new LuaSyntaxError("cadena con backticks sin cerrar", startLine, startCol);
+            if (c === "`") {
+                pos++;
+                return raw;
+            }
+            if (c === "\\") {
+                raw += c + peek(1);
+                pos += 2;
+                continue;
+            }
+            if (c === "\n" || c === "\r") {
+                raw += "\n";
+                consumeNewline();
+                continue;
+            }
+            raw += c;
+            pos++;
         }
     };
     const readNumber = () => {
         const start = pos;
         if (peek() === "0" && (peek(1) === "x" || peek(1) === "X")) {
             pos += 2;
-            if (!isHexDigit(peek()))
-                fail("número hexadecimal incompleto");
-            while (isHexDigit(peek()))
+            const digitsStart = pos;
+            while (isHexDigit(peek()) || peek() === "_")
                 pos++;
-            return Number.parseInt(source.slice(start + 2, pos), 16);
+            const digits = source.slice(digitsStart, pos).replace(/_/g, "");
+            if (!digits)
+                fail("número hexadecimal incompleto");
+            return Number.parseInt(digits, 16);
         }
-        while (isDigit(peek()))
+        if (peek() === "0" && (peek(1) === "b" || peek(1) === "B")) {
+            pos += 2;
+            const digitsStart = pos;
+            while (peek() === "0" || peek() === "1" || peek() === "_")
+                pos++;
+            const digits = source.slice(digitsStart, pos).replace(/_/g, "");
+            if (!digits)
+                fail("número binario incompleto");
+            return Number.parseInt(digits, 2);
+        }
+        while (isDigit(peek()) || peek() === "_")
             pos++;
         if (peek() === ".") {
             pos++;
-            while (isDigit(peek()))
+            while (isDigit(peek()) || peek() === "_")
                 pos++;
         }
         if (peek() === "e" || peek() === "E") {
@@ -160,7 +232,7 @@ export function tokenize(source) {
         }
         if (isNameChar(peek()))
             fail(`número mal formado '${source.slice(start, pos + 1)}'`);
-        return Number(source.slice(start, pos));
+        return Number(source.slice(start, pos).replace(/_/g, ""));
     };
     while (pos < source.length) {
         const c = peek();
@@ -200,6 +272,10 @@ export function tokenize(source) {
             push("string", readString(c));
             continue;
         }
+        if (c === "`") {
+            push("tstring", readBacktick());
+            continue;
+        }
         if (isDigit(c) || (c === "." && isDigit(peek(1)))) {
             push("number", readNumber());
             continue;
@@ -215,7 +291,8 @@ export function tokenize(source) {
         const op = OPERATORS.find((o) => source.startsWith(o, pos));
         if (op) {
             pos += op.length;
-            push("op", op);
+            // "!=" es el mismo operador que "~=".
+            push("op", op === "!=" ? "~=" : op);
             continue;
         }
         fail(`carácter inesperado '${c}'`);

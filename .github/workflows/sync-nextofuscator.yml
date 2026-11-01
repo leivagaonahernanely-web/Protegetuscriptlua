@@ -31,10 +31,19 @@ jobs:
           set -e
           TSC="$RUNNER_TEMP/tools/node_modules/.bin/tsc"
           cd "$RUNNER_TEMP/vanta"
-          "$TSC" server/obfuscator/build.ts --ignoreConfig \
-            --outDir "$RUNNER_TEMP/nx" --module es2022 --target es2022 \
-            --moduleResolution bundler --skipLibCheck --rootDir server/obfuscator \
-            --typeRoots "$RUNNER_TEMP/tools/node_modules/@types" --types node
+          cat > "$RUNNER_TEMP/nx.tsconfig.json" <<JSON
+          {
+            "compilerOptions": {
+              "outDir": "$RUNNER_TEMP/nx",
+              "rootDir": "$RUNNER_TEMP/vanta/server/obfuscator",
+              "module": "es2022", "target": "es2022", "moduleResolution": "bundler",
+              "skipLibCheck": true,
+              "typeRoots": ["$RUNNER_TEMP/tools/node_modules/@types"], "types": ["node"]
+            },
+            "files": ["$RUNNER_TEMP/vanta/server/obfuscator/build.ts"]
+          }
+          JSON
+          "$TSC" -p "$RUNNER_TEMP/nx.tsconfig.json"
           # Node necesita la extensión .js en los imports relativos
           sed -i -E 's#from "(\./[a-z]+)"#from "\1.js"#g' "$RUNNER_TEMP/nx"/*.js
           cd "$GITHUB_WORKSPACE"

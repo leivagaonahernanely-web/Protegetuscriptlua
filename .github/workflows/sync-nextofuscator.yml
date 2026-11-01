@@ -1,0 +1,59 @@
+name: Actualizar Ofuscador 4 (NextOfuscator)
+
+# Cada 6 horas compila el motor del repo público vanta-vs-protector y, si cambió,
+# lo copia a backend/lib/nextofuscator y lo sube a main. Ese push despliega solo en Railway.
+on:
+  schedule:
+    - cron: '17 */6 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Descargar el motor y las herramientas de compilación
+        run: |
+          set -e
+          git clone --depth 1 https://github.com/leivagaonahernanely-web/vanta-vs-protector.git "$RUNNER_TEMP/vanta"
+          npm install --prefix "$RUNNER_TEMP/tools" --no-audit --no-fund typescript@5.9.3 @types/node@24
+
+      - name: Compilar el motor a JavaScript
+        run: |
+          set -e
+          TSC="$RUNNER_TEMP/tools/node_modules/.bin/tsc"
+          cd "$RUNNER_TEMP/vanta"
+          "$TSC" server/obfuscator/build.ts --ignoreConfig \
+            --outDir "$RUNNER_TEMP/nx" --module es2022 --target es2022 \
+            --moduleResolution bundler --skipLibCheck --rootDir server/obfuscator \
+            --typeRoots "$RUNNER_TEMP/tools/node_modules/@types" --types node
+          # Node necesita la extensión .js en los imports relativos
+          sed -i -E 's#from "(\./[a-z]+)"#from "\1.js"#g' "$RUNNER_TEMP/nx"/*.js
+          cd "$GITHUB_WORKSPACE"
+          node --input-type=module -e "import('$RUNNER_TEMP/nx/build.js').then(m => { const out = m.buildLua('local x = 1\nprint(x)\n', 1); if (!out.code) process.exit(1); console.log('Compilación OK,', out.code.length, 'caracteres'); })"
+
+      - name: Copiar y subir si cambió
+        run: |
+          set -e
+          DEST=backend/lib/nextofuscator
+          mkdir -p "$DEST"
+          cp "$RUNNER_TEMP"/nx/*.js "$DEST"/
+          SHA=$(git -C "$RUNNER_TEMP/vanta" rev-parse --short HEAD)
+          sed -i -E "s/commit \`[0-9a-f]+\`[^.]*\./commit \`${SHA}\` (sincronizado automáticamente desde vanta-vs-protector)./" "$DEST/README.md" || true
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "$DEST"
+          if git diff --cached --quiet; then
+            echo "Sin cambios en el motor ($SHA)"
+            exit 0
+          fi
+          git commit -m "Ofuscador 4: NextOfuscator actualizado a ${SHA} desde vanta-vs-protector"
+          git push origin HEAD:main

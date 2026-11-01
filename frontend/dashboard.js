@@ -440,7 +440,7 @@
         </label>
         <label style="display:flex;gap:10px;align-items:flex-start;margin-top:12px;cursor:pointer">
           <input type="checkbox" name="hwidLock" ${(s.hwid_lock ?? 0) === 1 ? 'checked' : ''} style="margin-top:3px">
-          <span><b>Solo en el equipo que la usó</b><small style="display:block;color:var(--text-soft)">Cada key queda vinculada al primer equipo que la ejecuta. Apagado (por defecto), la misma key funciona en otros equipos.</small></span>
+          <span><b>Solo en el equipo que la usó</b><small style="display:block;color:var(--text-soft)">Cada key queda vinculada al primer equipo que la ejecuta. Apagado, la misma key funciona en otros equipos.</small></span>
         </label>
         <label style="display:flex;gap:10px;align-items:flex-start;margin-top:12px;cursor:pointer">
           <input type="checkbox" name="autoRevokeDump" ${s.auto_revoke_dump ? 'checked' : ''} style="margin-top:3px">

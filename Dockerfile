@@ -48,5 +48,18 @@ COPY backend ./backend
 COPY frontend ./frontend
 COPY admin ./admin
 
+# Ofuscador 4 (NextOfuscator): se compila desde el repo público en cada build y reemplaza la copia del repo.
+# El ADD usa la API de GitHub: cambia cuando entra un commit nuevo, así Docker no reutiliza una versión vieja de la caché.
+ADD https://api.github.com/repos/leivagaonahernanely-web/vanta-vs-protector/commits/main /tmp/nextofuscator-rev.json
+RUN ( git clone --depth 1 https://github.com/leivagaonahernanely-web/vanta-vs-protector.git /opt/nextofuscator-src \
+ && mkdir -p /opt/nxbuild && cd /opt/nxbuild && npm install --no-save --silent typescript@5.9.3 @types/node@24 \
+ && cd /opt/nextofuscator-src \
+ && (/opt/nxbuild/node_modules/.bin/tsc server/obfuscator/build.ts --ignoreConfig --outDir /opt/nx-out --module es2022 --target es2022 --moduleResolution bundler --skipLibCheck --types node --typeRoots /opt/nxbuild/node_modules/@types --rootDir server/obfuscator || true) \
+ && test -f /opt/nx-out/build.js \
+ && sed -i -E 's#from "(\./[a-z]+)"#from "\1.js"#g' /opt/nx-out/*.js \
+ && cp /opt/nx-out/*.js /app/backend/lib/nextofuscator/ \
+ && echo "[build] NextOfuscator actualizado desde vanta-vs-protector" ) \
+ || echo "[build] NextOfuscator no compilado: se usa la copia del repo"
+
 EXPOSE 3000
 CMD ["node", "backend/server.js"]

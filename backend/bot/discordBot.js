@@ -200,6 +200,8 @@ export const commands = [
 // Comandos que responden en público
 // /panel no es público: sus errores y su confirmación solo los ve quien lo ejecuta (el panel sí se publica en el canal)
 const PUBLIC_COMMANDS = new Set(['whitelist', 'unwhitelist', 'blacklist', 'unblacklist', 'warn', 'prices', 'updates', 'dropkey']);
+// Comandos cuyo resultado público no muestra "usó /comando" (se publica como mensaje normal del canal)
+const HEADERLESS_COMMANDS = new Set(['whitelist', 'unwhitelist', 'blacklist', 'unblacklist']);
 
 // ==========================================
 // Bot
@@ -712,10 +714,16 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
 
   // Responde directo. Solo si el trabajo tarda más de 2,5 s se muestra "pensando": así Discord no
   // expira la interacción (tiene unos 3 s para contestar) y el mensaje casi nunca aparece.
-  function fastReply(interaction, visibility = {}) {
+  // headless: el resultado no lleva el texto "usó /comando". Se responde en privado (ack efímero) y el
+  // resultado se publica como mensaje normal del canal con sendPlain; los errores siguen con send (privados).
+  function fastReply(interaction, visibility = {}, { headless = false } = {}) {
     let state = 'none'; // none | deferred | replied
     let deferred = null;
-    const timer = setTimeout(() => {
+    if (headless) {
+      state = 'deferred';
+      deferred = interaction.deferReply({ flags: MessageFlags.Ephemeral }).catch(() => {});
+    }
+    const timer = headless ? null : setTimeout(() => {
       if (state !== 'none') return;
       state = 'deferred';
       deferred = interaction.deferReply(visibility).catch(() => {});
@@ -730,7 +738,14 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
       if (deferred) await deferred;
       return interaction.editReply(p);
     };
-    return { send };
+    const sendPlain = async payload => {
+      clearTimeout(timer);
+      const p = typeof payload === 'string' ? { content: payload } : payload;
+      if (deferred) await deferred;
+      await interaction.deleteReply().catch(() => {});
+      return interaction.channel.send(p);
+    };
+    return { send, sendPlain };
   }
 
   // ---------- Manejadores ----------
@@ -787,8 +802,10 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
     const cmd = interaction.commandName;
     const isPublic = PUBLIC_COMMANDS.has(cmd);
     const visibility = isPublic ? {} : { flags: MessageFlags.Ephemeral };
-    const rr = fastReply(interaction, visibility);
-    const reply = payload => rr.send(typeof payload === 'string' ? { content: payload } : payload);
+    // Estos comandos publican su resultado sin el encabezado "usó /comando" de Discord
+    const headless = HEADERLESS_COMMANDS.has(cmd);
+    const rr = fastReply(interaction, visibility, { headless });
+    const reply = payload => (headless ? rr.sendPlain(payload) : rr.send(typeof payload === 'string' ? { content: payload } : payload));
     // Errores en comandos públicos: solo los ve quien los usó
     const replyPrivate = payload => rr.send({ ...(typeof payload === 'string' ? { content: payload } : payload), flags: MessageFlags.Ephemeral });
     await loadRoles(interaction);

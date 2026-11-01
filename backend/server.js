@@ -1061,12 +1061,9 @@ script_key = nil
 if not ok or type(body) ~= "string" then kick("SERVER_UNREACHABLE") end
 local code = body:match("^!VANTARMOR:(%u[%u_]*)$")
 if code then kick(code) end
-local tok = body:match("^!VANTARMOR:OK:(%x+)$")
-if not tok then kick("VERIFY_FAILED") end
-local ok2, payload = pcall(function() return game:HttpGet(PAYLOAD_URL .. "?token=" .. tok) end)
-if not ok2 or type(payload) ~= "string" then kick("CONNECTION_FAILED") end
-local pcode = payload:match("^!VANTARMOR:(%u[%u_]*)$")
-if pcode then kick(pcode) end
+-- La respuesta trae "!VANTARMOR:CODE" y el código del script en la línea siguiente
+local payload = body:match("^!VANTARMOR:CODE\\n(.*)$")
+if not payload then kick("VERIFY_FAILED") end
 if loaderTampered() then kick("TAMPERING") end
 local fn = loadstring(payload)
 if not fn then kick("PAYLOAD_LOAD_FAILED") end
@@ -1320,7 +1317,7 @@ app.get('/scripts/hosted/:slug/auth', loaderLimit, (req, res) => {
       `• HWID: \`${/^[\x21-\x7E]{8,128}$/.test(ffaHwid) ? ffaHwid : 'sin dato'}\``,
       `• ID del script: \`${script.loader_id || script.id}\``,
     ], null, rbxid);
-    return reply(`OK:${issuePayloadToken(script.id, req.ip)}`);
+    return res.type('text/plain').send('!VANTARMOR:CODE\n' + script.content);
   }
 
   const key = String(req.query.key || '').trim().slice(0, 64);
@@ -1363,7 +1360,7 @@ app.get('/scripts/hosted/:slug/auth', loaderLimit, (req, res) => {
     `• ID del script: \`${script.loader_id || script.id}\``,
     `• Veces que esta key ejecutó este script: ${run?.exec_count ?? 1}`,
   ], k.discord_id, rbxid);
-  reply(`OK:${issuePayloadToken(script.id, req.ip)}`);
+  res.type('text/plain').send('!VANTARMOR:CODE\n' + script.content);
 });
 
 app.get('/auth/logout', (req, res) => {

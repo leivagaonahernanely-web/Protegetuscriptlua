@@ -912,6 +912,8 @@ local MSG = {
   MAINTENANCE_ALL = HEAD .. "Vantarmor is under maintenance.\\nPlease try again in a few minutes.",
   SERVER_UNREACHABLE = HEAD .. "Server unreachable. Please try later.",
   PAYLOAD_LOAD_FAILED = HEAD .. "The script could not be loaded by your executor.\\nPlease contact the script owner.",
+  TOKEN_INVALID = HEAD .. "Your session expired. Please rejoin.",
+  FORBIDDEN = HEAD .. "Access denied.",
 }
 local Players = game:GetService("Players")
 local function kick(code)

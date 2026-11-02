@@ -351,7 +351,10 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
       const roleIds = memberRoleIds(interaction);
       for (const row of q.managerRoleRows.all()) if (roleIds.includes(row.value)) creators.add(row.owner);
     }
-    return q.scriptsList.all().filter(s => creators.has(s.user_id));
+    // Filtra por creador en la consulta: antes se traían los 100 scripts más recientes de todos y luego se filtraba
+    const ids = [...creators];
+    const marks = ids.map(() => '?').join(', ');
+    return db.prepare(`SELECT id, name, user_id FROM scripts WHERE user_id IN (${marks}) ORDER BY id DESC LIMIT 100`).all(...ids);
   }
 
   // Enlace al mensaje del panel de alguno de estos scripts (el botón Stats sale ahí)

@@ -14,6 +14,7 @@ import { payloadLiteral } from "./emit.js";
 import { LuaSyntaxError } from "./lexer.js";
 import { PRELUDE_LUA } from "./prelude.js";
 import { RUNTIME_LUA } from "./runtime.js";
+import { minifyLua } from "./minify.js";
 import { parse } from "./parser.js";
 import { encode } from "./vm.js";
 export class BuildError extends Error {
@@ -287,6 +288,14 @@ export function autoSegments(source) {
     }
     return segments;
 }
+// Quita comentarios, sangría y líneas vacías. Solo se usa en el prelude y el runtime, que no tienen cadenas largas.
+function compactLua(src) {
+    return stripComments(src)
+        .split("\n")
+        .map((l) => l.trim())
+        .filter((l) => l !== "")
+        .join("\n");
+}
 // Construye el archivo Lua final a partir del código fuente.
 // Con macros, el reparto lo marca el usuario; sin macros, lo decide autoSegments.
 export function buildLua(source, seed, options = {}) {
@@ -336,7 +345,8 @@ export function buildLua(source, seed, options = {}) {
         chunks.push(`do local P=${payloadLiteral(bytecode)} ${run} end`);
     });
     return {
-        code: `-- NextOfuscator\n${PRELUDE_LUA}${RUNTIME_LUA}\n${chunks.join("\n")}\n`,
+        // Cabecera exacta; prelude y runtime sin comentarios, sangría ni líneas vacías (no tienen cadenas largas).
+        code: `--Protect by NextOfuscator\n${compactLua(PRELUDE_LUA)}\n${minifyLua(compactLua(RUNTIME_LUA))}\n${chunks.join("\n")}\n`,
         segments: segments.length,
     };
 }

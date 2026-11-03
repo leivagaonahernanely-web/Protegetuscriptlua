@@ -1,7 +1,7 @@
 # NextOfuscator (Ofuscador 4)
 
 Copia compilada (JavaScript ES2022) del motor de `vanta-vs-protector` (`server/obfuscator/`),
-commit `e77cfa8` (sincronizado automáticamente desde vanta-vs-protector). Los imports llevan extensión `.js` para que Node los cargue sin compilar.
+commit `79b143e` (sincronizado desde vanta-vs-protector). Los imports llevan extensión `.js` para que Node los cargue sin compilar.
 
 Para actualizarla desde el repo fuente:
 

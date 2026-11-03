@@ -26,7 +26,9 @@ export const RUNTIME_LUA = `local function nx_run(P)
   for i = 1, P.nconsts do
     if type(consts[i]) == "string" then consts[i] = decstr(consts[i], 3000000 + i) end
   end
-  local env = _G
+  -- Globales del script: en Roblox, _G no contiene game, Enum, Color3, task... (solo el entorno
+  -- del script los tiene). getfenv() devuelve ese entorno; en Lua 5.1 estándar es _G.
+  local env = (type(getfenv) == "function" and getfenv()) or _G
   local unpack = unpack or table.unpack
   local fmt = string.format
   local MAX_DEPTH = 1000
@@ -329,22 +331,24 @@ export const RUNTIME_LUA = `local function nx_run(P)
       local a = code[pc + 1]
       pc = pc + 2
 
-      if op <= 17 then
+      -- Las instrucciones más frecuentes se comprueban primero (LGET, CONST, ADD): así no
+      -- recorren el árbol binario de abajo, que cuesta ~6 comparaciones por instrucción.
+      if op == 1 then -- LGET
+        sp = sp + 1
+        stack[sp] = cells[a]
+      elseif op == 2 then -- CONST
+        sp = sp + 1
+        stack[sp] = a
+      elseif op == 3 then -- ADD
+        local l, r = stack[sp - 1], stack[sp]
+        if type(l) == "number" and type(r) == "number" then stack[sp - 1] = l + r
+        else stack[sp - 1] = a(l, r) end
+        sp = sp - 1
+      elseif op <= 17 then
         if op <= 9 then
           if op <= 5 then
             if op <= 3 then
-              if op == 1 then -- LGET
-                sp = sp + 1
-                stack[sp] = cells[a]
-              elseif op == 2 then -- CONST
-                sp = sp + 1
-                stack[sp] = a
-              elseif op == 3 then -- ADD
-                local l, r = stack[sp - 1], stack[sp]
-                if type(l) == "number" and type(r) == "number" then stack[sp - 1] = l + r
-                else stack[sp - 1] = a(l, r) end
-                sp = sp - 1
-              end
+              -- (1, 2 y 3 ya se atendieron arriba)
             else
               if op == 4 then -- SUB
                 local l, r = stack[sp - 1], stack[sp]

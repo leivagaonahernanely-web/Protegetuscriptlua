@@ -673,13 +673,21 @@ const obfCacheGet = db.prepare('SELECT content FROM obf_cache WHERE hash = ?');
 const obfCachePut = db.prepare('INSERT OR REPLACE INTO obf_cache (hash, content, created_at) VALUES (?, ?, ?)');
 async function obfuscate(source, obfuscator, opts = {}) {
   source = normalizeLuaSource(source); // BOM y línea #! fuera antes de ofuscar (y de la caché)
-  const hash = crypto.createHash('sha256').update(`${obfuscator}|${opts.vm ? 1 : 0}|${source}`).digest('hex');
+  // La caché incluye la versión del motor de Ofuscador 4: al actualizar NextOfuscator no se devuelve lo viejo
+  const hash = crypto.createHash('sha256').update(`${obfuscator}|${opts.vm ? 1 : 0}|${obfuscator === 'next' ? NEXT_ENGINE_VERSION : ''}|${source}`).digest('hex');
   const hit = obfCacheGet.get(hash);
   if (hit) return hit.content;
   const content = await obfuscateUncached(source, obfuscator, opts);
   try { obfCachePut.run(hash, content, Math.floor(Date.now() / 1000)); } catch { /* la caché nunca rompe el guardado */ }
   return content;
 }
+// Huella de los archivos del motor de Ofuscador 4: cambia cada vez que se actualiza NextOfuscator
+const NEXT_ENGINE_VERSION = (() => {
+  const dir = path.join(path.dirname(new URL(import.meta.url).pathname), 'lib', 'nextofuscator');
+  const h = crypto.createHash('sha256');
+  for (const f of fs.readdirSync(dir).filter(f => f.endsWith('.js')).sort()) h.update(fs.readFileSync(path.join(dir, f)));
+  return h.digest('hex').slice(0, 16);
+})();
 // Ofuscador 4 (NextOfuscator): motor en JavaScript dentro del backend, sin CLI externo
 function obfuscateNext(source) {
   try {

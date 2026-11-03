@@ -145,7 +145,7 @@ pre{white-space:pre-wrap;word-break:break-all;background:#040407;border:1px soli
 
     <section class="card hidden" data-panel="broadcast">
       <strong>Difusión a todos los servidores</strong>
-      <p class="muted" style="margin:8px 0 12px">Se envía al canal de anuncios que cada servidor eligió con /anuncioscanal. Un servidor sin canal no recibe nada.</p>
+      <p class="muted" style="margin:8px 0 12px">Se envía al canal de texto llamado "anuncios" o "announcements" de cada servidor. Si un servidor no tiene ese canal, se omite.</p>
       <label>Título</label>
       <input id="bcTitle" type="text" maxlength="256" style="width:100%;margin:4px 0 12px">
       <label>Mensaje</label>
@@ -619,7 +619,7 @@ let bcTimer = null;
 function renderBroadcast(st) {
   const el = $('bcStatus');
   if (st.running) { el.textContent = `Enviando… ${st.sent + st.failed.length} de ${st.total}`; return; }
-  el.textContent = st.finishedAt ? `Listo: ${st.sent} de ${st.total} enviados${st.failed.length ? `, ${st.failed.length} fallaron` : ''}.` : '';
+  el.textContent = st.finishedAt ? `Listo: ${st.sent} enviados, ${st.skipped || 0} sin canal de anuncios, ${st.failed.length} con error.` : '';
 }
 async function pollBroadcast() {
   clearTimeout(bcTimer);
@@ -635,7 +635,7 @@ $('bcSend').addEventListener('click', async () => {
   const title = $('bcTitle').value.trim();
   const description = $('bcDesc').value.trim();
   if (!title || !description) return alert('Escribe el título y el mensaje.');
-  if (!confirm('¿Enviar este anuncio a todos los servidores que tengan canal de anuncios?')) return;
+  if (!confirm('¿Enviar este anuncio a todos los servidores con canal de anuncios?')) return;
   try {
     const r = await api('POST', '/admin/api/broadcast', { title, description });
     $('bcStatus').textContent = `Enviando a ${r.total} servidor(es)…`;

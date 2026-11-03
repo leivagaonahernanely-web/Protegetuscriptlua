@@ -2127,7 +2127,7 @@ app.post('/api/owner/announce', requireOwnerApi, async (req, res) => {
 
 // Difusión: manda un anuncio a los canales de anuncios de todos los servidores (solo el dueño)
 app.get('/api/owner/broadcast', requireOwnerApi, (req, res) => {
-  res.json(discordBot?.broadcastState ?? { running: false, total: 0, sent: 0, failed: [] });
+  res.json(discordBot?.broadcastState ?? { running: false, total: 0, sent: 0, skipped: 0, failed: [] });
 });
 app.post('/api/owner/broadcast', requireOwnerApi, (req, res) => {
   const title = String(req.body?.title ?? '').trim();

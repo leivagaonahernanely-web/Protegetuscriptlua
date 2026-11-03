@@ -2125,6 +2125,25 @@ app.post('/api/owner/announce', requireOwnerApi, async (req, res) => {
   }
 });
 
+// Difusión: manda un anuncio a los canales de anuncios de todos los servidores (solo el dueño)
+app.get('/api/owner/broadcast', requireOwnerApi, (req, res) => {
+  res.json(discordBot?.broadcastState ?? { running: false, total: 0, sent: 0, failed: [] });
+});
+app.post('/api/owner/broadcast', requireOwnerApi, (req, res) => {
+  const title = String(req.body?.title ?? '').trim();
+  const description = String(req.body?.description ?? '').trim();
+  if (!title || title.length > 256) return res.status(400).json({ error: 'Título requerido (máx. 256)' });
+  if (!description || description.length > 2000) return res.status(400).json({ error: 'Mensaje requerido (máx. 2000)' });
+  if (!discordBot?.startBroadcast) return res.status(503).json({ error: 'El bot todavía no está conectado' });
+  try {
+    const { total } = discordBot.startBroadcast({ title, description });
+    auditLog(req.userId, 'broadcast', String(total), title);
+    res.json({ ok: true, total });
+  } catch (err) {
+    res.status(409).json({ error: err.message });
+  }
+});
+
 app.get('/api/scripts', requireAuth, (req, res) => {
   res.json(stmt.scriptsByUser.all(req.userId));
 });

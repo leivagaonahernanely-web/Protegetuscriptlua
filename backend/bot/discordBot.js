@@ -83,6 +83,8 @@ export function ensureBotSchema(db) {
   }
   const hasExp = db.prepare("SELECT 1 FROM pragma_table_info('bot_access_rules') WHERE name = 'expires_at'").get();
   if (!hasExp) db.exec('ALTER TABLE bot_access_rules ADD COLUMN expires_at INTEGER');
+  // Canal donde cada servidor quiere recibir los anuncios de Vantarmor (lo elige un administrador con /anuncioscanal)
+  db.exec('CREATE TABLE IF NOT EXISTS bot_announce_channels (guild_id TEXT PRIMARY KEY, channel_id TEXT NOT NULL, updated_at INTEGER)');
   // Último vencimiento avisado por DM (si la key se renueva, vuelve a avisar)
   if (!db.prepare("SELECT 1 FROM pragma_table_info('keys') WHERE name = 'expiry_notified_for'").get()) {
     db.exec('ALTER TABLE keys ADD COLUMN expiry_notified_for INTEGER');
@@ -171,6 +173,9 @@ export const commands = [
   new SlashCommandBuilder().setName('ticketpanel').setDescription('Publica el botón para abrir tickets (staff del servidor)')
     .addChannelOption(o => o.setName('canal').setDescription('Canal donde se publica (opcional: este canal)').addChannelTypes([ChannelType.GuildText]).setRequired(false))
     .addStringOption(o => o.setName('mensaje').setDescription('Texto del panel (opcional; usa \\n para saltos de línea)').setMaxLength(1000).setRequired(false)),
+  new SlashCommandBuilder().setName('anuncioscanal').setDescription('Elige el canal donde llegan los anuncios de Vantarmor')
+    .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
+    .addChannelOption(o => o.setName('canal').setDescription('Canal de texto para los anuncios (vacío para quitarlo)').addChannelTypes(0, 5)),
   new SlashCommandBuilder().setName('ticketperm').setDescription('Configura los tickets del servidor (administradores)')
     .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
     .addSubcommand(s => s.setName('agregar-rol').setDescription('Añade un rol de staff que ve y atiende los tickets')
@@ -217,6 +222,10 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
     scriptByName: db.prepare('SELECT * FROM scripts WHERE lower(name) = lower(?) ORDER BY id DESC LIMIT 1'),
     scriptsNamed: db.prepare('SELECT id FROM scripts WHERE lower(name) = lower(?)'),
     scriptsList: db.prepare('SELECT id, name, user_id FROM scripts ORDER BY id DESC LIMIT 100'),
+    announceUpsert: db.prepare(`INSERT INTO bot_announce_channels (guild_id, channel_id, updated_at) VALUES (?, ?, ?)
+      ON CONFLICT(guild_id) DO UPDATE SET channel_id = excluded.channel_id, updated_at = excluded.updated_at`),
+    announceDelete: db.prepare('DELETE FROM bot_announce_channels WHERE guild_id = ?'),
+    announceAll: db.prepare('SELECT guild_id, channel_id FROM bot_announce_channels'),
     scriptsOfUser: db.prepare('SELECT 1 FROM scripts WHERE user_id = ? LIMIT 1'),
     userPlan: db.prepare('SELECT plan FROM users WHERE id = ?'),
     settingDel: db.prepare('DELETE FROM bot_settings WHERE owner = ? AND name = ?'),
@@ -1234,6 +1243,20 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
         return reply(`✅ Panel de tickets publicado en <#${channel.id}>.`);
       }
 
+      case 'anuncioscanal': {
+        if (!interaction.inGuild()) return reply('❌ Usa este comando dentro de tu servidor.');
+        if (interaction.guild.ownerId !== actor && !interaction.memberPermissions?.has(PermissionFlagsBits.ManageGuild)) {
+          return reply('⛔ Solo quien tenga Gestionar servidor puede elegir el canal de anuncios.');
+        }
+        const ch = interaction.options.getChannel('canal');
+        if (!ch) {
+          q.announceDelete.run(interaction.guildId);
+          return reply('✅ Quité el canal de anuncios de este servidor.');
+        }
+        q.announceUpsert.run(interaction.guildId, ch.id, now());
+        return reply(`✅ Los anuncios de Vantarmor llegarán a ${ch}.`);
+      }
+
       case 'ticketperm': {
         if (!interaction.inGuild()) return reply('❌ Usa este comando dentro de tu servidor.');
         if (interaction.guild.ownerId !== actor && !interaction.memberPermissions?.has(PermissionFlagsBits.Administrator)) {
@@ -1737,6 +1760,38 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
   };
 
   // Changelogs y tabla de precios: los publica el panel admin, no comandos de Discord
+  // Difusión a los canales de anuncios de todos los servidores. Corre en segundo plano y guarda el progreso.
+  client.broadcastState = { running: false, total: 0, sent: 0, failed: [], title: '', startedAt: null, finishedAt: null };
+  client.startBroadcast = ({ title, description }) => {
+    if (client.broadcastState.running) throw new Error('Ya hay una difusión en curso');
+    const rows = q.announceAll.all();
+    const state = { running: true, total: rows.length, sent: 0, failed: [], title, startedAt: Date.now(), finishedAt: null };
+    client.broadcastState = state;
+    (async () => {
+      for (const row of rows) {
+        try {
+          const channel = await client.channels.fetch(row.channel_id);
+          if (!channel?.isTextBased()) throw new Error('ya no es un canal de texto');
+          const embed = new EmbedBuilder()
+            .setColor(0xe93540)
+            .setTitle(title)
+            .setDescription(description)
+            .setFooter({ text: `Vantarmor · ${new Date().getFullYear()}` })
+            .setTimestamp();
+          // allowedMentions vacío: el texto no puede mencionar a @everyone ni a roles
+          await channel.send({ embeds: [embed], allowedMentions: { parse: [] } });
+          state.sent++;
+        } catch (err) {
+          state.failed.push({ guild_id: row.guild_id, reason: err.code === 50013 ? 'sin permiso para escribir' : err.message });
+        }
+        await new Promise(r => setTimeout(r, 1200)); // no saturar la API de Discord
+      }
+    })()
+      .catch(err => console.error('[Bot] Difusión:', err.message))
+      .finally(() => { state.running = false; state.finishedAt = Date.now(); });
+    return { total: rows.length };
+  };
+
   client.announce = async (kind, channelId, title, description, imageUrl = null) => {
     const channel = await client.channels.fetch(channelId);
     if (!channel?.isTextBased()) throw new Error('Ese canal no es de texto');

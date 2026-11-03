@@ -91,6 +91,7 @@ const ALLOWED = {
   servers: { GET: '/servers' },
   'loader-downloads': { GET: '/loader-downloads' },
   settings: { POST: '/settings' },
+  broadcast: { GET: '/broadcast', POST: '/broadcast' },
 };
 
 async function forward(res, method, route, body) {

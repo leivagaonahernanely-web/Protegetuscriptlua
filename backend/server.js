@@ -92,7 +92,7 @@ const {
   JWT_SECRET,
   // En Railway la base va al volumen montado en /data (si no, se pierde en cada deploy)
   DATABASE_PATH = process.env.RAILWAY_ENVIRONMENT ? '/data/vantarmor.db' : 'vantarmor.db',
-  FRONTEND_URL = 'https://vantarmorweb-production.up.railway.app',
+  FRONTEND_URL = 'https://vantarmor.up.railway.app',
   // En producción (https) debe ser true. Pon COOKIE_SECURE=false solo para probar en http.
   COOKIE_SECURE = 'true',
 } = process.env;

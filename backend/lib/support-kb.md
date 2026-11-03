@@ -35,7 +35,7 @@ Si el ofuscador o el código protegido falla, el creador ve un mensaje específi
 - Las keys se pueden eliminar en lote o banear el HWID de varias a la vez.
 
 ## Loader y códigos de error
-El loader es una línea, por ejemplo `loadstring(game:HttpGet("https://vantarmorweb-production.up.railway.app/..."))()`. Si el script tiene key, el usuario la pega en `script_key` encima del loader.
+El loader es una línea, por ejemplo `loadstring(game:HttpGet("https://vantarmor.up.railway.app/..."))()`. Si el script tiene key, el usuario la pega en `script_key` encima del loader.
 
 Códigos que puede ver el jugador:
 - `KEY_REQUIRED`: falta la key.

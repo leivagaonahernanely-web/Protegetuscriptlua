@@ -13,7 +13,7 @@ const {
   ADMIN_PASSWORD,
   ADMIN_SESSION_SECRET,
   ADMIN_API_TOKEN,
-  MAIN_API_URL = 'https://vantarmorweb-production.up.railway.app',
+  MAIN_API_URL = 'https://vantarmor.up.railway.app',
 } = process.env;
 
 if (!ADMIN_PASSWORD || !ADMIN_SESSION_SECRET || !ADMIN_API_TOKEN) {

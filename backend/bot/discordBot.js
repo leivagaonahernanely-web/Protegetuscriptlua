@@ -1753,7 +1753,7 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
     (async () => {
       for (const guild of guilds) {
         try {
-          await guild.channels.fetch().catch(() => {});
+          // Usa los canales que discord.js ya tiene en caché (no pide todos a Discord en cada difusión)
           const hits = announceChannelsOf(guild);
           if (!hits.length) { state.skipped++; continue; }
           if (hits.length > 1) {

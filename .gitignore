@@ -1,5 +1,3 @@
 node_modules/
 *.db
 *.db-*
-# El motor de Ofuscador 4 se compila desde vanta-vs-protector en el build de Docker; no se versiona aquí
-backend/lib/nextofuscator/

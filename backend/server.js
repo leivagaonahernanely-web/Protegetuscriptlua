@@ -1909,6 +1909,18 @@ function maintenanceBlock(req, res) {
   return true;
 }
 // Estado público del sitio (banner y mantenimiento)
+// Versión que está corriendo: commit de Railway y huella del motor de Ofuscador 4 (público, sin datos sensibles)
+const STARTED_AT = new Date().toISOString();
+app.get('/api/version', (req, res) => {
+  const sha = process.env.RAILWAY_GIT_COMMIT_SHA || '';
+  res.json({
+    commit: sha ? sha.slice(0, 7) : 'desconocido',
+    commitFull: sha || null,
+    engine: NEXT_ENGINE_VERSION,
+    startedAt: STARTED_AT,
+  });
+});
+
 app.get('/api/status', (req, res) => {
   // servers: solo el número de servidores donde está el bot (público, sin nombres)
   const servers = discordBot?.guilds?.cache ? discordBot.guilds.cache.size : null;

@@ -1148,7 +1148,7 @@
           }
         });
         $('supClose').addEventListener('click', async () => {
-          if (!confirm('¿Cerrar este ticket? Ya no podrás responder.')) return;
+          if (!await askConfirm('Cerrar ticket', '¿Cerrar este ticket? Ya no podrás responder.', { okText: 'Cerrar', danger: true })) return;
           try {
             await api(`/api/support/tickets/${encodeURIComponent(id)}/close`, { method: 'POST' });
             toast('Ticket cerrado');
@@ -1738,7 +1738,7 @@
     }
     const clear = e.target.closest('[data-clear-reports]');
     if (clear) {
-      if (!confirm('¿Descartar los reportes de este mensaje?')) return;
+      if (!await askConfirm('Descartar reportes', '¿Descartar los reportes de este mensaje?', { okText: 'Descartar' })) return;
       try {
         await api(`/api/chat/${clear.dataset.clearReports}/reports`, { method: 'DELETE' });
         const m = chatMessages.find(x => String(x.id) === clear.dataset.clearReports);
@@ -1760,7 +1760,7 @@
     }
     const btn = e.target.closest('[data-del]');
     if (!btn) return;
-    if (!confirm('¿Borrar este mensaje?')) return;
+    if (!await askConfirm('Borrar mensaje', '¿Borrar este mensaje?', { okText: 'Borrar', danger: true })) return;
     try {
       await api(`/api/chat/${btn.dataset.del}`, { method: 'DELETE' });
       chatMessages = chatMessages.filter(m => String(m.id) !== btn.dataset.del);
@@ -2203,7 +2203,7 @@
     const channelId = $('prChId').value.trim() || $('prCh').value;
     if (!channelId) return toast('Elige un canal o pega su ID', 'error');
     if (!description) return toast('Escribe el contenido', 'error');
-    if (!confirm(`¿Publicar "${title}" en el canal elegido?`)) return;
+    if (!await askConfirm('Publicar anuncio', `¿Publicar "${title}" en el canal elegido?`, { okText: 'Publicar' })) return;
     $('prSend').disabled = true;
     try {
       await api('/api/prices', { method: 'POST', body: JSON.stringify({ title, description, channelId, imageUrl: $('prImg').value.trim() }) });
@@ -2323,7 +2323,7 @@
     }
   });
   $('weOff').addEventListener('click', async () => {
-    if (!confirm('¿Desactivar la bienvenida?')) return;
+    if (!await askConfirm('Desactivar bienvenida', '¿Desactivar la bienvenida?', { okText: 'Desactivar', danger: true })) return;
     try {
       await api('/api/welcome', { method: 'DELETE' });
       toast('Bienvenida desactivada');
@@ -2336,7 +2336,7 @@
   // ---------- BORRAR KEYS ----------
   async function deleteKeys(list) {
     if (!list.length) return;
-    if (!confirm(`¿Eliminar ${list.length} key(s)? No se puede deshacer.`)) return;
+    if (!await askConfirm('Eliminar keys', `¿Eliminar ${list.length} key(s)? No se puede deshacer.`, { okText: 'Eliminar', danger: true })) return;
     try {
       const data = await api('/api/keys/delete', { method: 'POST', body: JSON.stringify({ keys: list }) });
       list.forEach(k => selected.delete(k));
@@ -2583,7 +2583,7 @@
       } catch (err) { toast(err.message, 'error'); }
       finally { setBusy(test, false); loadWebhooks(); }
     } else if (del) {
-      if (!confirm('¿Eliminar este webhook?')) return;
+      if (!await askConfirm('Eliminar webhook', '¿Eliminar este webhook?', { okText: 'Eliminar', danger: true })) return;
       try {
         await api(`/api/webhooks/${encodeURIComponent(del.dataset.whDel)}`, { method: 'DELETE' });
         toast('Webhook eliminado');
@@ -2681,7 +2681,7 @@
   $('bulkBan').addEventListener('click', async () => {
     const list = keys.filter(k => selected.has(k.key) && k.hwid);
     if (!list.length) { toast('Ninguna de las seleccionadas tiene HWID registrado', 'error'); return; }
-    if (!confirm(`¿Banear el HWID de ${list.length} key(s)? Los equipos quedarán bloqueados.`)) return;
+    if (!await askConfirm('Banear HWID', `¿Banear el HWID de ${list.length} key(s)? Los equipos quedarán bloqueados.`, { okText: 'Banear', danger: true })) return;
     let ok = 0;
     for (const k of list) {
       try {
@@ -2798,7 +2798,7 @@
   $('pjGroups').addEventListener('click', async e => {
     const del = e.target.closest('[data-pj-del]');
     if (!del) return;
-    if (!confirm('¿Eliminar este proyecto? Sus scripts quedan sin proyecto (no se borran).')) return;
+    if (!await askConfirm('Eliminar proyecto', '¿Eliminar este proyecto? Sus scripts quedan sin proyecto (no se borran).', { okText: 'Eliminar', danger: true })) return;
     try {
       await api(`/api/projects/${encodeURIComponent(del.dataset.pjDel)}/delete`, { method: 'POST' });
       toast('Proyecto eliminado');

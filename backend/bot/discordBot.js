@@ -1567,7 +1567,14 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
     if (action === 'delkey' || action === 'allowkey') return handleKeyLogButton(interaction, action, rawId);
     if (action === 'ticket-open' || action === 'ticket-close') return handleTicketButton(interaction, action, rawId);
     const script = findScript(rawId);
-    if (!script) return interaction.reply({ content: NO_ACCESS_MSG, flags: MessageFlags.Ephemeral });
+    if (!script) {
+      // Script borrado por su dueño: tarjeta clara en vez del mensaje de whitelist
+      const gone = db.prepare('SELECT name FROM deleted_scripts WHERE script_id = ? ORDER BY id DESC LIMIT 1').get(Number(rawId));
+      if (gone) {
+        return interaction.reply({ ...card({ title: '🗑️ Script eliminado', color: C.err, description: `El script **${gone.name || 'de este panel'}** fue eliminado por su dueño. Este panel ya no funciona.` }), flags: MessageFlags.Ephemeral });
+      }
+      return interaction.reply({ content: NO_ACCESS_MSG, flags: MessageFlags.Ephemeral });
+    }
 
     // Bloqueados no pueden usar ningún botón del panel
     if (isBlocked(script, interaction.user.id, memberRoleIds(interaction))) {

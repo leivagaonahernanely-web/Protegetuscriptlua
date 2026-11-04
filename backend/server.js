@@ -1139,7 +1139,7 @@ function saveUserImage(userId, kind, mime, b64) {
 }
 db.exec(`CREATE TABLE IF NOT EXISTS loader_downloads (id INTEGER PRIMARY KEY AUTOINCREMENT, script_id INTEGER, slug TEXT, ip TEXT, created_at INTEGER NOT NULL)`);
 // Scripts borrados: el loader distingue "borrado" de "no existe" y el historial muestra cada borrado
-db.exec(`CREATE TABLE IF NOT EXISTS deleted_scripts (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id TEXT NOT NULL, slug TEXT NOT NULL, name TEXT, deleted_at INTEGER NOT NULL)`);
+db.exec(`CREATE TABLE IF NOT EXISTS deleted_scripts (id INTEGER PRIMARY KEY AUTOINCREMENT, script_id INTEGER, user_id TEXT NOT NULL, slug TEXT NOT NULL, name TEXT, deleted_at INTEGER NOT NULL)`);
 const LOADER_LOG_DAYS = 30;
 let loaderLogWrites = 0;
 function logLoaderDownload(script, ip) {
@@ -2296,7 +2296,7 @@ app.delete('/api/scripts/:id', requireAuth, (req, res) => {
       db.prepare(`DELETE FROM ${table} WHERE script_id = ?`).run(script.id);
     }
     db.prepare('DELETE FROM scripts WHERE id = ? AND user_id = ?').run(script.id, req.userId);
-    db.prepare('INSERT INTO deleted_scripts (user_id, slug, name, deleted_at) VALUES (?, ?, ?, ?)').run(req.userId, script.slug, script.name, Math.floor(Date.now() / 1000));
+    db.prepare('INSERT INTO deleted_scripts (script_id, user_id, slug, name, deleted_at) VALUES (?, ?, ?, ?, ?)').run(script.id, req.userId, script.slug, script.name, Math.floor(Date.now() / 1000));
   })();
   res.json({ ok: true });
 });

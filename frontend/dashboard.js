@@ -2488,14 +2488,16 @@
     if (!box) return;
     box.innerHTML = '<p class="hint">Cargando actividad…</p>';
     try {
-      const { redemptions, logs } = await api('/api/me/activity');
+      const { redemptions, logs, deleted = [], obfTotal = 0 } = await api('/api/me/activity');
       const rows = [
         ...redemptions.map(r => ({ at: r.used_at, text: `Canjeaste una key de ${PLAN_LABELS[planKey(r.plan)] || r.plan}` })),
         ...logs.map(l => ({ at: l.created_at, text: `${l.script_name || 'Script'}: ${l.text}` })),
+        ...deleted.map(d => ({ at: d.deleted_at, text: `🗑️ Script eliminado: ${d.name || 'sin nombre'}` })),
       ].sort((a, b) => b.at - a.at).slice(0, 30);
-      box.innerHTML = rows.length
+      const summary = `<p class="hint"><strong>Ofuscaciones totales: ${esc(String(obfTotal))}</strong></p>`;
+      box.innerHTML = summary + (rows.length
         ? rows.map(r => `<div class="activity-row"><span class="hint">${fmtDate(r.at)}</span><span>${esc(r.text)}</span></div>`).join('')
-        : '<p class="hint">Aún no hay actividad.</p>';
+        : '<p class="hint">Aún no hay actividad.</p>');
     } catch (err) {
       box.innerHTML = `<p class="hint">No pude cargar la actividad: ${esc(err.message)}</p>`;
     }

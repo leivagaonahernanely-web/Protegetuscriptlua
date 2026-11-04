@@ -914,6 +914,7 @@ local MSG = {
   CONNECTION_FAILED = HEAD .. "Connection failed. Please try again.",
   TAMPERING = HEAD .. "Tampering detected.",
   SCRIPT_NOT_FOUND = HEAD .. "Script not found.",
+  SCRIPT_DELETED = HEAD .. "This script was deleted by its owner.",
   REAUTH = HEAD .. "Please re-authenticate.",
   BLACKLISTED = HEAD .. "Access denied.",
   MAINTENANCE = HEAD .. "This script is under maintenance.\\nPlease try again in a few minutes.",
@@ -1137,6 +1138,8 @@ function saveUserImage(userId, kind, mime, b64) {
     .run(userId, kind, mime, b64, Math.floor(Date.now() / 1000));
 }
 db.exec(`CREATE TABLE IF NOT EXISTS loader_downloads (id INTEGER PRIMARY KEY AUTOINCREMENT, script_id INTEGER, slug TEXT, ip TEXT, created_at INTEGER NOT NULL)`);
+// Scripts borrados: el loader distingue "borrado" de "no existe" y el historial muestra cada borrado
+db.exec(`CREATE TABLE IF NOT EXISTS deleted_scripts (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id TEXT NOT NULL, slug TEXT NOT NULL, name TEXT, deleted_at INTEGER NOT NULL)`);
 const LOADER_LOG_DAYS = 30;
 let loaderLogWrites = 0;
 function logLoaderDownload(script, ip) {
@@ -1288,7 +1291,10 @@ app.get('/scripts/hosted/:slug/auth', loaderLimit, (req, res) => {
   const reply = code => res.type('text/plain').send(`!VANTARMOR:${code}`);
 
   const script = stmt.scriptBySlug.get(req.params.slug);
-  if (!script) return reply('SCRIPT_NOT_FOUND');
+  if (!script) {
+    const gone = db.prepare('SELECT 1 FROM deleted_scripts WHERE slug = ?').get(req.params.slug);
+    return reply(gone ? 'SCRIPT_DELETED' : 'SCRIPT_NOT_FOUND');
+  }
   if (maintenanceAllOn() && !isOwnerId(script.user_id)) return reply('MAINTENANCE_ALL');
   if (script.maintenance) return reply('MAINTENANCE');
   // ID de Roblox de quien ejecuta (lo manda el loader desde el juego; vacío si no llegó)
@@ -1387,7 +1393,9 @@ app.get('/api/me/activity', requireAuth, (req, res) => {
     JOIN scripts s ON s.id = l.script_id
     WHERE s.user_id = ? ORDER BY l.id DESC LIMIT 25`).all(req.userId)
     .map(l => ({ script_name: l.script_name, text: String(l.text || '').slice(0, 160), created_at: l.created_at }));
-  res.json({ redemptions, logs });
+  const deleted = db.prepare('SELECT name, deleted_at FROM deleted_scripts WHERE user_id = ? ORDER BY id DESC LIMIT 25').all(req.userId);
+  const obfTotal = stmt.obfUsed.get(req.userId)?.obf_used ?? 0;
+  res.json({ redemptions, logs, deleted, obfTotal });
 });
 
 app.get('/api/me', requireAuth, (req, res) => {
@@ -2288,6 +2296,7 @@ app.delete('/api/scripts/:id', requireAuth, (req, res) => {
       db.prepare(`DELETE FROM ${table} WHERE script_id = ?`).run(script.id);
     }
     db.prepare('DELETE FROM scripts WHERE id = ? AND user_id = ?').run(script.id, req.userId);
+    db.prepare('INSERT INTO deleted_scripts (user_id, slug, name, deleted_at) VALUES (?, ?, ?, ?)').run(req.userId, script.slug, script.name, Math.floor(Date.now() / 1000));
   })();
   res.json({ ok: true });
 });

@@ -56,7 +56,8 @@ ADD https://api.github.com/repos/leivagaonahernanely-web/vanta-vs-protector/comm
 RUN git clone --depth 1 https://github.com/leivagaonahernanely-web/vanta-vs-protector.git /opt/nextofuscator-src \
  && mkdir -p /opt/nxbuild && cd /opt/nxbuild && npm install --no-save --silent typescript@5.9.3 @types/node@24 \
  && cd /opt/nextofuscator-src \
- && (/opt/nxbuild/node_modules/.bin/tsc server/obfuscator/build.ts --ignoreConfig --outDir /opt/nx-out --module es2022 --target es2022 --moduleResolution bundler --skipLibCheck --types node --typeRoots /opt/nxbuild/node_modules/@types --rootDir server/obfuscator || true) \
+ && printf '%s' '{"compilerOptions":{"outDir":"/opt/nx-out","rootDir":"/opt/nextofuscator-src/server/obfuscator","module":"es2022","target":"es2022","moduleResolution":"bundler","skipLibCheck":true,"typeRoots":["/opt/nxbuild/node_modules/@types"],"types":["node"]},"files":["/opt/nextofuscator-src/server/obfuscator/build.ts"]}' > /opt/nx.tsconfig.json \
+ && (/opt/nxbuild/node_modules/.bin/tsc -p /opt/nx.tsconfig.json || true) \
  && test -f /opt/nx-out/build.js \
  && sed -i -E 's#from "(\./[a-z]+)"#from "\1.js"#g' /opt/nx-out/*.js \
  && mkdir -p /app/backend/lib/nextofuscator \

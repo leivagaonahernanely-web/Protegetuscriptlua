@@ -172,7 +172,30 @@
     $('modal').hidden = false;
     setTimeout(() => $('modalBody').querySelector('input, select, textarea')?.focus(), 30);
   }
-  function closeModal() { $('modal').hidden = true; }
+  // Confirmación con la estética de la web (en vez del cuadro nativo del navegador).
+  // Resuelve true si confirma; false si cancela, cierra con la X, el fondo o Escape.
+  let confirmResolve = null;
+  function closeModal() {
+    $('modal').hidden = true;
+    if (confirmResolve) { const r = confirmResolve; confirmResolve = null; r(false); }
+  }
+  function askConfirm(title, message, { okText = 'Aceptar', danger = false } = {}) {
+    return new Promise(resolve => {
+      confirmResolve = resolve;
+      openModal(title, `
+        <p style="color:var(--text-soft);line-height:1.5">${esc(message)}</p>
+        <div style="display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap;margin-top:22px">
+          <button class="btn ghost" type="button" id="confirmNo">Cancelar</button>
+          <button class="btn${danger ? ' danger' : ''}" type="button" id="confirmYes">${esc(okText)}</button>
+        </div>`);
+      $('confirmNo').addEventListener('click', () => closeModal());
+      $('confirmYes').addEventListener('click', () => {
+        const r = confirmResolve; confirmResolve = null;
+        $('modal').hidden = true;
+        if (r) r(true);
+      });
+    });
+  }
 
   // Plan Free: antes de crear scripts debe unirse al servidor de Discord. El aviso sale cada vez hasta que confirme
   function showDiscordGate(invite) {
@@ -2833,11 +2856,13 @@
 
     const del = t.closest('[data-delete]');
     if (del) {
-      if (confirm(`¿Eliminar "${del.dataset.name}"? Se borran también sus keys. No se puede deshacer.`)) {
-        api(`/api/scripts/${encodeURIComponent(del.dataset.delete)}`, { method: 'DELETE' })
-          .then(() => { toast('Script eliminado'); return loadData(); })
-          .catch(err => toast(err.message, 'error'));
-      }
+      askConfirm(`Eliminar "${del.dataset.name}"`, 'Se borran también sus keys. No se puede deshacer.', { okText: 'Eliminar', danger: true })
+        .then(ok => {
+          if (!ok) return;
+          return api(`/api/scripts/${encodeURIComponent(del.dataset.delete)}`, { method: 'DELETE' })
+            .then(() => { toast('Script eliminado'); return loadData(); })
+            .catch(err => toast(err.message, 'error'));
+        });
       return;
     }
 

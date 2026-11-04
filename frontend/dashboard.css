@@ -255,6 +255,8 @@
   .btn.sm { padding: 7px 12px; font-size: 12px; border-radius: 8px; }
   .btn.block { width: 100%; }
   .btn.busy { opacity: .6; pointer-events: none; }
+  .btn.danger { background: #ef4444; color: #fff; }
+  .btn.danger:hover:not(:disabled) { box-shadow: 0 8px 18px rgba(239,68,68,.28); }
   .file-btn { position: relative; overflow: hidden; }
   .file-btn input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
 

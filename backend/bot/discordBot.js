@@ -511,25 +511,6 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
       new ButtonBuilder().setCustomId(`vanta:mobile:${script.id}`).setLabel('📱 Vista móvil').setStyle(ButtonStyle.Secondary),
     );
   }
-  // Datos de la key de quien pide el loader (solo para él)
-  function keyInfoEmbed(script, key, via) {
-    if (!key) return null;
-    const k = db.prepare('SELECT expires_at, hwid, hwid_reset_at, exec_count FROM keys WHERE key = ?').get(key);
-    if (!k) return null;
-    const hours = hwidHours(script);
-    const resetAt = k.hwid_reset_at ? k.hwid_reset_at + hours * 3600 : 0;
-    const resetValue = hours === 0 ? 'Desactivado' : (resetAt > now() ? `<t:${resetAt}:R>` : 'Disponible ahora');
-    return new EmbedBuilder()
-      .setColor(C.ok)
-      .setTitle(`🔑 Tu acceso · ${script.name}`)
-      .addFields(
-        { name: '⏳ Vence', value: k.expires_at ? `<t:${k.expires_at}:F> (<t:${k.expires_at}:R>)` : 'Sin vencimiento', inline: false },
-        { name: '🎫 Acceso', value: via === 'whitelist' ? 'Whitelist' : 'Key', inline: true },
-        { name: '💻 HWID', value: k.hwid ? 'Vinculado a un equipo' : 'Sin vincular', inline: true },
-        { name: '🔁 Próximo reinicio de HWID', value: resetValue, inline: true },
-        { name: '▶️ Tus ejecuciones', value: String(k.exec_count ?? 0), inline: true },
-      );
-  }
   const loaderPayload = (script, text) => ({ content: '```lua\n' + text + '\n```', components: [mobileRow(script)] });
 
   // Lógica compartida entre comandos y botones del panel
@@ -544,8 +525,7 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
       return noAccessCard(script);
     }
     logScriptEvent(script, `📜 <@${userId}> obtuvo el loader`);
-    const info = keyInfoEmbed(script, access.key, access.via);
-    return { ...loaderPayload(script, loaderText(script, access.key)), ...(info ? { embeds: [info] } : {}) };
+    return loaderPayload(script, loaderText(script, access.key));
   }
 
   // Vista móvil: el mismo loader sin bloque de código, para copiarlo limpio

@@ -1074,8 +1074,12 @@ if code then kick(code) end
 local payload = body:match("^!VANTARMOR:CODE\\n(.*)$")
 if not payload then kick("VERIFY_FAILED") end
 if loaderTampered() then kick("TAMPERING") end
-local fn = loadstring(payload)
-if not fn then kick("PAYLOAD_LOAD_FAILED") end
+local fn, cerr = loadstring(payload)
+-- El error exacto de compilación queda en la consola del executor (para diagnosticar el script)
+if not fn then
+  warn("[VANTARMOR] No se pudo compilar el script: " .. tostring(cerr))
+  kick("PAYLOAD_LOAD_FAILED")
+end
 fn()
 `;
 }

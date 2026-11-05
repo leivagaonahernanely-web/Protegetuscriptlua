@@ -530,36 +530,6 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
         { name: '▶️ Tus ejecuciones', value: String(k.exec_count ?? 0), inline: true },
       );
   }
-  // Campos del panel: se calculan al publicar y se refrescan cada 10 minutos
-  function panelFields(script) {
-    const total = scriptExecTotal(script.id);
-    const keys = db.prepare("SELECT COUNT(*) AS total, COALESCE(SUM(CASE WHEN COALESCE(banned, 0) = 0 AND (expires_at IS NULL OR expires_at > ?) THEN 1 ELSE 0 END), 0) AS active FROM keys WHERE script_id = ?").get(now(), script.id);
-    const last = db.prepare('SELECT MAX(day) AS d FROM execution_daily WHERE script_id = ?').get(script.id)?.d;
-    const ver = db.prepare('SELECT COUNT(*) AS n, MIN(created_at) AS created, MAX(created_at) AS updated FROM script_versions WHERE script_id = ?').get(script.id);
-    return [
-      { name: '▶️ Ejecuciones totales', value: String(total), inline: true },
-      { name: '🔑 Keys activas', value: `${keys.active} de ${keys.total}`, inline: true },
-      { name: '🕒 Última ejecución', value: last || 'Aún no hay', inline: true },
-      { name: '🧬 Versión', value: ver?.n ? `${ver.n} · última <t:${ver.updated}:R>` : '—', inline: true },
-      { name: '📅 Creado', value: ver?.created ? `<t:${ver.created}:D>` : '—', inline: true },
-    ];
-  }
-  // Actualiza solo los campos de cada panel publicado (el texto personalizado no se toca)
-  async function refreshPanels() {
-    const rows = db.prepare('SELECT script_id, channel_id, message_id FROM bot_panels').all();
-    for (const row of rows) {
-      const script = q.scriptById.get(row.script_id);
-      if (!script) continue;
-      try {
-        const channel = client.channels.cache.get(row.channel_id) ?? await client.channels.fetch(row.channel_id);
-        const msg = await channel.messages.fetch(row.message_id);
-        if (!msg.embeds[0]) continue;
-        await msg.edit({ embeds: [EmbedBuilder.from(msg.embeds[0]).setFields(panelFields(script))] });
-      } catch { /* mensaje borrado o sin permisos: se omite */ }
-      await new Promise(r => setTimeout(r, 1500));
-    }
-  }
-
   const loaderPayload = (script, text) => ({ content: '```lua\n' + text + '\n```', components: [mobileRow(script)] });
 
   // Lógica compartida entre comandos y botones del panel
@@ -748,7 +718,6 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
       .setColor(0x5865f2)
       .setTitle(`Panel de acceso · ${script.name}`)
       .setDescription(customDescription || defaultDescription)
-      .setFields(panelFields(script))
       .setFooter({ text: `Sent by ${creatorName} | ${formatPanelDate(new Date())}`, iconURL: creatorIcon });
     const row1 = new ActionRowBuilder().addComponents(
       new ButtonBuilder().setCustomId(`vanta:redeem:${script.id}`).setLabel('🔑 Redeem Key').setStyle(ButtonStyle.Success),
@@ -1947,8 +1916,6 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
   client.once('ready', async c => {
     setTimeout(() => notifyExpiringKeys().catch(err => console.error('[Bot] Avisos de vencimiento:', err.message)), 30_000);
     setInterval(() => notifyExpiringKeys().catch(err => console.error('[Bot] Avisos de vencimiento:', err.message)), 10 * 60_000);
-    setTimeout(() => refreshPanels().catch(err => console.error('[Bot] Refresco de paneles:', err.message)), 60_000);
-    setInterval(() => refreshPanels().catch(err => console.error('[Bot] Refresco de paneles:', err.message)), 10 * 60_000);
     try {
       const rest = new REST({ version: '10' }).setToken(token);
       const route = guildId

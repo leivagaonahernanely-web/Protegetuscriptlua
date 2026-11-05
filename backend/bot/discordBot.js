@@ -1948,8 +1948,9 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
       const template = settingFor(owner, 'welcome_text') || 'Bienvenido {user} a {server}!';
       const description = template.replaceAll('{user}', `<@${member.id}>`).replaceAll('{server}', member.guild.name);
       const embed = new EmbedBuilder().setColor(0x2ecc71).setTitle(`👋 Bienvenido a ${member.guild.name}`).setDescription(description);
-      const image = settingFor(owner, 'welcome_image');
-      if (image) embed.setImage(image);
+      // Banner por defecto de Vantarmor; el dueño puede poner el suyo con /welcome
+      const image = settingFor(owner, 'welcome_image') || `${publicUrl}/welcome-banner.png`;
+      embed.setImage(image);
       await channel.send({ content: `<@${member.id}>`, embeds: [embed] });
     } catch (err) {
       console.warn('[Bot] No se pudo dar la bienvenida:', err.message);

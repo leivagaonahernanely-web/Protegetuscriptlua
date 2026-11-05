@@ -79,6 +79,7 @@ pre{white-space:pre-wrap;word-break:break-all;background:#040407;border:1px soli
 <body>
 <header>
   <div class="brand"><span class="dot"></span>VANTARMOR ADMIN</div>
+  <span id="mainVersion" class="hidden" style="font-size:12px;opacity:.6;letter-spacing:.02em"></span>
   <button class="btn hidden" id="logout">Log out</button>
 </header>
 
@@ -296,6 +297,19 @@ function showApp() {
   $('login').classList.add('hidden');
   $('app').classList.remove('hidden');
   $('logout').classList.remove('hidden');
+  loadMainVersion();
+}
+// Muestra el commit y el motor que corren en el sitio principal
+async function loadMainVersion() {
+  const el = $('mainVersion');
+  try {
+    const v = await api('GET', '/admin/version');
+    el.textContent = `Sitio ${v.commit || '?'} · motor ${String(v.engine || '?').slice(0, 8)}`;
+    el.title = `Arrancó: ${v.startedAt || '?'}`;
+  } catch (err) {
+    el.textContent = 'Sitio: sin respuesta';
+  }
+  el.classList.remove('hidden');
 }
 
 $('loginForm').addEventListener('submit', async e => {

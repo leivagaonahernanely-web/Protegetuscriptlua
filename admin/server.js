@@ -78,6 +78,17 @@ app.post('/admin/logout', (req, res) => {
 
 app.get('/admin/session', requireSession, (req, res) => res.json({ ok: true }));
 
+// Versión que corre el sitio principal (commit de Railway y motor de Ofuscador 4), para verificar deploys
+app.get('/admin/version', requireSession, async (req, res) => {
+  try {
+    const out = await fetch(`${MAIN_API_URL}/api/version`, { signal: AbortSignal.timeout(8000) });
+    if (!out.ok) return res.status(502).json({ error: `HTTP ${out.status}` });
+    res.json(await out.json());
+  } catch (err) {
+    res.status(502).json({ error: err.message || 'No responde' });
+  }
+});
+
 // Solo estas rutas del servidor principal se reenvían (lista cerrada)
 const ALLOWED = {
   'plan-keys': { GET: '/plan-keys', POST: '/plan-keys' },

@@ -709,9 +709,10 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
   }
 
   // Panel con botones (estilo Luarmor): muestra quién creó el script
-  function panelPayload(script, customDescription) {
+  function panelPayload(script, customDescription, displayName = null) {
     const creator = script.user_id ? q.userById.get(script.user_id) : null;
-    const creatorName = creator?.username || (script.user_id ? `ID ${script.user_id}` : 'Vantarmor');
+    // Apodo en el servidor (o nombre visible) del dueño; si no se pudo leer, el nombre de usuario
+    const creatorName = displayName || creator?.username || (script.user_id ? `ID ${script.user_id}` : 'Vantarmor');
     const creatorIcon = script.user_id ? (creator?.custom_avatar || avatarUrl(script.user_id, creator?.avatar)) : undefined;
     const defaultDescription = `This control panel is for the project: **${script.name}**\nIf you're a buyer, click on the buttons below to redeem your key, get the script or get your role`;
     const embed = new EmbedBuilder()
@@ -851,7 +852,11 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
         // interaction.channel puede venir vacío si el bot no tiene acceso al canal: lo buscamos directamente
         const channel = interaction.channel ?? await interaction.client.channels.fetch(interaction.channelId).catch(() => null);
         if (!channel?.send) return reply('❌ No puedo publicar el panel en este canal. Revisa que el bot tenga permisos para Ver canal y Enviar mensajes.');
-        const sent = await channel.send(panelPayload(script, customDescription));
+        // Apodo del dueño en este servidor (si está en él); si no, su nombre visible de Discord
+        const ownerMember = script.user_id && interaction.guild ? await interaction.guild.members.fetch(script.user_id).catch(() => null) : null;
+        const ownerName = ownerMember?.displayName
+          || (script.user_id ? await interaction.client.users.fetch(script.user_id).then(u => u.globalName || u.username).catch(() => null) : null);
+        const sent = await channel.send(panelPayload(script, customDescription, ownerName));
         q.panelInsert.run(script.id, interaction.channelId, sent.id, now());
         logScriptEvent(script, `📌 Panel publicado por <@${actor}> en <#${interaction.channelId}>`);
         return reply(`✅ Panel de **${script.name}** publicado.`);

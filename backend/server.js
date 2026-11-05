@@ -529,11 +529,11 @@ const OBF_CONFIG = {
     args: (input, out, vm) => [path.join('dist', 'cli', 'obfuscate.js'), input, ...(vm ? ['--vm'] : []), '-o', out],
     output: (input, out) => out,
   },
-  // RealObfuscator (Python, GPL-3.0). Modo VM. CLI: python main.py <entrada> --mode vm --output <salida>
+  // RealObfuscator (Rust, GPL-3.0). Modo VM. CLI: realobfuscator <entrada> --mode vm --output <salida>
   real: {
-    bin: process.env.REAL_PYTHON || 'python3',
-    dir: findEntryDir(path.join(OBF_DIR, 'real'), 'main.py'),
-    args: (input, out) => ['main.py', input, '--mode', 'vm', '--output', out],
+    bin: process.env.REAL_BIN || path.join(OBF_DIR, 'real', 'target', 'release', 'realobfuscator'),
+    dir: fs.existsSync(process.env.REAL_BIN || path.join(OBF_DIR, 'real', 'target', 'release', 'realobfuscator')) ? path.join(OBF_DIR, 'real') : null,
+    args: (input, out) => [input, '--mode', 'vm', '--output', out],
     output: (input, out) => out,
   },
   // Ofuscador 2 = Obscura (Python, MIT). CLI: python main.py <entrada> -o <salida> --mode lightweight

@@ -1383,8 +1383,8 @@ app.get('/scripts/hosted/:slug/auth', (req, res) => {
   // Bloqueo de equipo apagado: la key sirve en cualquier equipo, sin vincularla ni avisar de compartida
   if (script.hwid_lock !== 0) {
   if (!hwid) return reply('VERIFY_FAILED');
-  // Tras reiniciar el HWID la key queda sin equipo: si el HWID nuevo no es el último vinculado, cuenta como compartida
-  if (!k.hwid && k.last_hwid && k.last_hwid !== hwid && script.share_detection !== 0) return reportKeyShare(script, k, hwid, reply);
+  // Tras reiniciar el HWID la key queda sin equipo: se vincula al primer equipo que la use (como una key nueva).
+  // Así un usuario que cambia de PC no acumula avisos de compartida ni pierde la key.
   if (!k.hwid) {
     // Vinculación atómica: si otro equipo la vinculó al mismo tiempo, esta petición no la sobrescribe
     const bound = db.prepare('UPDATE keys SET hwid = ?, last_hwid = ? WHERE key = ? AND hwid IS NULL').run(hwid, hwid, key);

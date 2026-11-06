@@ -26,8 +26,20 @@ const cookieOpts = { httpOnly: true, secure: true, sameSite: 'strict', maxAge: 8
 
 const app = express();
 app.disable('x-powered-by');
+app.set('trust proxy', 1);
 app.use(express.json({ limit: '50kb' }));
 app.use(cookieParser());
+
+app.use((req, res, next) => {
+  res.set({
+    'Content-Security-Policy': "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'",
+    'X-Frame-Options': 'DENY',
+    'X-Content-Type-Options': 'nosniff',
+    'Referrer-Policy': 'strict-origin-when-cross-origin',
+    'Strict-Transport-Security': 'max-age=31536000; includeSubDomains',
+  });
+  next();
+});
 
 // Comparación en tiempo constante (con hash para que las longitudes coincidan)
 function same(a, b) {

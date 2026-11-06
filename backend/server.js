@@ -135,6 +135,10 @@ if (process.env.RAILWAY_ENVIRONMENT) {
 
 if (!JWT_SECRET) console.warn('⚠️  JWT_SECRET no está definido: se usará una clave guardada en la base de datos.');
 
+// Variables críticas que deben estar definidas en producción
+const MISSING_CRITICAL = ['DISCORD_CLIENT_ID', 'DISCORD_CLIENT_SECRET', 'DISCORD_OWNER_ID'].filter(k => !process.env[k]);
+if (MISSING_CRITICAL.length) console.warn(`⚠️  Variables críticas no definidas: ${MISSING_CRITICAL.join(', ')}. Algunas funciones no estarán disponibles.`);
+
 app.use(express.json({ limit: '6mb' }));          // el default de Express (100 KB) no alcanza para 2 MB
 app.use(cookieParser());
 app.use(cors({ origin: FRONTEND_URL, credentials: true }));
@@ -683,6 +687,20 @@ function checkLuauSyntax(code) {
     });
   });
 }
+// Limpieza periódica de la caché de ofuscación (entradas con más de 90 días)
+{
+  const OBF_CACHE_TTL_DAYS = Number(process.env.OBF_CACHE_TTL_DAYS) || 90;
+  const pruneObfCache = () => {
+    try {
+      const cutoff = Math.floor(Date.now() / 1000) - OBF_CACHE_TTL_DAYS * 86400;
+      const r = db.prepare('DELETE FROM obf_cache WHERE created_at < ?').run(cutoff);
+      if (r.changes) console.log(`[obf_cache] ${r.changes} entradas antiguas eliminadas`);
+    } catch (err) { console.warn('[obf_cache] Error al limpiar:', err.message); }
+  };
+  pruneObfCache(); // limpieza al arrancar
+  setInterval(pruneObfCache, 24 * 60 * 60 * 1000).unref();
+}
+
 const obfCacheGet = db.prepare('SELECT content FROM obf_cache WHERE hash = ?');
 const obfCachePut = db.prepare('INSERT OR REPLACE INTO obf_cache (hash, content, created_at) VALUES (?, ?, ?)');
 async function obfuscate(source, obfuscator, opts = {}) {
@@ -1445,6 +1463,7 @@ const CHAT_COOLDOWN_MS = 2000;               // un mensaje cada 2 s por usuario
 const CHAT_REACTIONS = ['👍', '❤️', '😂', '🔥', '😮', '😢'];
 const CHAT_SPAM_MUTE_S = 5 * 60;             // silencio automático por spam
 const CHAT_STREAM_MAX = 500;                 // conexiones en vivo a la vez
+const CHAT_STREAM_MAX_PER_USER = 2;
 // Enlaces: http(s)://, www. o dominios comunes (ej. algo.gg, algo.com)
 const CHAT_LINK_RE = /(https?:\/\/|www\.|\b[a-z0-9-]+\.(com|gg|net|org|io|me|xyz|ly|gl|cc|to|link|app|dev)\b)/i;
 
@@ -1586,6 +1605,7 @@ app.get('/api/chat/stream', requireAuth, (req, res) => {
   let total = 0;
   for (const set of chatStreams.values()) total += set.size;
   if (total >= CHAT_STREAM_MAX) return res.status(503).end();
+  if ((chatStreams.get(req.userId)?.size ?? 0) >= CHAT_STREAM_MAX_PER_USER) return res.status(429).end();
 
   res.set({ 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache, no-transform', Connection: 'keep-alive', 'X-Accel-Buffering': 'no' });
   res.flushHeaders();

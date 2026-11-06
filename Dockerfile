@@ -22,7 +22,10 @@ RUN (git clone --depth 1 https://github.com/luau-lang/luau.git /opt/luau \
 
 # Ofuscador RealObfuscator (Rust, GPL-3.0, modo VM): se compila el binario desde su repo.
 RUN (git clone --depth 1 https://github.com/linkoro57/RealObfuscator.git /opt/obfuscators/real \
- && curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal \
+ && curl -sSf https://sh.rustup.rs -o /tmp/rustup.sh \
+ && chmod +x /tmp/rustup.sh \
+ && /tmp/rustup.sh -y --profile minimal \
+ && rm /tmp/rustup.sh \
  && . "$HOME/.cargo/env" && cd /opt/obfuscators/real && cargo build --release) \
  || echo "[build] RealObfuscator no compilado: el ofuscador queda no disponible"
 

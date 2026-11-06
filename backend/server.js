@@ -1056,18 +1056,17 @@ fn()
 `;
 }
 
-// El bootstrap (validación de key y comprobaciones) se ofusca con el Ofuscador 4 (NextOfuscator)
-// antes de servirlo, para que no se pueda leer cómo valida. Se usa NextOfuscator en lugar de
-// RealObfuscator porque RealObfuscator genera bytecode VM (modo --vm) que falla en Roblox móvil
-// con "attempt to call a nil value". NextOfuscator genera Lua estándar compatible con todos los
-// ejecutores. Si la ofuscación falla o está apagada (LOADER_OBFUSCATE=0), se sirve sin ofuscar.
-const LOADER_OBFUSCATE = process.env.LOADER_OBFUSCATE !== '0';
+// El bootstrap NO se ofusca: RealObfuscator (modo VM) y NextOfuscator ambos fallan en Roblox
+// móvil con "attempt to call a nil value" porque generan una capa VM/wrapper que usa opcodes
+// o upvalues que el executor móvil no soporta. Se sirve el bootstrap en texto plano; la
+// seguridad real está en el servidor (validación de key/HWID), no en ocultar el bootstrap.
+// Para re-activar la ofuscación cuando se encuentre un ofuscador compatible: cambiar a true.
+const LOADER_OBFUSCATE = false; // process.env.LOADER_OBFUSCATE !== '0'
 async function protectLoader(plain) {
   if (!LOADER_OBFUSCATE) return plain;
   try {
     return await obfuscate(plain, 'next');
   } catch (err) {
-    // Fallback: si NextOfuscator falla, se sirve sin ofuscar (el loader funciona igual)
     console.warn('[Loader] Ofuscación falló, sirviendo sin ofuscar:', String(err.message || err).slice(0, 200));
     return plain;
   }

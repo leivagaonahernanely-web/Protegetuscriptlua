@@ -1093,8 +1093,9 @@ async function protectLoader(plain) {
   try {
     return await obfuscate(plain, 'real');
   } catch (err) {
-    console.warn('[Loader] sin ofuscar:', String(err.message || err).slice(0, 200));
-    return plain;
+    // Nunca se sirve el bootstrap sin ofuscar: devuelve null y la ruta responde 503
+    console.error('[Loader] NO se sirve: falló la ofuscación:', String(err.message || err).slice(0, 200));
+    return null;
   }
 }
 
@@ -1107,7 +1108,9 @@ app.get('/scripts/hosted/:slug', async (req, res) => {
   }
   const script = stmt.scriptBySlug.get(req.params.slug);
   if (script) logLoaderDownload(script, req.ip);
-  res.type('text/plain').send(await protectLoader(loaderBootstrap(req.params.slug, !!(script && script.ffa))));
+  const boot = await protectLoader(loaderBootstrap(req.params.slug, !!(script && script.ffa)));
+  if (boot === null) return res.status(503).type('text/plain').send('-- loader no disponible temporalmente, intenta de nuevo');
+  res.type('text/plain').send(boot);
 });
 
 // Loader con URL de archivo: /files/v1/loaders/<loader_id>.lua (mismo contenido que /scripts/hosted/<slug>)
@@ -1119,7 +1122,9 @@ app.get('/files/v1/loaders/:file', async (req, res) => {
     return res.set({ ...PAGE_HEADERS, 'Content-Security-Policy': LOADER_CSP }).type('html').send(loaderPage(script));
   }
   logLoaderDownload(script, req.ip);
-  res.type('text/plain').send(await protectLoader(loaderBootstrap(script.slug, !!script.ffa)));
+  const boot = await protectLoader(loaderBootstrap(script.slug, !!script.ffa));
+  if (boot === null) return res.status(503).type('text/plain').send('-- loader no disponible temporalmente, intenta de nuevo');
+  res.type('text/plain').send(boot);
 });
 
 // Tokens de un solo uso para entregar el código: /auth los emite, /payload los consume.

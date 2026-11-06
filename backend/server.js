@@ -1070,9 +1070,10 @@ async function protectLoader(plain) {
   try {
     return await obfuscate(plain, 'real');
   } catch (err) {
-    // Nunca se sirve el bootstrap sin ofuscar: devuelve null y la ruta responde 503
-    console.error('[Loader] NO se sirve: falló la ofuscación:', String(err.message || err).slice(0, 200));
-    return null;
+    // Si RealObfuscator no está disponible (no compiló en este build), servir sin ofuscar
+    // en vez de dar 503: es mejor que el loader funcione sin ofuscar a que no funcione.
+    console.warn('[Loader] Ofuscación falló, sirviendo sin ofuscar:', String(err.message || err).slice(0, 200));
+    return plain;
   }
 }
 

@@ -1236,7 +1236,7 @@ app.get('/scripts/hosted/:slug/payload', (req, res) => {
   if (!entry || entry.expires < Date.now() || !script || script.id !== entry.scriptId || entry.ip !== (req.ip || null)) {
     return res.status(403).type('text/plain').send('!VANTARMOR:TOKEN_INVALID');
   }
-  res.type('text/plain').send(script.content);
+  res.type('text/plain').send(script.source || script.content);
 });
 
 // Endpoint de verificación: lo llama el bootstrap. Responde el código del script o "!VANTARMOR:CODIGO".
@@ -1322,7 +1322,7 @@ app.get('/scripts/hosted/:slug/auth', (req, res) => {
       `• HWID: \`${/^[\x21-\x7E]{8,128}$/.test(ffaHwid) ? ffaHwid : 'sin dato'}\``,
       `• ID del script: \`${script.loader_id || script.id}\``,
     ], null, rbxid);
-    return res.type('text/plain').send('!VANTARMOR:CODE\n' + script.content);
+    return res.type('text/plain').send('!VANTARMOR:CODE\n' + (script.source || script.content));
   }
 
   const key = String(req.query.key || '').trim().slice(0, 64);
@@ -1368,7 +1368,7 @@ app.get('/scripts/hosted/:slug/auth', (req, res) => {
     `• ID del script: \`${script.loader_id || script.id}\``,
     `• Veces que esta key ejecutó este script: ${run?.exec_count ?? 1}`,
   ], k.discord_id, rbxid);
-  res.type('text/plain').send('!VANTARMOR:CODE\n' + script.content);
+  res.type('text/plain').send('!VANTARMOR:CODE\n' + (script.source || script.content));
 });
 
 app.get('/auth/logout', (req, res) => {

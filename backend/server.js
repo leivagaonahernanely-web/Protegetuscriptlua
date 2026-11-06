@@ -1387,7 +1387,7 @@ app.get('/scripts/hosted/:slug/auth', (req, res) => {
   const key = String(req.query.key || '').trim().slice(0, 64);
   const rawHwid = String(req.query.hwid || '').slice(0, 128);
   // Solo caracteres imprimibles (sin espacios ni control): evita basura y texto que rompa los logs
-  const hwid = /^[\x21-\x7E]{8,128}$/.test(rawHwid) ? rawHwid : '';
+  let hwid = /^[\x21-\x7E]{8,128}$/.test(rawHwid) ? rawHwid : '';
   if (!key) return reply('KEY_REQUIRED');
   if (scriptBanned(script.id, 'ip', req.ip)) return reply('BLACKLISTED');
   const k = db.prepare('SELECT * FROM keys WHERE key = ? AND script_id = ?').get(key, script.id);
@@ -1398,6 +1398,9 @@ app.get('/scripts/hosted/:slug/auth', (req, res) => {
     return reply('BLACKLISTED');
   }
   if (hwid && scriptBanned(script.id, 'hwid', hwid)) return reply('BLACKLISTED');
+  // Si GetClientId() falló en el ejecutor, usar la IP como identificador de dispositivo alternativo
+  // para evitar rechazar al jugador con VERIFY_FAILED cuando el HWID no llegó por error del ejecutor
+  if (!hwid && req.ip) hwid = `ip:${req.ip}`;
   // Bloqueo de equipo apagado: la key sirve en cualquier equipo, sin vincularla ni avisar de compartida
   if (script.hwid_lock !== 0) {
   if (!hwid) return reply('VERIFY_FAILED');

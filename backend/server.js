@@ -1046,9 +1046,10 @@ script_key = nil
 if not ok or type(body) ~= "string" then kick("SERVER_UNREACHABLE") end
 local code = body:match("^!VANTARMOR:(%u[%u_]*)$")
 if code then kick(code) end
--- La respuesta trae "!VANTARMOR:CODE\n" seguido del código. Se captura todo lo que sigue
--- al primer salto de línea, incluyendo el resto del script (que puede tener múltiples líneas).
-local payload = body:match("^!VANTARMOR:CODE\n(.+)")
+-- La respuesta trae "!VANTARMOR:CODE\\n" (16 chars) seguido del código del script.
+-- sub(17) extrae todo el código sin importar cuántas líneas tenga (match+$ falla en multilínea).
+local _prefix = "!VANTARMOR:CODE\\n"
+local payload = (body:sub(1, #_prefix) == _prefix and #body > #_prefix) and body:sub(#_prefix + 1) or nil
 if not payload then kick("VERIFY_FAILED") end
 if loaderTampered() then kick("TAMPERING") end
 local fn, cerr = loadstring(payload)

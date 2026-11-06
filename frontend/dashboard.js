@@ -190,6 +190,8 @@
         </div>`);
       $('confirmNo').addEventListener('click', () => closeModal());
       $('confirmYes').addEventListener('click', () => {
+        const btn = $('confirmYes');
+        if (btn) btn.disabled = true;
         const r = confirmResolve; confirmResolve = null;
         $('modal').hidden = true;
         if (r) r(true);
@@ -378,7 +380,7 @@
     if (!r.findings.length) return `${head}<p class="perf-ok">Sin problemas detectados en el código.</p>`;
     const items = r.findings.map(f => `
       <li>
-        <span class="perf-sev ${f.severity}">${SEV_LABEL[f.severity]}</span>
+        <span class="perf-sev ${esc(f.severity)}">${SEV_LABEL[esc(f.severity)] ?? esc(f.severity)}</span>
         <div>
           <div class="perf-title">${esc(f.title)} <span class="perf-line">línea ${f.line}</span></div>
           <div class="perf-tip">${esc(f.tip)}</div>

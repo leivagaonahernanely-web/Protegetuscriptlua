@@ -1036,11 +1036,13 @@ end
 local ok, body = pcall(function() return game:HttpGet(AUTH_URL .. "?key=" .. enc(key) .. "&hwid=" .. enc(hwid) .. "&rbxid=" .. enc(rbxid)) end)
 script_key = nil
 if not ok or type(body) ~= "string" then kick("SERVER_UNREACHABLE") end
-local code = body:match("^!VANTARMOR:(%u[%u_]*)$")
-if code then kick(code) end
--- La respuesta trae "!VANTARMOR:CODE\\n" (16 chars) seguido del código del script.
--- sub(17) extrae todo el código sin importar cuántas líneas tenga (match+$ falla en multilínea).
-local _prefix = "!VANTARMOR:CODE\\n"
+-- El servidor responde "!VANTARMOR:CODIGO" (error) o "!VANTARMOR:CODE\n<script>" (éxito).
+-- Se usa string.sub en lugar de match para soportar scripts multilínea
+-- (el patrón (.*) no captura \n en Lua, y el $ tampoco funciona bien con trailing newline).
+-- Los códigos de error toleran \r\n o \n al final (algunos proxies / ejecutores los agregan).
+local errCode = body:match("^!VANTARMOR:([%u_]+)[\r\n]*$")
+if errCode then kick(errCode) end
+local _prefix = "!VANTARMOR:CODE\n"
 local payload = (body:sub(1, #_prefix) == _prefix and #body > #_prefix) and body:sub(#_prefix + 1) or nil
 if not payload then kick("VERIFY_FAILED") end
 if loaderTampered() then kick("TAMPERING") end

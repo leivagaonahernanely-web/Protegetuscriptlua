@@ -976,7 +976,9 @@ local function loaderTampered()
   return false
 end
 local key = ""
-if type(script_key) == "string" then key = (script_key:gsub("^%s+", ""):gsub("%s+$", "")) end
+-- script_key puede venir como global normal o en _G (depende del ejecutor y del scope del loadstring)
+local _rawKey = script_key or (_G and _G.script_key) or ""
+if type(_rawKey) == "string" then key = (_rawKey:gsub("^%s+", ""):gsub("%s+$", "")) end
 if key == "" and not FFA then kick("KEY_REQUIRED") end
 local function enc(s) return (s:gsub("[^%w%-_%.~]", function(c) return string.format("%%%02X", string.byte(c)) end)) end
 local hwid = ""
@@ -985,27 +987,17 @@ if okh and h then hwid = h end
 local rbxid = ""
 local okr, rid = pcall(function() return tostring(Players.LocalPlayer.UserId) end)
 if okr and rid then rbxid = rid end
--- Detector de dump: si el Heartbeat está congelado (volcado de script) se reporta
+-- Detector de dump: solo verifica que el Heartbeat responda (reloj completamente congelado = volcado)
 local detections = 0
-local function runDetectors()
-  local ok = pcall(function()
-    -- Usa os.clock() (microsegundos) en lugar de os.date("%S") (resolución 1s → falsos positivos)
-    local t0 = os.clock()
-    task.wait(1.1)
-    local elapsed = os.clock() - t0
-    -- Solo detecta si el tiempo avanzó menos de 0.05s (reloj completamente congelado, no variación normal)
-    if elapsed < 0.05 then detections += 1 end
-    local hits = 0
-    local conn = game:GetService("RunService").Heartbeat:Connect(function() hits += 1 end)
-    local t1 = os.clock()
-    repeat task.wait() until hits >= 2 or os.clock() - t1 > 2
-    conn:Disconnect()
-    if hits < 2 then detections += 1 end
-  end)
-  -- Si el propio detector falla no se castiga al jugador (evita falsos positivos en ejecutores raros)
-  return ok
-end
-runDetectors()
+pcall(function()
+  local hits = 0
+  local conn = game:GetService("RunService").Heartbeat:Connect(function() hits += 1 end)
+  local t0 = os.clock()
+  repeat task.wait() until hits >= 2 or os.clock() - t0 > 2
+  conn:Disconnect()
+  if hits < 2 then detections += 1 end
+end)
+-- Si el propio detector falla no se castiga al jugador (evita falsos positivos)
 if detections > 0 then
   pcall(function() game:HttpGet(AUTH_URL .. "?key=" .. enc(key) .. "&hwid=" .. enc(hwid) .. "&rbxid=" .. enc(rbxid) .. "&tamper=1") end)
   script_key = nil

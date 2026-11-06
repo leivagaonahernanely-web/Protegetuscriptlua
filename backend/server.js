@@ -60,11 +60,25 @@ function rateLimit({ windowMs, max, onLimit }) {
     next();
   };
 }
-const loaderLimit = rateLimit({
-  windowMs: 60_000,
-  max: 120,
-  onLimit: (req, res) => res.type('text/plain').status(429).send('!VANTARMOR:RATE_LIMITED'),
-});
+// Límite solo de INTENTOS FALLIDOS por IP (key inválida/faltante, script no encontrado).
+// Las ejecuciones con key correcta no cuentan: no expulsan a jugadores que comparten IP.
+const authFails = new Map();
+const AUTH_FAIL_MAX = 40;
+const AUTH_FAIL_WINDOW = 5 * 60_000;
+setInterval(() => {
+  const now = Date.now();
+  for (const [ip, e] of authFails) if (e.reset < now) authFails.delete(ip);
+}, 60_000).unref();
+function authBlocked(ip) {
+  const e = authFails.get(ip);
+  return Boolean(e) && e.reset > Date.now() && e.count >= AUTH_FAIL_MAX;
+}
+function noteAuthFail(ip) {
+  const now = Date.now();
+  let e = authFails.get(ip);
+  if (!e || e.reset < now) { e = { count: 0, reset: now + AUTH_FAIL_WINDOW }; authFails.set(ip, e); }
+  e.count++;
+}
 const jsonLimit = rateLimit({
   windowMs: 60_000,
   max: 30,
@@ -1253,7 +1267,7 @@ function issuePayloadToken(scriptId, ip) {
 }
 
 // Entrega el código con un token válido. El token se gasta aunque falle.
-app.get('/scripts/hosted/:slug/payload', loaderLimit, (req, res) => {
+app.get('/scripts/hosted/:slug/payload', (req, res) => {
   if (/text\/html/.test(req.get('accept') || '')) return res.status(403).type('text/plain').send('!VANTARMOR:FORBIDDEN');
   const token = String(req.query.token || '');
   const entry = payloadTokens.get(token);
@@ -1294,10 +1308,18 @@ function reportKeyShare(script, k, hwid, reply) {
 }
 
 const tamperSeen = new Map(); // antispam de avisos de volcado
-app.get('/scripts/hosted/:slug/auth', loaderLimit, (req, res) => {
+app.get('/scripts/hosted/:slug/auth', (req, res) => {
   // Los navegadores no reciben nunca el código
   if (/text\/html/.test(req.get('accept') || '')) return res.status(403).type('text/plain').send('!VANTARMOR:FORBIDDEN');
-  const reply = code => res.type('text/plain').send(`!VANTARMOR:${code}`);
+  const FAIL_CODES = new Set(['KEY_INVALID', 'KEY_REQUIRED', 'SCRIPT_NOT_FOUND']);
+  const reply = code => {
+    // Solo los fallos pasan por el contador: una key válida nunca se bloquea aunque su IP tenga fallos previos
+    if (FAIL_CODES.has(code)) {
+      if (authBlocked(req.ip)) return res.type('text/plain').status(429).send('!VANTARMOR:RATE_LIMITED');
+      noteAuthFail(req.ip);
+    }
+    return res.type('text/plain').send(`!VANTARMOR:${code}`);
+  };
 
   const script = stmt.scriptBySlug.get(req.params.slug);
   if (!script) {
@@ -1312,10 +1334,11 @@ app.get('/scripts/hosted/:slug/auth', loaderLimit, (req, res) => {
   if (req.query.tamper === '1') {
     const tKey = String(req.query.key || '').trim().slice(0, 64);
     const tHwid = /^[\x21-\x7E]{8,128}$/.test(String(req.query.hwid || '')) ? String(req.query.hwid) : '';
-    const keyRow = tKey ? db.prepare('SELECT discord_id FROM keys WHERE key = ? AND script_id = ?').get(tKey, script.id) : null;
+    const keyRow = tKey ? db.prepare('SELECT discord_id, hwid FROM keys WHERE key = ? AND script_id = ?').get(tKey, script.id) : null;
     const tDiscord = keyRow?.discord_id || null;
     // Revocación automática (opción del script): la key queda baneada sin esperar al dueño
-    const autoRevoked = Boolean(script.auto_revoke_dump && keyRow && tKey
+    // Solo si el reporte viene del equipo vinculado a la key: nadie banea keys ajenas conociendo solo la key
+    const autoRevoked = Boolean(script.auto_revoke_dump && keyRow && tKey && tHwid && keyRow.hwid === tHwid
       && db.prepare("UPDATE keys SET banned = 1, ban_reason = 'Volcado detectado' WHERE key = ? AND script_id = ?").run(tKey, script.id).changes);
     const seenKey = `${script.id}|${tKey}|${tHwid}`;
     const last = tamperSeen.get(seenKey) || 0;

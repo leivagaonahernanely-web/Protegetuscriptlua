@@ -2953,7 +2953,8 @@
     $('crCancel').addEventListener('click', () => closeModal());
     $('crSend').addEventListener('click', async () => {
       const body = { scripts: parseInt($('crScripts').value, 10), obfuscations: parseInt($('crObf').value, 10), panels: parseInt($('crPanels').value, 10), paymentMethod: $('crPay').value, contact: $('crContact').value.trim() };
-      if (Object.values(body).some(v => !Number.isInteger(v) || v < 1 || v > 100000)) {
+      const amounts = [body.scripts, body.obfuscations, body.panels];
+      if (amounts.some(v => !Number.isInteger(v) || v < 1 || v > 100000)) {
         $('crErr').textContent = 'Cada cantidad debe estar entre 1 y 100000.';
         return;
       }

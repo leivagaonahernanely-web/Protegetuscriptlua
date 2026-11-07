@@ -10,6 +10,7 @@ import fs from 'fs';
 import os from 'os';
 import { execFile } from 'child_process';
 import { fileURLToPath } from 'url';
+import { createRequire } from 'module';
 import { normalizeLuaSource } from './lib/lua-source.js';
 import { openDatabase } from './lib/db-engine.js';
 import { createQuota, PLAN_DAYS_DEFAULT, MONTH_SECONDS, FREE_RESET_SECONDS } from './lib/quota.js';
@@ -149,6 +150,20 @@ app.use(cors({ origin: FRONTEND_URL, credentials: true }));
 if (DATABASE_PATH.startsWith('/')) {
   const dir = path.dirname(DATABASE_PATH);
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+}
+
+// Restauración pendiente: /api/owner/import-db deja la copia en "<base>.import" y se aplica aquí, antes de abrir la base.
+// La base anterior no se borra: queda como "<base>.replaced-<fecha>" por si hay que volver atrás.
+if (process.env.DB_ENGINE !== 'postgres' && fs.existsSync(`${DATABASE_PATH}.import`)) {
+  const stamp = Date.now();
+  if (fs.existsSync(DATABASE_PATH)) {
+    fs.renameSync(DATABASE_PATH, `${DATABASE_PATH}.replaced-${stamp}`);
+    for (const ext of ['-wal', '-shm', '-journal']) {
+      if (fs.existsSync(DATABASE_PATH + ext)) fs.renameSync(DATABASE_PATH + ext, `${DATABASE_PATH}.replaced-${stamp}${ext}`);
+    }
+  }
+  fs.renameSync(`${DATABASE_PATH}.import`, DATABASE_PATH);
+  console.log(`[Restauración] Copia aplicada en ${DATABASE_PATH}. La anterior quedó como ${DATABASE_PATH}.replaced-${stamp}`);
 }
 
 const db = openDatabase(DATABASE_PATH);
@@ -2140,6 +2155,33 @@ app.get('/api/owner/backup', requireOwnerApi, async (req, res) => {
     fs.rmSync(file, { force: true });
     console.error('[Respaldo] Descarga fallida:', err.message);
     res.status(500).json({ error: 'No se pudo crear el respaldo' });
+  }
+});
+
+// Restaurar una copia (.db). El archivo se valida y queda pendiente: se aplica al reiniciar el servicio.
+app.post('/api/owner/import-db', requireOwnerApi, express.raw({ type: () => true, limit: '300mb' }), (req, res) => {
+  if (process.env.DB_ENGINE === 'postgres') {
+    return res.status(409).json({ error: 'La base está en PostgreSQL. Quita DB_ENGINE para restaurar una copia SQLite.' });
+  }
+  const buf = req.body;
+  if (!Buffer.isBuffer(buf) || buf.length < 100 || buf.subarray(0, 16).toString('latin1') !== 'SQLite format 3\u0000') {
+    return res.status(400).json({ error: 'El archivo no es una base SQLite válida' });
+  }
+  const pending = `${DATABASE_PATH}.import`;
+  try {
+    fs.writeFileSync(pending, buf);
+    const Database = createRequire(import.meta.url)('better-sqlite3');
+    const check = new Database(pending, { readonly: true, fileMustExist: true });
+    const integrity = check.pragma('quick_check', { simple: true });
+    const count = table => { try { return check.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get().n; } catch { return null; } };
+    const counts = { usuarios: count('users'), scripts: count('scripts'), keys: count('keys') };
+    check.close();
+    if (integrity !== 'ok') throw new Error(`la verificación de la base falló (${integrity})`);
+    auditLog(req.userId, 'settings', 'copia restaurada (pendiente de reinicio)', `${buf.length} bytes`);
+    res.json({ ok: true, bytes: buf.length, counts, message: 'Copia recibida. Reinicia el servicio web en Railway para aplicarla.' });
+  } catch (err) {
+    fs.rmSync(pending, { force: true });
+    res.status(400).json({ error: `No se pudo usar el archivo: ${err.message}` });
   }
 });
 

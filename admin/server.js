@@ -196,6 +196,21 @@ app.post('/admin/api/plan-keys/:key/:action', requireSession, (req, res) => {
   forward(res, 'POST', `/plan-keys/${encodeURIComponent(req.params.key)}/${req.params.action}`, req.body || {});
 });
 
+// Restaurar una copia: el archivo se reenvía tal cual al servidor principal
+app.post('/admin/api/import-db', requireSession, express.raw({ type: () => true, limit: '300mb' }), async (req, res) => {
+  try {
+    const out = await fetch(`${MAIN_API_URL}/api/owner/import-db`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${ADMIN_API_TOKEN}`, 'Content-Type': 'application/octet-stream' },
+      body: req.body,
+      signal: AbortSignal.timeout(120_000),
+    });
+    res.status(out.status).json(await out.json().catch(() => ({ error: 'Respuesta inválida del servidor principal' })));
+  } catch {
+    res.status(502).json({ error: 'No se pudo contactar al servidor principal' });
+  }
+});
+
 app.post('/admin/api/:resource', requireSession, (req, res) => {
   const route = ALLOWED[req.params.resource]?.POST;
   if (!route) return res.status(404).json({ error: 'No existe' });

@@ -165,6 +165,14 @@ pre{white-space:pre-wrap;word-break:break-all;background:#040407;border:1px soli
         <div><strong>Respaldo de la base</strong><div class="muted">Copia completa de keys, scripts y usuarios. Guárdala fuera de Railway.</div></div>
         <a class="btn" href="/admin/api/backup">Descargar respaldo</a>
       </div>
+      <div class="row" style="justify-content:space-between;align-items:center;margin-bottom:16px;gap:12px;flex-wrap:wrap">
+        <div><strong>Restaurar una copia</strong><div class="muted">Sube un archivo <code>.db</code>. Se aplica al reiniciar el servicio web en Railway. Solo funciona en modo SQLite.</div></div>
+        <div class="row" style="gap:8px;align-items:center">
+          <input type="file" id="importFile" accept=".db,application/octet-stream">
+          <button class="btn" id="importBtn" type="button" onclick="importDb()">Restaurar</button>
+        </div>
+      </div>
+      <div class="muted" id="importStatus"></div>
       <div class="mt-status" id="mtStatus">
         <span class="mt-dot"></span>
         <div>
@@ -740,6 +748,33 @@ async function loadServers() {
   }
 }
 $('srvRefresh').addEventListener('click', loadServers);
+async function importDb() {
+  const input = document.getElementById('importFile');
+  const status = document.getElementById('importStatus');
+  const btn = document.getElementById('importBtn');
+  const file = input.files && input.files[0];
+  if (!file) { status.textContent = 'Elige primero un archivo .db.'; return; }
+  if (!confirm(`Restaurar "${file.name}"? La base actual se guarda aparte, pero los datos nuevos dejan de verse hasta reiniciar.`)) return;
+  btn.disabled = true;
+  status.textContent = 'Subiendo copia…';
+  try {
+    const res = await fetch('/admin/api/import-db', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/octet-stream' },
+      body: file,
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+    const c = data.counts || {};
+    status.textContent = `${data.message} Usuarios: ${c.usuarios ?? '—'} · Scripts: ${c.scripts ?? '—'} · Keys: ${c.keys ?? '—'}`;
+  } catch (err) {
+    status.textContent = `Error: ${err.message}`;
+  } finally {
+    btn.disabled = false;
+  }
+}
+
 async function loadAll() {
   try {
     await Promise.all([loadKeys(), loadUsers(), loadPublisher(), loadLogs()]);

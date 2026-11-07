@@ -461,7 +461,7 @@
           <h3>Generar key de plan</h3>
           <p style="margin:6px 0 14px;font-size:14px;color:var(--text-soft);">Cada key se usa una sola vez. Entrégala al comprador para que la canjee en Planes.</p>
           <div style="display:flex;gap:10px;flex-wrap:wrap;">
-            <select id="pkPlan" class="field" style="min-width:180px;"><option value="premium">Premium</option><option value="plus">Premium Plus</option></select>
+            <select id="pkPlan" class="field" style="min-width:180px;"><option value="premium">Premium</option><option value="plus">Premium Plus</option><option value="custom">Custom</option></select>
             <button class="btn" id="pkGen" type="button">Generar key</button>
           </div>
         </article>
@@ -782,11 +782,21 @@
             </ul>
             <button class="btn ghost block" data-plan-btn data-label="Mejorar a Plus">Mejorar a Plus</button>
           </article>
+          <article class="card plan-card" data-plan="custom">
+            <h3>Custom</h3>
+            <div class="card-value">A medida</div>
+            <ul>
+              <li>✓ Sin límites de scripts, ofuscaciones ni keys</li>
+              <li>✓ Todas las funciones de Premium Plus</li>
+              <li>✓ Lo configura el dueño para ti</li>
+            </ul>
+            <button class="btn ghost block" data-plan-btn data-label="Pedir plan Custom">Pedir plan Custom</button>
+          </article>
         </div>
 
         <article class="card" id="redeemBox" style="margin-top:20px;display:none;">
           <h3>Canjear key de plan</h3>
-          <p style="margin:6px 0 14px;font-size:14px;color:var(--text-soft);">Compra tu Premium o Premium Plus, el dueño te entrega una key en Discord con <code>/plankey</code> y la pegas aquí. Cada key se usa una sola vez.</p>
+          <p style="margin:6px 0 14px;font-size:14px;color:var(--text-soft);">Compra tu Premium, Premium Plus o Custom, el dueño te entrega una key y la pegas aquí. La key empieza por el plan que es (PREMIUM-, PLUS- o CUSTOM-). Cada key se usa una sola vez.</p>
           <form id="redeemForm" autocomplete="off" style="display:flex;gap:10px;flex-wrap:wrap;">
             <input id="redeemInput" class="field" style="flex:1;min-width:220px;" type="text" placeholder="Pega tu key de plan" required minlength="32" maxlength="64" spellcheck="false" />
             <button class="btn" type="submit">Canjear</button>

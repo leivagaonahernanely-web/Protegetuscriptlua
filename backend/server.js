@@ -301,8 +301,8 @@ try {
 const quota = createQuota(db);
 const resetQuotaIfDue = userId => quota.resetIfDue(userId);
 // Un plan pagado cuyo vencimiento ya pasó vuelve a Free y queda marcado para avisar al usuario
-const expireAllStmt = db.prepare("UPDATE users SET plan = 'free', plan_expires_at = NULL, plan_expired_at = ? WHERE plan IN ('premium','plus') AND plan_expires_at IS NOT NULL AND plan_expires_at <= ?");
-const expireOneStmt = db.prepare("UPDATE users SET plan = 'free', plan_expires_at = NULL, plan_expired_at = ? WHERE id = ? AND plan IN ('premium','plus') AND plan_expires_at IS NOT NULL AND plan_expires_at <= ?");
+const expireAllStmt = db.prepare("UPDATE users SET plan = 'free', plan_expires_at = NULL, plan_expired_at = ? WHERE plan IN ('premium','plus','custom') AND plan_expires_at IS NOT NULL AND plan_expires_at <= ?");
+const expireOneStmt = db.prepare("UPDATE users SET plan = 'free', plan_expires_at = NULL, plan_expired_at = ? WHERE id = ? AND plan IN ('premium','plus','custom') AND plan_expires_at IS NOT NULL AND plan_expires_at <= ?");
 function expirePlans(userId) {
   const now = Math.floor(Date.now() / 1000);
   if (userId) expireOneStmt.run(now, userId, now); else expireAllStmt.run(now, now);
@@ -1963,13 +1963,15 @@ app.get('/api/owner/plan-keys', requireOwnerApi, (req, res) => {
         || (used_by_avatar ? `https://cdn.discordapp.com/avatars/${k.used_by}/${used_by_avatar}.png?size=64` : defaultDiscordAvatar(k.used_by))),
     })));
 });
+const PLAN_KEY_PREFIX = { premium: 'PREMIUM-', plus: 'PLUS-', custom: 'CUSTOM-' };
 app.post('/api/owner/plan-keys', requireOwnerApi, (req, res) => {
-  const plan = req.body?.plan === 'plus' ? 'plus' : (req.body?.plan === 'premium' ? 'premium' : null);
+  const plan = ['premium', 'plus', 'custom'].includes(req.body?.plan) ? req.body.plan : null;
   if (!plan) return res.status(400).json({ error: 'Plan inválido' });
   // Duración en días (1 a 3650). Si no viene, 30 días como antes.
   const days = req.body?.days === undefined || req.body.days === null ? PLAN_DAYS_DEFAULT : Number(req.body.days);
   if (!Number.isInteger(days) || days < 1 || days > 3650) return res.status(400).json({ error: 'La duración debe estar entre 1 y 3650 días' });
-  const key = crypto.randomBytes(24).toString('base64url'); // 32 caracteres, uso único
+  // La key empieza por el tipo de plan (PREMIUM-, PLUS-, CUSTOM-) para saber qué es sin abrirla
+  const key = PLAN_KEY_PREFIX[plan] + crypto.randomBytes(24).toString('base64url'); // uso único
   db.prepare('INSERT INTO plan_keys (key, plan, days, created_at) VALUES (?, ?, ?, ?)').run(key, plan, days, Math.floor(Date.now() / 1000));
   auditLog(req.userId, 'plan_key_create', plan, `${days} días`);
   res.json({ key, plan, days });

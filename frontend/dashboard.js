@@ -7,7 +7,7 @@
     premium: { scripts: 10,       keys: Infinity, obf: 30 },
     plus:    { scripts: Infinity, keys: Infinity, obf: Infinity },
   };
-  const PLAN_LABELS = { free: 'Free', premium: 'Premium', plus: 'Premium Plus' };
+  const PLAN_LABELS = { free: 'Free', premium: 'Premium', plus: 'Premium Plus', custom: 'Custom' };
   const OBFUSCATORS = {
     real:       'Ofuscador 1 · recomendado',
     obscura:    'Ofuscador 2',
@@ -70,10 +70,13 @@
 
   function planKey(p) {
     const v = String(p || 'free').toLowerCase();
+    if (v.includes('custom')) return 'custom';
     if (v.includes('plus')) return 'plus';
     if (v.includes('premium')) return 'premium';
     return 'free';
   }
+  // Tipo de plan que indica el prefijo de la key (null si es una key antigua sin prefijo)
+  const planFromKey = key => key.startsWith('CUSTOM-') ? 'custom' : key.startsWith('PLUS-') ? 'plus' : key.startsWith('PREMIUM-') ? 'premium' : null;
 
   function keyStatus(k) {
     if (k.banned) return { id: 'banned', label: 'Baneada', cls: 'bad' };
@@ -1224,7 +1227,7 @@
   let ownerData = { planKeys: [], publisher: [], users: [], overview: null };
   const AUDIT_LABELS = { plan_key_create: 'Key de plan creada', user_plan: 'Plan cambiado', staff: 'Rol de staff', announce: 'Anuncio publicado', settings: 'Ajustes del sitio' };
   const fmtWhen = ts => new Date(ts * 1000).toLocaleString('es-EC', { dateStyle: 'short', timeStyle: 'short' });
-  const PLAN_OPTIONS = [['free', 'Free'], ['premium', 'Premium'], ['plus', 'Premium Plus']];
+  const PLAN_OPTIONS = [['free', 'Free'], ['premium', 'Premium'], ['plus', 'Premium Plus'], ['custom', 'Custom']];
   const hasPerkPlan = () => !!user && (user.plan === 'premium' || user.plan === 'plus' || user.plan === 'custom');
   const hasPlusPlan = () => !!user && (user.plan === 'plus' || user.plan === 'custom');
   // Precios y Bienvenida se ven siempre; si no hay plan, aparecen con candado (sin redirigir)
@@ -1461,6 +1464,7 @@
     owner:   { label: 'Owner',        color: '#ff5c7a' },
     admin:   { label: 'Admin',        color: '#5865f2' },
     plus:    { label: 'Premium Plus', color: '#2ecc71' },
+    custom:  { label: 'Custom',       color: '#e67e22' },
     premium: { label: 'Premium',      color: '#f1c40f' },
     free:    { label: 'Free',         color: '#99aab5' },
   };
@@ -2358,7 +2362,7 @@
     const box = $('planAlert');
     if (!box || !user) return;
     const now = Date.now() / 1000;
-    const paid = user.plan === 'premium' || user.plan === 'plus';
+    const paid = user.plan === 'premium' || user.plan === 'plus' || user.plan === 'custom';
     const name = user.plan === 'plus' ? 'Premium Plus' : 'Premium';
     const discord = '<a href="https://discord.gg/zTeCGhQx" target="_blank" rel="noopener">nuestro Discord</a>';
     let html = '';
@@ -2940,11 +2944,19 @@
     const btn = e.currentTarget.querySelector('button[type="submit"]');
     const key = $('redeemInput').value.trim();
     if (key.length < 32) { toast('La key es demasiado corta', 'error'); return; }
+    // Antes de canjear, confirma qué plan es según el prefijo de la key
+    const kp = planFromKey(key);
+    const ok = await askConfirm(
+      'Canjear key',
+      kp ? `Esta key es de plan ${PLAN_LABELS[kp]}. ¿Canjearla ahora? Cambiará tu plan actual.` : 'Esta key no tiene prefijo de plan. ¿Canjearla ahora? Cambiará tu plan actual.',
+      { okText: 'Canjear' }
+    );
+    if (!ok) return;
     setBusy(btn, true);
     try {
       const res = await api('/api/plan/redeem', { method: 'POST', body: JSON.stringify({ key }) });
       $('redeemInput').value = '';
-      toast(`Plan ${res.plan === 'plus' ? 'Premium Plus' : 'Premium'} activado`);
+      toast(`Plan ${PLAN_LABELS[res.plan] || 'Premium'} activado`);
       await loadData();
     } catch (err) {
       toast(err.message, 'error');

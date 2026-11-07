@@ -100,7 +100,7 @@ pre{white-space:pre-wrap;word-break:break-all;background:#040407;border:1px soli
       <button class="tab" data-tab="publisher">Publisher</button>
       <button class="tab" data-tab="logs">Logs</button>
       <button class="tab" data-tab="prices">Prices &amp; Plans</button>
-      <button class="tab" data-tab="changelog">Changelog</button>
+      <button class="tab" data-tab="planes">Planes</button>
       <button class="tab" data-tab="servers">Servers</button>
       <button class="tab" data-tab="loaders">Descargas IP</button>
       <button class="tab" data-tab="broadcast">Difusión</button>
@@ -108,28 +108,6 @@ pre{white-space:pre-wrap;word-break:break-all;background:#040407;border:1px soli
     </nav>
 
     <section class="card" data-panel="keys">
-      <div class="row">
-        <select id="keyDur" aria-label="Duración de la key">
-          <option value="1">1 día</option>
-          <option value="7">7 días</option>
-          <option value="15">15 días</option>
-          <option value="30" selected>30 días</option>
-          <option value="90">90 días</option>
-          <option value="180">180 días</option>
-          <option value="365">1 año</option>
-          <option value="custom">Personalizado</option>
-        </select>
-        <span id="keyDurCustom" hidden>
-          <input id="keyDurN" type="number" min="1" max="3650" value="30" aria-label="Cantidad">
-          <select id="keyDurUnit" aria-label="Unidad">
-            <option value="1">días</option>
-            <option value="30">meses</option>
-            <option value="365">años</option>
-          </select>
-        </span>
-        <button class="btn primary" data-gen="premium">Generate Premium key</button>
-        <button class="btn primary" data-gen="plus">Generate Premium Plus key</button>
-      </div>
       <table><thead><tr><th>Key</th><th>Plan</th><th>Status</th><th>Created</th><th></th></tr></thead><tbody id="keysBody"></tbody></table>
     </section>
 
@@ -249,12 +227,31 @@ pre{white-space:pre-wrap;word-break:break-all;background:#040407;border:1px soli
       <div class="row" style="margin:14px 0 0"><button class="btn primary" id="pcSend">Publish to channel</button></div>
     </section>
 
-    <section class="card hidden" data-panel="changelog">
-      <p class="muted" style="margin-top:0">Posts a changelog embed to the channel you choose. Start typing a channel name, or paste its ID.</p>
-      <div class="row"><input class="field" id="cgChannel" list="chanList" placeholder="Channel (name or ID)" style="flex:1;min-width:220px"></div>
-      <div class="row"><input class="field" id="cgTitle" placeholder="Version or title, for example: v1.2 — Loader update" style="flex:1"></div>
-      <textarea class="field" id="cgBody" rows="10" placeholder="What changed, one item per line" style="width:100%"></textarea>
-      <div class="row" style="margin:14px 0 0"><button class="btn primary" id="cgSend">Publish to channel</button></div>
+    <section class="card hidden" data-panel="planes">
+      <p class="muted" style="margin-top:0">Genera keys de plan. Cada key empieza por su plan (PREMIUM-, PLUS-, CUSTOM-) y se canjea una sola vez.</p>
+      <div class="row">
+        <select id="keyDur" aria-label="Duración de la key">
+          <option value="1">1 día</option>
+          <option value="7">7 días</option>
+          <option value="15">15 días</option>
+          <option value="30" selected>30 días</option>
+          <option value="90">90 días</option>
+          <option value="180">180 días</option>
+          <option value="365">1 año</option>
+          <option value="custom">Personalizado</option>
+        </select>
+        <span id="keyDurCustom" hidden>
+          <input id="keyDurN" type="number" min="1" max="3650" value="30" aria-label="Cantidad">
+          <select id="keyDurUnit" aria-label="Unidad">
+            <option value="1">días</option>
+            <option value="30">meses</option>
+            <option value="365">años</option>
+          </select>
+        </span>
+        <button class="btn primary" data-gen="premium">Generate Premium key</button>
+        <button class="btn primary" data-gen="plus">Generate Premium Plus key</button>
+        <button class="btn primary" data-gen="custom">Generate Custom key</button>
+      </div>
     </section>
   </section>
 </main>
@@ -333,7 +330,7 @@ $('logout').addEventListener('click', async () => {
 document.querySelectorAll('.tab').forEach(t => t.addEventListener('click', () => {
   document.querySelectorAll('.tab').forEach(x => x.classList.toggle('on', x === t));
   document.querySelectorAll('[data-panel]').forEach(p => p.classList.toggle('hidden', p.dataset.panel !== t.dataset.tab));
-  if (t.dataset.tab === 'prices' || t.dataset.tab === 'changelog') loadChannels();
+  if (t.dataset.tab === 'prices') loadChannels();
   if (t.dataset.tab === 'site') loadSite();
   if (t.dataset.tab === 'servers') loadServers();
   if (t.dataset.tab === 'loaders') loadLoaders();
@@ -417,7 +414,6 @@ async function publishAnnouncement(kind, channelField, titleField, bodyField, im
   } catch (err) { toast(err.message); }
 }
 $('pcSend').addEventListener('click', () => publishAnnouncement('prices', 'pcChannel', 'pcTitle', 'pcBody', 'pcImage'));
-$('cgSend').addEventListener('click', () => publishAnnouncement('changelog', 'cgChannel', 'cgTitle', 'cgBody'));
 // ---- Plan keys ----
 function renderKeys() {
   $('keysBody').innerHTML = cache.keys.length ? cache.keys.map(k => `

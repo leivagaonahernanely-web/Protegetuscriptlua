@@ -272,6 +272,8 @@ for (const sql of [
   "ALTER TABLE users ADD COLUMN custom_scripts INTEGER",
   "ALTER TABLE users ADD COLUMN custom_obfuscations INTEGER",
   "ALTER TABLE users ADD COLUMN custom_panels INTEGER",
+  "ALTER TABLE custom_plan_requests ADD COLUMN payment_method TEXT",
+  "ALTER TABLE custom_plan_requests ADD COLUMN contact TEXT",
   "ALTER TABLE users ADD COLUMN plan_expires_at INTEGER",
   "ALTER TABLE users ADD COLUMN plan_expired_at INTEGER",
   "ALTER TABLE users ADD COLUMN quota_reset_at INTEGER",
@@ -841,15 +843,26 @@ app.get('/api/config', (req, res) => {
 
 // Canje de key de plan (Premium / Premium Plus); cada key se usa una sola vez
 // Solicitud del plan Custom: el usuario elige cuántos scripts, ofuscaciones y paneles necesita
+// Métodos de pago que se ofrecen. El pago se hace fuera de la web; aquí solo se indica cómo prefiere pagar.
+const CUSTOM_PAYMENT_METHODS = ['Discord', 'PayPal', 'Binance Pay', 'Transferencia', 'Otro'];
 app.post('/api/plan/custom-request', requireAuth, jsonLimit, (req, res) => {
   const vals = ['scripts', 'obfuscations', 'panels'].map(k => Number(req.body?.[k]));
   if (vals.some(v => !Number.isInteger(v) || v < 1 || v > 100000)) {
     return res.status(400).json({ error: 'Cada cantidad debe estar entre 1 y 100000' });
   }
+  const paymentMethod = String(req.body?.paymentMethod || '');
+  if (!CUSTOM_PAYMENT_METHODS.includes(paymentMethod)) {
+    return res.status(400).json({ error: 'Elige un método de pago' });
+  }
+  const contact = String(req.body?.contact || '').trim().slice(0, 120);
+  // Nunca se guardan números de tarjeta ni de cuenta bancaria
+  if (/\d{12,}/.test(contact.replace(/[\s-]/g, ''))) {
+    return res.status(400).json({ error: 'No pongas números de tarjeta ni de cuenta. Usa tu usuario de Discord o un correo.' });
+  }
   const pending = db.prepare("SELECT id FROM custom_plan_requests WHERE user_id = ? AND status = 'pending'").get(req.userId);
   if (pending) return res.status(409).json({ error: 'Ya tienes una solicitud Custom pendiente. Espera a que el dueño la revise.' });
-  const info = db.prepare('INSERT INTO custom_plan_requests (user_id, scripts, obfuscations, panels, created_at) VALUES (?, ?, ?, ?, ?)')
-    .run(req.userId, vals[0], vals[1], vals[2], Math.floor(Date.now() / 1000));
+  const info = db.prepare('INSERT INTO custom_plan_requests (user_id, scripts, obfuscations, panels, payment_method, contact, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
+    .run(req.userId, vals[0], vals[1], vals[2], paymentMethod, contact || null, Math.floor(Date.now() / 1000));
   res.json({ ok: true, id: info.lastInsertRowid });
 });
 
@@ -1972,7 +1985,7 @@ function requireOwner(req, res, next) {
 }
 // ---- Solicitudes Custom (solo dueño) ----
 app.get('/api/owner/custom-requests', requireOwnerApi, (req, res) => {
-  res.json(db.prepare(`SELECT r.id, r.user_id, u.username, r.scripts, r.obfuscations, r.panels, r.status, r.created_at, r.decided_at
+  res.json(db.prepare(`SELECT r.id, r.user_id, u.username, r.scripts, r.obfuscations, r.panels, r.payment_method, r.contact, r.status, r.created_at, r.decided_at
     FROM custom_plan_requests r LEFT JOIN users u ON u.id = r.user_id
     ORDER BY (r.status = 'pending') DESC, r.created_at DESC LIMIT 100`).all());
 });

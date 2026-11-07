@@ -2938,6 +2938,13 @@
       ${field('crScripts', 'Scripts')}
       ${field('crObf', 'Ofuscaciones')}
       ${field('crPanels', 'Paneles')}
+      <label style="display:block;margin:14px 0 6px;font-weight:600">Cómo prefieres pagar</label>
+      <select id="crPay" class="field" style="width:100%">
+        <option value="Discord">Discord</option><option value="PayPal">PayPal</option><option value="Binance Pay">Binance Pay</option><option value="Transferencia">Transferencia</option><option value="Otro">Otro</option>
+      </select>
+      <label style="display:block;margin:14px 0 6px;font-weight:600">Tu contacto</label>
+      <input id="crContact" class="field" type="text" maxlength="120" placeholder="Tu usuario de Discord o un correo" style="width:100%">
+      <p class="hint" style="margin:8px 0 0;font-size:12px">El pago se hace fuera de la web. No pongas números de tarjeta ni de cuenta.</p>
       <p id="crErr" style="color:#ff5c7a;min-height:20px;margin:10px 0 0;font-size:13px"></p>
       <div style="display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap;margin-top:12px">
         <button class="btn ghost" type="button" id="crCancel">Cancelar</button>
@@ -2945,7 +2952,7 @@
       </div>`);
     $('crCancel').addEventListener('click', () => closeModal());
     $('crSend').addEventListener('click', async () => {
-      const body = { scripts: parseInt($('crScripts').value, 10), obfuscations: parseInt($('crObf').value, 10), panels: parseInt($('crPanels').value, 10) };
+      const body = { scripts: parseInt($('crScripts').value, 10), obfuscations: parseInt($('crObf').value, 10), panels: parseInt($('crPanels').value, 10), paymentMethod: $('crPay').value, contact: $('crContact').value.trim() };
       if (Object.values(body).some(v => !Number.isInteger(v) || v < 1 || v > 100000)) {
         $('crErr').textContent = 'Cada cantidad debe estar entre 1 y 100000.';
         return;

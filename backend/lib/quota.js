@@ -17,11 +17,14 @@ export const PLAN_QUOTAS = {
 export function createQuota(db, { now = () => Math.floor(Date.now() / 1000) } = {}) {
   const dueStmt = db.prepare('SELECT plan, quota_reset_at FROM users WHERE id = ?');
   const resetStmt = db.prepare('UPDATE users SET obf_used = 0, scripts_period = 0, keys_period = 0, quota_reset_at = ? WHERE id = ?');
-  const rowStmt = db.prepare('SELECT plan, obf_used, scripts_period, keys_period FROM users WHERE id = ?');
+  const rowStmt = db.prepare('SELECT plan, obf_used, scripts_period, keys_period, custom_scripts, custom_obfuscations FROM users WHERE id = ?');
   const addKeysStmt = db.prepare('UPDATE users SET keys_period = COALESCE(keys_period, 0) + ? WHERE id = ?');
   const addScriptStmt = db.prepare('UPDATE users SET scripts_period = COALESCE(scripts_period, 0) + 1 WHERE id = ?');
 
-  const quotaOf = plan => PLAN_QUOTAS[plan] ?? PLAN_QUOTAS.free;
+  // Custom: los límites son los que aprobó el dueño para ese usuario (null = sin límite)
+  const quotaOf = (plan, row = {}) => plan === 'custom'
+    ? { scripts: row.custom_scripts ?? Infinity, obfuscations: row.custom_obfuscations ?? Infinity, keys: Infinity }
+    : (PLAN_QUOTAS[plan] ?? PLAN_QUOTAS.free);
   // Solo el plan Free tiene límite de keys por periodo; los pagos no
   const capOf = plan => (plan === 'premium' || plan === 'plus' || plan === 'custom' ? Infinity : PLAN_QUOTAS.free.keys);
 
@@ -37,7 +40,7 @@ export function createQuota(db, { now = () => Math.floor(Date.now() / 1000) } = 
   function quotaError(userId, { isNewScript, isFfa }) {
     resetIfDue(userId);
     const row = rowStmt.get(userId) || {};
-    const quota = quotaOf(row.plan);
+    const quota = quotaOf(row.plan, row);
     if (isNewScript && (row.scripts_period ?? 0) >= quota.scripts) {
       return `Tu plan permite ${quota.scripts} scripts por periodo. Mejora tu plan para crear más.`;
     }

@@ -179,6 +179,14 @@ app.post('/admin/api/users/:id/staff', requireSession, (req, res) => {
   forward(res, 'POST', `/users/${encodeURIComponent(req.params.id)}/staff`, req.body);
 });
 
+app.get('/admin/api/custom-requests', requireSession, (req, res) => {
+  forward(res, 'GET', '/custom-requests', undefined);
+});
+app.post('/admin/api/custom-requests/:id/:action', requireSession, (req, res) => {
+  if (!['approve', 'reject'].includes(req.params.action)) return res.status(404).json({ error: 'No encontrado' });
+  forward(res, 'POST', `/custom-requests/${encodeURIComponent(req.params.id)}/${req.params.action}`, {});
+});
+
 app.post('/admin/api/:resource', requireSession, (req, res) => {
   const route = ALLOWED[req.params.resource]?.POST;
   if (!route) return res.status(404).json({ error: 'No existe' });

@@ -252,6 +252,9 @@ pre{white-space:pre-wrap;word-break:break-all;background:#040407;border:1px soli
         <button class="btn primary" data-gen="plus">Generate Premium Plus key</button>
         <button class="btn primary" data-gen="custom">Generate Custom key</button>
       </div>
+      <h3 style="margin:22px 0 8px;font-size:15px">Solicitudes Custom</h3>
+      <div class="row"><button class="btn" id="crRefresh">Actualizar</button></div>
+      <table><thead><tr><th>Usuario</th><th>Scripts</th><th>Ofuscaciones</th><th>Paneles</th><th>Estado</th><th></th></tr></thead><tbody id="customBody"></tbody></table>
     </section>
   </section>
 </main>
@@ -331,6 +334,7 @@ document.querySelectorAll('.tab').forEach(t => t.addEventListener('click', () =>
   document.querySelectorAll('.tab').forEach(x => x.classList.toggle('on', x === t));
   document.querySelectorAll('[data-panel]').forEach(p => p.classList.toggle('hidden', p.dataset.panel !== t.dataset.tab));
   if (t.dataset.tab === 'prices') loadChannels();
+  if (t.dataset.tab === 'planes') loadCustomRequests();
   if (t.dataset.tab === 'site') loadSite();
   if (t.dataset.tab === 'servers') loadServers();
   if (t.dataset.tab === 'loaders') loadLoaders();
@@ -507,6 +511,37 @@ document.addEventListener('click', async e => {
     await api('POST', `/admin/api/users/${encodeURIComponent(r.dataset.resetQuota)}/reset-quota`, {});
     toast('Contador reiniciado');
     await loadUsers();
+  } catch (err) { toast(err.message); }
+});
+
+// ---- Solicitudes Custom ----
+const CR_STATUS = { pending: 'Pendiente', approved: 'Aprobada', rejected: 'Rechazada' };
+async function loadCustomRequests() {
+  const body = $('customBody');
+  try {
+    const rows = await api('GET', '/admin/api/custom-requests');
+    body.innerHTML = rows.length ? rows.map(r => `
+      <tr>
+        <td>${esc(r.username || r.user_id)} <span class="muted"><code>${esc(r.user_id)}</code></span></td>
+        <td>${r.scripts}</td><td>${r.obfuscations}</td><td>${r.panels}</td>
+        <td><span class="badge ${r.status === 'approved' ? 'ok' : r.status === 'rejected' ? 'bad' : ''}">${esc(CR_STATUS[r.status] || r.status)}</span></td>
+        <td>${r.status === 'pending' ? `<button class="btn primary" data-cr-approve="${r.id}">Aprobar</button> <button class="btn" data-cr-reject="${r.id}">Rechazar</button>` : `<span class="muted">${when(r.decided_at)}</span>`}</td>
+      </tr>`).join('') : '<tr><td colspan="6" class="muted">No hay solicitudes Custom.</td></tr>';
+  } catch (err) {
+    body.innerHTML = `<tr><td colspan="6" class="muted">No se pudo cargar: ${esc(err.message)}</td></tr>`;
+  }
+}
+$('crRefresh').addEventListener('click', loadCustomRequests);
+document.addEventListener('click', async e => {
+  const a = e.target.closest('[data-cr-approve]');
+  const r = e.target.closest('[data-cr-reject]');
+  const id = a?.dataset.crApprove ?? r?.dataset.crReject;
+  if (!id) return;
+  const action = a ? 'approve' : 'reject';
+  try {
+    await api('POST', `/admin/api/custom-requests/${encodeURIComponent(id)}/${action}`, {});
+    toast(action === 'approve' ? 'Plan Custom activado' : 'Solicitud rechazada');
+    await loadCustomRequests();
   } catch (err) { toast(err.message); }
 });
 

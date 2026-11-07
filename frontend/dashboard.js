@@ -2929,9 +2929,43 @@
   })();
 
   // Botones de mejora de plan: llevan al bloque de canje
+  // Plan Custom: el usuario elige cuántos scripts, ofuscaciones y paneles necesita y se envía al dueño
+  function openCustomRequest() {
+    const field = (id, label) => `<label style="display:block;margin:14px 0 6px;font-weight:600">${label}</label>
+      <input id="${id}" class="field" type="number" min="1" max="100000" value="1" inputmode="numeric" style="width:140px">`;
+    openModal('Plan Custom', `
+      <p style="color:var(--text-soft);line-height:1.5">Elige cuántos necesitas de cada uno. El dueño revisa tu solicitud y te confirma el precio.</p>
+      ${field('crScripts', 'Scripts')}
+      ${field('crObf', 'Ofuscaciones')}
+      ${field('crPanels', 'Paneles')}
+      <p id="crErr" style="color:#ff5c7a;min-height:20px;margin:10px 0 0;font-size:13px"></p>
+      <div style="display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap;margin-top:12px">
+        <button class="btn ghost" type="button" id="crCancel">Cancelar</button>
+        <button class="btn" type="button" id="crSend">Enviar solicitud</button>
+      </div>`);
+    $('crCancel').addEventListener('click', () => closeModal());
+    $('crSend').addEventListener('click', async () => {
+      const body = { scripts: parseInt($('crScripts').value, 10), obfuscations: parseInt($('crObf').value, 10), panels: parseInt($('crPanels').value, 10) };
+      if (Object.values(body).some(v => !Number.isInteger(v) || v < 1 || v > 100000)) {
+        $('crErr').textContent = 'Cada cantidad debe estar entre 1 y 100000.';
+        return;
+      }
+      $('crSend').disabled = true;
+      try {
+        await api('/api/plan/custom-request', { method: 'POST', body: JSON.stringify(body) });
+        closeModal();
+        toast('Solicitud enviada. El dueño te confirmará el plan Custom.');
+      } catch (err) {
+        $('crErr').textContent = err.message;
+        $('crSend').disabled = false;
+      }
+    });
+  }
+
   document.querySelectorAll('[data-plan-btn]').forEach(btn => {
     btn.addEventListener('click', () => {
       if (btn.disabled) return;
+      if (btn.closest('[data-plan]')?.dataset.plan === 'custom') { openCustomRequest(); return; }
       $('redeemBox').style.display = '';
       $('redeemBox').scrollIntoView({ behavior: 'smooth', block: 'center' });
       $('redeemInput').focus();

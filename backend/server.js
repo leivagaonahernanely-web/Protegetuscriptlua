@@ -269,6 +269,9 @@ if (!db.prepare("SELECT 1 FROM pragma_table_info('scripts') WHERE name = 'projec
 // Planes con vencimiento: días de cada key y fecha de vencimiento del plan del usuario
 for (const sql of [
   "ALTER TABLE plan_keys ADD COLUMN days INTEGER",
+  "ALTER TABLE users ADD COLUMN custom_scripts INTEGER",
+  "ALTER TABLE users ADD COLUMN custom_obfuscations INTEGER",
+  "ALTER TABLE users ADD COLUMN custom_panels INTEGER",
   "ALTER TABLE users ADD COLUMN plan_expires_at INTEGER",
   "ALTER TABLE users ADD COLUMN plan_expired_at INTEGER",
   "ALTER TABLE users ADD COLUMN quota_reset_at INTEGER",
@@ -321,6 +324,8 @@ db.exec('CREATE INDEX IF NOT EXISTS scripts_by_user ON scripts(user_id)');
 db.exec('CREATE INDEX IF NOT EXISTS keys_by_script ON keys(script_id)');
 db.exec('CREATE INDEX IF NOT EXISTS keys_by_discord ON keys(discord_id)');
 db.exec('CREATE INDEX IF NOT EXISTS plan_keys_by_user ON plan_keys(used_by)');
+// Solicitudes del plan Custom: el usuario elige cuántos scripts, ofuscaciones y paneles; el dueño las aprueba
+db.exec(`CREATE TABLE IF NOT EXISTS custom_plan_requests (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id TEXT NOT NULL, scripts INTEGER NOT NULL, obfuscations INTEGER NOT NULL, panels INTEGER NOT NULL, status TEXT NOT NULL DEFAULT 'pending', created_at INTEGER, decided_at INTEGER)`);
 function snapshotVersion(scriptId, { name, obfuscator, ffa, source }) {
   const hash = crypto.createHash('sha256').update(String(source ?? '')).digest('hex');
   // Si el código no cambió (solo se editó el nombre o la protección), no se repite la versión
@@ -835,6 +840,19 @@ app.get('/api/config', (req, res) => {
 });
 
 // Canje de key de plan (Premium / Premium Plus); cada key se usa una sola vez
+// Solicitud del plan Custom: el usuario elige cuántos scripts, ofuscaciones y paneles necesita
+app.post('/api/plan/custom-request', requireAuth, jsonLimit, (req, res) => {
+  const vals = ['scripts', 'obfuscations', 'panels'].map(k => Number(req.body?.[k]));
+  if (vals.some(v => !Number.isInteger(v) || v < 1 || v > 100000)) {
+    return res.status(400).json({ error: 'Cada cantidad debe estar entre 1 y 100000' });
+  }
+  const pending = db.prepare("SELECT id FROM custom_plan_requests WHERE user_id = ? AND status = 'pending'").get(req.userId);
+  if (pending) return res.status(409).json({ error: 'Ya tienes una solicitud Custom pendiente. Espera a que el dueño la revise.' });
+  const info = db.prepare('INSERT INTO custom_plan_requests (user_id, scripts, obfuscations, panels, created_at) VALUES (?, ?, ?, ?, ?)')
+    .run(req.userId, vals[0], vals[1], vals[2], Math.floor(Date.now() / 1000));
+  res.json({ ok: true, id: info.lastInsertRowid });
+});
+
 app.post('/api/plan/redeem', requireAuth, jsonLimit, (req, res) => {
   if (maintenanceBlock(req, res)) return;
   const key = String(req.body?.key || '').trim();
@@ -1952,6 +1970,33 @@ function requireOwner(req, res, next) {
   if (!isOwnerId(req.userId)) return res.status(403).json({ error: 'Solo el dueño puede ver esto' });
   next();
 }
+// ---- Solicitudes Custom (solo dueño) ----
+app.get('/api/owner/custom-requests', requireOwnerApi, (req, res) => {
+  res.json(db.prepare(`SELECT r.id, r.user_id, u.username, r.scripts, r.obfuscations, r.panels, r.status, r.created_at, r.decided_at
+    FROM custom_plan_requests r LEFT JOIN users u ON u.id = r.user_id
+    ORDER BY (r.status = 'pending') DESC, r.created_at DESC LIMIT 100`).all());
+});
+// Aprobar: pasa el usuario a Custom con esos límites (sin vencimiento)
+app.post('/api/owner/custom-requests/:id/approve', requireOwnerApi, (req, res) => {
+  const row = db.prepare('SELECT * FROM custom_plan_requests WHERE id = ?').get(Number(req.params.id));
+  if (!row) return res.status(404).json({ error: 'Solicitud no encontrada' });
+  if (row.status !== 'pending') return res.status(409).json({ error: 'La solicitud ya fue revisada' });
+  const now = Math.floor(Date.now() / 1000);
+  db.transaction(() => {
+    db.prepare("UPDATE users SET plan = 'custom', plan_expires_at = NULL, plan_expired_at = NULL, custom_scripts = ?, custom_obfuscations = ?, custom_panels = ? WHERE id = ?")
+      .run(row.scripts, row.obfuscations, row.panels, row.user_id);
+    db.prepare("UPDATE custom_plan_requests SET status = 'approved', decided_at = ? WHERE id = ?").run(now, row.id);
+  })();
+  auditLog(req.userId, 'custom_approve', row.user_id, `${row.scripts} scripts / ${row.obfuscations} ofuscaciones / ${row.panels} paneles`);
+  res.json({ ok: true });
+});
+app.post('/api/owner/custom-requests/:id/reject', requireOwnerApi, (req, res) => {
+  const info = db.prepare("UPDATE custom_plan_requests SET status = 'rejected', decided_at = ? WHERE id = ? AND status = 'pending'")
+    .run(Math.floor(Date.now() / 1000), Number(req.params.id));
+  if (!info.changes) return res.status(404).json({ error: 'Solicitud no encontrada o ya revisada' });
+  auditLog(req.userId, 'custom_reject', req.params.id, '');
+  res.json({ ok: true });
+});
 app.get('/api/owner/plan-keys', requireOwnerApi, (req, res) => {
   // Quien canjeó la key: nombre y foto de Discord (la personalizada si la cambió)
   res.json(db.prepare(`SELECT pk.key, pk.plan, pk.days, pk.used_by, pk.used_at, pk.created_at,

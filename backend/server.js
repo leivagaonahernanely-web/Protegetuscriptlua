@@ -1042,13 +1042,13 @@ pcall(function() if getgenv then rawset(getgenv(), "script_key", nil) end end)
 pcall(function() script_key = nil end)
 pcall(function() if _G then rawset(_G, "script_key", nil) end end)
 if not ok or type(body) ~= "string" then kick("SERVER_UNREACHABLE") end
--- El servidor responde "!VANTARMOR:CODIGO" (error) o "!VANTARMOR:CODE\n<script>" (éxito).
+-- El servidor responde "!VANTARMOR:CODIGO" (error) o "!VANTARMOR:CODE" seguido del script (éxito).
 -- Se usa string.sub en lugar de match para soportar scripts multilínea
--- (el patrón (.*) no captura \n en Lua, y el $ tampoco funciona bien con trailing newline).
--- Los códigos de error toleran \r\n o \n al final (algunos proxies / ejecutores los agregan).
-local errCode = body:match("^!VANTARMOR:([%u_]+)[\r\n]*$")
+-- (el patrón (.*) no captura saltos de línea en Lua, y el $ tampoco funciona bien con salto final).
+-- Los códigos de error toleran CR-LF o LF al final (algunos proxies / ejecutores los agregan).
+local errCode = body:match("^!VANTARMOR:([%u_]+)[\\r\\n]*$")
 if errCode then kick(errCode) end
-local _prefix = "!VANTARMOR:CODE\n"
+local _prefix = "!VANTARMOR:CODE\\n"
 local payload = (body:sub(1, #_prefix) == _prefix and #body > #_prefix) and body:sub(#_prefix + 1) or nil
 if not payload then kick("VERIFY_FAILED") end
 if loaderTampered() then kick("TAMPERING") end

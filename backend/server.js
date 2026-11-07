@@ -1017,7 +1017,7 @@ if key == "" and not FFA then kick("KEY_REQUIRED") end
 local function enc(s) return (s:gsub("[^%w%-_%.~]", function(c) return string.format("%%%02X", string.byte(c)) end)) end
 local hwid = ""
 local okh, h = pcall(function() return game:GetService("RbxAnalyticsService"):GetClientId() end)
-if okh and h then hwid = h end
+if okh and type(h) == "string" and #h >= 8 then hwid = h end
 local rbxid = ""
 local okr, rid = pcall(function() return tostring(Players.LocalPlayer.UserId) end)
 if okr and rid then rbxid = rid end
@@ -1032,9 +1032,16 @@ pcall(function()
   if hits < 2 then detections += 1 end
 end)
 -- Si el propio detector falla no se castiga al jugador (evita falsos positivos)
+local function _clearKey()
+  pcall(function()
+    if type(getgenv) == "function" then local _g = getgenv(); if _g then _g.script_key = nil end end
+  end)
+  if type(_G) == "table" then pcall(function() _G.script_key = nil end) end
+  pcall(function() script_key = nil end)
+end
 if detections > 0 then
   pcall(function() game:HttpGet(AUTH_URL .. "?key=" .. enc(key) .. "&hwid=" .. enc(hwid) .. "&rbxid=" .. enc(rbxid) .. "&tamper=1") end)
-  script_key = nil
+  _clearKey()
   kick("TAMPERING")
 end
 -- Detector de entorno: solo reporta si encuentra funciones de hook activas (hookfunction, etc.)
@@ -1058,16 +1065,24 @@ end
 local hookDetected = envProbeRun()
 if hookDetected then
   pcall(function() game:HttpGet(AUTH_URL .. "?key=" .. enc(key) .. "&hwid=" .. enc(hwid) .. "&rbxid=" .. enc(rbxid) .. "&tamper=1") end)
-  script_key = nil
+  _clearKey()
   kick("TAMPERING")
 end
 -- Si loadstring fue interceptado: se avisa al servidor (dueño) y se corta antes de validar la key
 if loaderTampered() then
   pcall(function() game:HttpGet(AUTH_URL .. "?key=" .. enc(key) .. "&hwid=" .. enc(hwid) .. "&rbxid=" .. enc(rbxid) .. "&tamper=1") end)
-  script_key = nil
+  _clearKey()
   kick("TAMPERING")
 end
-local ok, body = pcall(function() return game:HttpGet(AUTH_URL .. "?key=" .. enc(key) .. "&hwid=" .. enc(hwid) .. "&rbxid=" .. enc(rbxid)) end)
+-- Contactar el servidor con hasta 3 reintentos (Railway puede tardar al arrancar)
+local ok, body = false, ""
+local _url = AUTH_URL .. "?key=" .. enc(key) .. "&hwid=" .. enc(hwid) .. "&rbxid=" .. enc(rbxid)
+for _attempt = 1, 3 do
+  ok, body = pcall(function() return game:HttpGet(_url) end)
+  if ok and type(body) == "string" then break end
+  if _attempt < 3 then task.wait(1) end
+end
+script_key = nil
 -- Limpiar script_key de todos los entornos para que el payload no la lea (ya fue consumida)
 pcall(function() if getgenv then rawset(getgenv(), "script_key", nil) end end)
 pcall(function() script_key = nil end)

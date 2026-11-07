@@ -478,8 +478,8 @@ function uniqueSlug(name) {
 const HWID_RESET_OPTIONS = [0, 6, 12, 24, 48, 72, 168];
 
 // Reinicio de HWID: "Desactivado" (0) es solo para planes pagos; en Free se cambia a 24 h
-const isPaidPlanId = userId => { const p = stmt.userById.get(userId)?.plan; return p === 'premium' || p === 'plus'; };
-const isPlusPlanId = userId => stmt.userById.get(userId)?.plan === 'plus';
+const isPaidPlanId = userId => { const p = stmt.userById.get(userId)?.plan; return p === 'premium' || p === 'plus' || p === 'custom'; };
+const isPlusPlanId = userId => { const p = stmt.userById.get(userId)?.plan; return p === 'plus' || p === 'custom'; };
 // Ofuscador 3: máximo 2 scripts creados por día (hora de Guayaquil) y por usuario
 const LUAU_DAILY_LIMIT = 2;
 const luauDay = () => new Date().toLocaleDateString('en-CA', { timeZone: 'America/Guayaquil' });
@@ -1451,6 +1451,7 @@ function roleOf(userId, plan, staffRole) {
   if (isOwnerId(userId) || staffRole === 'owner') return 'owner';
   if (staffRole === 'admin') return 'admin';
   if (plan === 'plus') return 'plus';
+  if (plan === 'custom') return 'custom';
   if (plan === 'premium') return 'premium';
   return 'free';
 }
@@ -1752,7 +1753,8 @@ app.post('/api/prices', requireAuth, requirePerkPlan, async (req, res) => {
 
 // ---- Bienvenida desde la web (solo Premium Plus): canal, mensaje e imagen de un servidor donde eres dueño o mod ----
 function requirePlusPlan(req, res, next) {
-  if (stmt.userById.get(req.userId)?.plan !== 'plus') {
+  const planNow = stmt.userById.get(req.userId)?.plan;
+  if (planNow !== 'plus' && planNow !== 'custom') {
     return res.status(403).json({ error: 'La bienvenida es solo para Premium Plus' });
   }
   next();
@@ -1987,9 +1989,9 @@ app.get('/api/owner/users', requireOwnerApi, (req, res) => {
     })));
 });
 app.post('/api/owner/users/:id/plan', requireOwnerApi, (req, res) => {
-  const plan = ['free', 'premium', 'plus'].includes(req.body?.plan) ? req.body.plan : null;
+  const plan = ['free', 'premium', 'plus', 'custom'].includes(req.body?.plan) ? req.body.plan : null;
   if (!plan) return res.status(400).json({ error: 'Plan inválido' });
-  const expiresAt = plan === 'free' ? null : Math.floor(Date.now() / 1000) + MONTH_SECONDS;
+  const expiresAt = plan === 'free' || plan === 'custom' ? null : Math.floor(Date.now() / 1000) + MONTH_SECONDS;
   const info = db.prepare('UPDATE users SET plan = ?, plan_expires_at = ?, plan_expired_at = NULL WHERE id = ?').run(plan, expiresAt, req.params.id);
   if (!info.changes) return res.status(404).json({ error: 'Usuario no encontrado' });
   auditLog(req.userId, 'user_plan', req.params.id, plan);
@@ -2004,6 +2006,13 @@ app.post('/api/owner/users/:id/staff', requireOwnerApi, (req, res) => {
   if (!info.changes) return res.status(404).json({ error: 'Usuario no encontrado' });
   auditLog(req.userId, 'staff', req.params.id, role || 'quitado');
   res.json({ ok: true, staff_role: role });
+});
+
+// Reinicia ya los contadores de scripts, ofuscaciones y keys (sin esperar a los 15 días / al mes). Solo el dueño.
+app.post('/api/owner/users/:id/reset-quota', requireOwnerApi, (req, res) => {
+  if (!quota.resetNow(req.params.id)) return res.status(404).json({ error: 'Usuario no encontrado' });
+  auditLog(req.userId, 'quota_reset', req.params.id, 'manual');
+  res.json({ ok: true });
 });
 
 // Foto por defecto de Discord (la misma que muestra Discord cuando el usuario no tiene avatar)

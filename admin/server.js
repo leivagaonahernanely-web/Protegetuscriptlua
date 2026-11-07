@@ -171,6 +171,10 @@ app.post('/admin/api/users/:id/plan', requireSession, (req, res) => {
   forward(res, 'POST', `/users/${encodeURIComponent(req.params.id)}/plan`, req.body);
 });
 
+app.post('/admin/api/users/:id/reset-quota', requireSession, (req, res) => {
+  forward(res, 'POST', `/users/${encodeURIComponent(req.params.id)}/reset-quota`, {});
+});
+
 app.post('/admin/api/users/:id/staff', requireSession, (req, res) => {
   forward(res, 'POST', `/users/${encodeURIComponent(req.params.id)}/staff`, req.body);
 });

@@ -1225,8 +1225,8 @@
   const AUDIT_LABELS = { plan_key_create: 'Key de plan creada', user_plan: 'Plan cambiado', staff: 'Rol de staff', announce: 'Anuncio publicado', settings: 'Ajustes del sitio' };
   const fmtWhen = ts => new Date(ts * 1000).toLocaleString('es-EC', { dateStyle: 'short', timeStyle: 'short' });
   const PLAN_OPTIONS = [['free', 'Free'], ['premium', 'Premium'], ['plus', 'Premium Plus']];
-  const hasPerkPlan = () => !!user && (user.plan === 'premium' || user.plan === 'plus');
-  const hasPlusPlan = () => !!user && user.plan === 'plus';
+  const hasPerkPlan = () => !!user && (user.plan === 'premium' || user.plan === 'plus' || user.plan === 'custom');
+  const hasPlusPlan = () => !!user && (user.plan === 'plus' || user.plan === 'custom');
   // Precios y Bienvenida se ven siempre; si no hay plan, aparecen con candado (sin redirigir)
   function applyLocks() {
     const locked = { precios: !hasPerkPlan(), bienvenida: !hasPlusPlan(), profile: !hasPerkPlan() };

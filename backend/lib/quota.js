@@ -10,6 +10,8 @@ export const PLAN_QUOTAS = {
   free:    { scripts: 3,        obfuscations: 5,        keys: 100 },
   premium: { scripts: 10,       obfuscations: 30,       keys: Infinity },
   plus:    { scripts: Infinity, obfuscations: Infinity, keys: Infinity },
+  // Plan Custom: sin límites (los fija el dueño). No vence solo.
+  custom:  { scripts: Infinity, obfuscations: Infinity, keys: Infinity },
 };
 
 export function createQuota(db, { now = () => Math.floor(Date.now() / 1000) } = {}) {
@@ -21,7 +23,7 @@ export function createQuota(db, { now = () => Math.floor(Date.now() / 1000) } = 
 
   const quotaOf = plan => PLAN_QUOTAS[plan] ?? PLAN_QUOTAS.free;
   // Solo el plan Free tiene límite de keys por periodo; los pagos no
-  const capOf = plan => (plan === 'premium' || plan === 'plus' ? Infinity : PLAN_QUOTAS.free.keys);
+  const capOf = plan => (plan === 'premium' || plan === 'plus' || plan === 'custom' ? Infinity : PLAN_QUOTAS.free.keys);
 
   function resetIfDue(userId) {
     const row = dueStmt.get(userId);
@@ -64,6 +66,15 @@ export function createQuota(db, { now = () => Math.floor(Date.now() / 1000) } = 
     return Math.max(0, cap - (row.keys_period ?? 0));
   }
 
+  // Reinicia contadores ya, sin esperar al periodo (lo usa el dueño desde el panel)
+  function resetNow(userId) {
+    const row = dueStmt.get(userId);
+    if (!row) return false;
+    const every = row.plan === 'free' ? FREE_RESET_SECONDS : MONTH_SECONDS;
+    resetStmt.run(now() + every, userId);
+    return true;
+  }
+
   function capFor(userId) {
     return capOf(rowStmt.get(userId)?.plan);
   }
@@ -72,5 +83,5 @@ export function createQuota(db, { now = () => Math.floor(Date.now() / 1000) } = 
     addScriptStmt.run(userId);
   }
 
-  return { resetIfDue, quotaError, reserveKeys, keysLeft, capFor, noteScript };
+  return { resetIfDue, resetNow, quotaError, reserveKeys, keysLeft, capFor, noteScript };
 }

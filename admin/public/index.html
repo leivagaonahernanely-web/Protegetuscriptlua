@@ -265,7 +265,7 @@ pre{white-space:pre-wrap;word-break:break-all;background:#040407;border:1px soli
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const when = s => s ? new Date(s * 1000).toLocaleString('en-GB', { timeZone: 'America/Guayaquil' }) : '—';
-const PLAN_NAMES = { free: 'Free', premium: 'Premium', plus: 'Premium Plus' };
+const PLAN_NAMES = { free: 'Free', premium: 'Premium', plus: 'Premium Plus', custom: 'Custom' };
 let cache = { keys: [], users: [], publisher: [], logs: [] };
 
 function toast(msg) {
@@ -467,7 +467,7 @@ function renderUsers() {
         </select>
         <small class="muted">${u.plan_expires_at ? 'vence ' + when(u.plan_expires_at) : ''}</small>
       </td>
-      <td><button class="btn" data-save-plan="${esc(u.id)}">Save</button></td>
+      <td><button class="btn" data-save-plan="${esc(u.id)}">Save</button> <button class="btn" data-reset-quota="${esc(u.id)}" title="Reinicia scripts, ofuscaciones y keys ya">Reset</button></td>
       <td>
         <select class="field" data-staff-for="${esc(u.id)}">
           <option value="" ${!u.staff_role ? 'selected' : ''}>Ninguno</option>
@@ -499,6 +499,17 @@ $('usersBody').addEventListener('click', async e => {
   try {
     await api('POST', `/admin/api/users/${encodeURIComponent(id)}/plan`, { plan: sel.value });
     toast('Plan updated');
+    await loadUsers();
+  } catch (err) { toast(err.message); }
+});
+
+document.addEventListener('click', async e => {
+  const r = e.target.closest('[data-reset-quota]');
+  if (!r) return;
+  if (!confirm('¿Reiniciar ya el contador de scripts, ofuscaciones y keys de este usuario?')) return;
+  try {
+    await api('POST', `/admin/api/users/${encodeURIComponent(r.dataset.resetQuota)}/reset-quota`, {});
+    toast('Contador reiniciado');
     await loadUsers();
   } catch (err) { toast(err.message); }
 });

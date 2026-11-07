@@ -104,6 +104,7 @@ app.get('/admin/version', requireSession, async (req, res) => {
 // Solo estas rutas del servidor principal se reenvían (lista cerrada)
 const ALLOWED = {
   'plan-keys': { GET: '/plan-keys', POST: '/plan-keys' },
+  'custom-requests': { GET: '/custom-requests' },
   users: { GET: '/users' },
   publisher: { GET: '/publisher' },
   logs: { GET: '/logs' },

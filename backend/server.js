@@ -976,8 +976,11 @@ local function loaderTampered()
   return false
 end
 local key = ""
--- script_key puede venir como global normal o en _G (depende del ejecutor y del scope del loadstring)
-local _rawKey = script_key or (_G and _G.script_key) or ""
+-- script_key puede venir como global normal, en _G, o en getgenv() (depende del executor)
+local _rawKey = (getgenv and rawget(getgenv(), "script_key"))
+  or (type(script_key) == "string" and script_key)
+  or (_G and type(rawget(_G, "script_key")) == "string" and rawget(_G, "script_key"))
+  or ""
 if type(_rawKey) == "string" then key = (_rawKey:gsub("^%s+", ""):gsub("%s+$", "")) end
 if key == "" and not FFA then kick("KEY_REQUIRED") end
 local function enc(s) return (s:gsub("[^%w%-_%.~]", function(c) return string.format("%%%02X", string.byte(c)) end)) end
@@ -1034,7 +1037,10 @@ if loaderTampered() then
   kick("TAMPERING")
 end
 local ok, body = pcall(function() return game:HttpGet(AUTH_URL .. "?key=" .. enc(key) .. "&hwid=" .. enc(hwid) .. "&rbxid=" .. enc(rbxid)) end)
-script_key = nil
+-- Limpiar script_key de todos los entornos para que el payload no la lea (ya fue consumida)
+pcall(function() if getgenv then rawset(getgenv(), "script_key", nil) end end)
+pcall(function() script_key = nil end)
+pcall(function() if _G then rawset(_G, "script_key", nil) end end)
 if not ok or type(body) ~= "string" then kick("SERVER_UNREACHABLE") end
 -- El servidor responde "!VANTARMOR:CODIGO" (error) o "!VANTARMOR:CODE\n<script>" (éxito).
 -- Se usa string.sub en lugar de match para soportar scripts multilínea
@@ -1052,7 +1058,10 @@ if not fn then
   warn("[VANTARMOR] No se pudo compilar el script: " .. tostring(cerr))
   kick("PAYLOAD_LOAD_FAILED")
 end
-fn()
+-- task.spawn: ejecuta el script del usuario en un hilo separado.
+-- Si el script del usuario tiene un error, no mata el bootstrap y el error
+-- aparece con el nombre real del script (no "LocalScript").
+task.spawn(fn)
 `;
 }
 

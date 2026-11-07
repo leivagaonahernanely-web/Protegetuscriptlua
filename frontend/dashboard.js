@@ -147,6 +147,7 @@
   const OWNER_VIEWS = new Set(['ownerpanel', 'planskeys', 'publisher', 'users']);
   function showView(name) {
     if (OWNER_VIEWS.has(name) && !(user && user.owner)) name = 'dashboard';
+    try { localStorage.setItem('vm_view', name); } catch (_) {}
     document.querySelectorAll('.nav-item[data-nav]').forEach(b => {
       const on = b.dataset.nav === name;
       b.classList.toggle('active', on);
@@ -1360,8 +1361,8 @@
     $('pkList').innerHTML = ownerData.planKeys.length ? ownerData.planKeys.map(k => `
       <div class="row" style="padding:10px 0;border-top:1px solid var(--border);gap:10px;flex-wrap:wrap;">
         <code style="word-break:break-all;flex:1;min-width:200px;">${esc(k.key)}</code>
-        <span class="badge ${k.plan === 'plus' ? 'ok' : ''}">${k.plan === 'plus' ? 'Premium Plus' : 'Premium'}</span>
-        <span class="badge ${k.used_by ? 'bad' : 'ok'}">${k.used_by ? 'Usada' : 'Disponible'}</span>
+        <span class="badge">${esc(PLAN_LABELS[k.plan] || k.plan)}</span>
+        <span class="badge ${k.used_by ? 'bad' : 'ok'}">${k.used_by ? 'Usada por ' + esc(k.used_by_name || k.used_by) : 'Disponible'}</span>
         <button class="btn ghost sm" data-pk-copy="${esc(k.key)}">Copiar</button>
       </div>`).join('') : '<p class="empty-line">Aún no hay keys de plan.</p>';
     $('pubList').innerHTML = ownerData.publisher.length ? ownerData.publisher.map(s => `
@@ -2910,11 +2911,6 @@
   $('menuBtn').addEventListener('click', () => setSidebar($('sidebar').classList.contains('collapsed')));
   $('scrim').addEventListener('click', () => setSidebar(false));
 
-  $('refreshBtn').addEventListener('click', async e => {
-    setBusy(e.currentTarget, true);
-    await loadData();
-    setBusy(e.currentTarget, false);
-  });
 
   // Invitar bot: el link viene del servidor (depende de DISCORD_CLIENT_ID)
   (async () => {
@@ -3042,4 +3038,9 @@
   // ---------- INIT ----------
   setSidebar(!isMobile());
   loadData();
+  // Al recargar, vuelve a la sección que estaba abierta
+  try {
+    const savedView = localStorage.getItem('vm_view');
+    if (savedView && savedView !== 'auth' && NAV[savedView]) showView(savedView);
+  } catch (_) {}
 })();

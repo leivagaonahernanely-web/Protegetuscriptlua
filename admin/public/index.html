@@ -253,7 +253,6 @@ pre{white-space:pre-wrap;word-break:break-all;background:#040407;border:1px soli
         <button class="btn primary" data-gen="custom">Generate Custom key</button>
       </div>
       <h3 style="margin:22px 0 8px;font-size:15px">Solicitudes Custom</h3>
-      <div class="row"><button class="btn" id="crRefresh">Actualizar</button></div>
       <table><thead><tr><th>Usuario</th><th>Scripts</th><th>Ofuscaciones</th><th>Paneles</th><th>Pago / contacto</th><th>Estado</th><th></th></tr></thead><tbody id="customBody"></tbody></table>
     </section>
   </section>
@@ -331,6 +330,7 @@ $('logout').addEventListener('click', async () => {
 });
 
 document.querySelectorAll('.tab').forEach(t => t.addEventListener('click', () => {
+  try { localStorage.setItem('vm_admin_tab', t.dataset.tab); } catch (_) {}
   document.querySelectorAll('.tab').forEach(x => x.classList.toggle('on', x === t));
   document.querySelectorAll('[data-panel]').forEach(p => p.classList.toggle('hidden', p.dataset.panel !== t.dataset.tab));
   if (t.dataset.tab === 'prices') loadChannels();
@@ -559,7 +559,6 @@ async function loadCustomRequests() {
     body.innerHTML = `<tr><td colspan="7" class="muted">No se pudo cargar: ${esc(err.message)}</td></tr>`;
   }
 }
-$('crRefresh').addEventListener('click', loadCustomRequests);
 document.addEventListener('click', async e => {
   const a = e.target.closest('[data-cr-approve]');
   const r = e.target.closest('[data-cr-reject]');
@@ -757,6 +756,11 @@ async function loadAll() {
     showLogin();
   }
 })();
+// Al recargar, vuelve a la pestaña que estaba abierta
+try {
+  const savedTab = localStorage.getItem('vm_admin_tab');
+  if (savedTab) document.querySelector(`.tab[data-tab="${CSS.escape(savedTab)}"]`)?.click();
+} catch (_) {}
 </script>
 </body>
 </html>

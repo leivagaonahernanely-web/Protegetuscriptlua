@@ -30,7 +30,7 @@
   .mono { font-family: 'JetBrains Mono', monospace; }
 
   /* ---------- LAYOUT ---------- */
-  .app { display: flex; height: 100vh; overflow: hidden; }
+  .app { display: flex; height: 100vh; height: 100dvh; overflow: hidden; }
 
   .sidebar {
     width: 260px; flex-shrink: 0; background: var(--panel);

@@ -187,6 +187,14 @@ app.post('/admin/api/custom-requests/:id/:action', requireSession, (req, res) =>
   forward(res, 'POST', `/custom-requests/${encodeURIComponent(req.params.id)}/${req.params.action}`, {});
 });
 
+app.delete('/admin/api/plan-keys/:key', requireSession, (req, res) => {
+  forward(res, 'DELETE', `/plan-keys/${encodeURIComponent(req.params.key)}`, undefined);
+});
+app.post('/admin/api/plan-keys/:key/:action', requireSession, (req, res) => {
+  if (!['extend', 'revoke'].includes(req.params.action)) return res.status(404).json({ error: 'No encontrado' });
+  forward(res, 'POST', `/plan-keys/${encodeURIComponent(req.params.key)}/${req.params.action}`, req.body || {});
+});
+
 app.post('/admin/api/:resource', requireSession, (req, res) => {
   const route = ALLOWED[req.params.resource]?.POST;
   if (!route) return res.status(404).json({ error: 'No existe' });

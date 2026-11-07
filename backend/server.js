@@ -2034,6 +2034,42 @@ app.post('/api/owner/plan-keys', requireOwnerApi, (req, res) => {
   auditLog(req.userId, 'plan_key_create', plan, `${days} días`);
   res.json({ key, plan, days });
 });
+// Borrar una key sin usar
+app.delete('/api/owner/plan-keys/:key', requireOwnerApi, (req, res) => {
+  const row = db.prepare('SELECT used_by FROM plan_keys WHERE key = ?').get(req.params.key);
+  if (!row) return res.status(404).json({ error: 'Key no encontrada' });
+  if (row.used_by) return res.status(409).json({ error: 'Esta key ya fue canjeada. Usa "Quitar plan" o "+ días".' });
+  db.prepare('DELETE FROM plan_keys WHERE key = ? AND used_by IS NULL').run(req.params.key);
+  auditLog(req.userId, 'plan_key_delete', req.params.key.slice(0, 10) + '…', '');
+  res.json({ ok: true });
+});
+// Dar más días: a una key sin usar le suma a su duración; a una ya canjeada le suma al plan del usuario
+app.post('/api/owner/plan-keys/:key/extend', requireOwnerApi, (req, res) => {
+  const days = Number(req.body?.days);
+  if (!Number.isInteger(days) || days < 1 || days > 3650) return res.status(400).json({ error: 'La cantidad debe estar entre 1 y 3650 días' });
+  const row = db.prepare('SELECT * FROM plan_keys WHERE key = ?').get(req.params.key);
+  if (!row) return res.status(404).json({ error: 'Key no encontrada' });
+  if (!row.used_by) {
+    db.prepare('UPDATE plan_keys SET days = COALESCE(days, ?) + ? WHERE key = ? AND used_by IS NULL').run(PLAN_DAYS_DEFAULT, days, req.params.key);
+    auditLog(req.userId, 'plan_key_extend', req.params.key.slice(0, 10) + '…', `+${days} días (sin usar)`);
+    return res.json({ ok: true, mode: 'key' });
+  }
+  const u = db.prepare('SELECT plan, plan_expires_at FROM users WHERE id = ?').get(row.used_by);
+  if (!u || u.plan !== row.plan || !u.plan_expires_at) return res.status(409).json({ error: 'El plan de ese usuario ya no es de esta key o no vence' });
+  db.prepare('UPDATE users SET plan_expires_at = plan_expires_at + ? WHERE id = ?').run(days * 86400, row.used_by);
+  auditLog(req.userId, 'plan_extend', row.used_by, `+${days} días`);
+  res.json({ ok: true, mode: 'user' });
+});
+// Quitar el plan al usuario que canjeó la key (vuelve a Free)
+app.post('/api/owner/plan-keys/:key/revoke', requireOwnerApi, (req, res) => {
+  const row = db.prepare('SELECT * FROM plan_keys WHERE key = ?').get(req.params.key);
+  if (!row) return res.status(404).json({ error: 'Key no encontrada' });
+  if (!row.used_by) return res.status(409).json({ error: 'Esta key aún no fue canjeada; bórrala en su lugar' });
+  db.prepare("UPDATE users SET plan = 'free', plan_expires_at = NULL, plan_expired_at = NULL WHERE id = ? AND plan = ?").run(row.used_by, row.plan);
+  auditLog(req.userId, 'plan_revoke', row.used_by, row.plan);
+  res.json({ ok: true });
+});
+
 // ---- Usuarios (solo dueño): ver planes y cambiarlos ----
 app.get('/api/owner/obfuscators', requireOwnerApi, (req, res) => {
   res.json(Object.entries(OBF_CONFIG).map(([id, c]) => ({ id, ready: Boolean(c.dir) })));

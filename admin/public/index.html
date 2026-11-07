@@ -426,7 +426,7 @@ function renderKeys() {
       <td>${esc(PLAN_NAMES[k.plan] || k.plan)} · ${k.days || 30} días</td>
       <td><span class="badge ${k.used_by ? 'bad' : 'ok'}">${k.used_by ? 'Used' : 'Available'}</span>${k.used_by ? `<div class="who" style="margin-top:6px">${k.used_by_avatar_url ? `<img class="av" src="${esc(k.used_by_avatar_url)}" alt="" loading="lazy">` : '<span class="av-empty"></span>'}<span>${esc(k.used_by_name || k.used_by)}</span></div>` : ''}</td>
       <td class="muted">${when(k.created_at)}</td>
-      <td><button class="btn" data-copy="${esc(k.key)}">Copy</button></td>
+      <td><button class="btn" data-copy="${esc(k.key)}">Copy</button> <button class="btn" data-key-extend="${esc(k.key)}">+ días</button> ${k.used_by ? `<button class="btn" data-key-revoke="${esc(k.key)}">Quitar plan</button>` : `<button class="btn" data-key-delete="${esc(k.key)}">Borrar</button>`}</td>
     </tr>`).join('') : '<tr><td colspan="5" class="muted">No plan keys yet.</td></tr>';
 }
 // Duración elegida en días (1 a 3650). Personalizado = cantidad x unidad (días, meses de 30 o años de 365)
@@ -511,6 +511,33 @@ document.addEventListener('click', async e => {
     await api('POST', `/admin/api/users/${encodeURIComponent(r.dataset.resetQuota)}/reset-quota`, {});
     toast('Contador reiniciado');
     await loadUsers();
+  } catch (err) { toast(err.message); }
+});
+
+// ---- Acciones sobre keys: borrar (sin usar), quitar plan (ya canjeada), dar más días ----
+document.addEventListener('click', async e => {
+  const ext = e.target.closest('[data-key-extend]');
+  const del = e.target.closest('[data-key-delete]');
+  const rev = e.target.closest('[data-key-revoke]');
+  if (!ext && !del && !rev) return;
+  try {
+    if (ext) {
+      const raw = prompt('¿Cuántos días agregar?', '30');
+      if (raw === null) return;
+      const days = Number(raw);
+      if (!Number.isInteger(days) || days < 1 || days > 3650) { toast('Entre 1 y 3650 días'); return; }
+      const r = await api('POST', `/admin/api/plan-keys/${encodeURIComponent(ext.dataset.keyExtend)}/extend`, { days });
+      toast(r.mode === 'user' ? `Plan del usuario: +${days} días` : `Key: +${days} días`);
+    } else if (del) {
+      if (!confirm('¿Borrar esta key sin usar?')) return;
+      await api('DELETE', `/admin/api/plan-keys/${encodeURIComponent(del.dataset.keyDelete)}`);
+      toast('Key borrada');
+    } else {
+      if (!confirm('¿Quitar el plan a quien canjeó esta key? Vuelve a Free.')) return;
+      await api('POST', `/admin/api/plan-keys/${encodeURIComponent(rev.dataset.keyRevoke)}/revoke`, {});
+      toast('Plan quitado');
+    }
+    await loadKeys();
   } catch (err) { toast(err.message); }
 });
 

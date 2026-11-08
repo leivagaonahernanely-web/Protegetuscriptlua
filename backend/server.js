@@ -259,6 +259,8 @@ db.exec(`
   if (!cols.includes('source')) db.exec('ALTER TABLE scripts ADD COLUMN source TEXT');
   if (!cols.includes('hwid_reset_hours')) db.exec('ALTER TABLE scripts ADD COLUMN hwid_reset_hours INTEGER DEFAULT 24');
   if (!cols.includes('hwid_lock')) db.exec('ALTER TABLE scripts ADD COLUMN hwid_lock INTEGER DEFAULT 1');
+  // 1 = entregar el código ofuscado (content). 0 = comportamiento actual (código original). Se activa por script tras probarlo en móvil
+  if (!cols.includes('serve_protected')) db.exec('ALTER TABLE scripts ADD COLUMN serve_protected INTEGER DEFAULT 0');
   // Detección de keys compartidas (1 = activa)
   if (!cols.includes('share_detection')) db.exec('ALTER TABLE scripts ADD COLUMN share_detection INTEGER DEFAULT 1');
   if (!cols.includes('auto_revoke_dump')) db.exec('ALTER TABLE scripts ADD COLUMN auto_revoke_dump INTEGER DEFAULT 0');
@@ -1295,6 +1297,11 @@ function issuePayloadToken(scriptId, ip) {
   return token;
 }
 
+// Código que se entrega al ejecutor: el ofuscado solo si el dueño lo activó para ese script
+function servedCode(script) {
+  return script.serve_protected && script.content ? script.content : (script.source || script.content);
+}
+
 // Entrega el código con un token válido. El token se gasta aunque falle.
 app.get('/scripts/hosted/:slug/payload', (req, res) => {
   if (/text\/html/.test(req.get('accept') || '')) return res.status(403).type('text/plain').send('!VANTARMOR:FORBIDDEN');
@@ -1306,7 +1313,7 @@ app.get('/scripts/hosted/:slug/payload', (req, res) => {
   if (!entry || entry.expires < Date.now() || !script || script.id !== entry.scriptId || entry.ip !== (req.ip || null)) {
     return res.status(403).type('text/plain').send('!VANTARMOR:TOKEN_INVALID');
   }
-  res.type('text/plain').send(script.source || script.content);
+  res.type('text/plain').send(servedCode(script));
 });
 
 // Endpoint de verificación: lo llama el bootstrap. Responde el código del script o "!VANTARMOR:CODIGO".
@@ -1392,7 +1399,7 @@ app.get('/scripts/hosted/:slug/auth', (req, res) => {
       `• HWID: \`${/^[\x21-\x7E]{8,128}$/.test(ffaHwid) ? ffaHwid : 'sin dato'}\``,
       `• ID del script: \`${script.loader_id || script.id}\``,
     ], null, rbxid);
-    return res.type('text/plain').send('!VANTARMOR:CODE\n' + (script.source || script.content));
+    return res.type('text/plain').send('!VANTARMOR:CODE\n' + servedCode(script));
   }
 
   const key = String(req.query.key || '').trim().slice(0, 64);
@@ -1438,7 +1445,7 @@ app.get('/scripts/hosted/:slug/auth', (req, res) => {
     `• ID del script: \`${script.loader_id || script.id}\``,
     `• Veces que esta key ejecutó este script: ${run?.exec_count ?? 1}`,
   ], k.discord_id, rbxid);
-  res.type('text/plain').send('!VANTARMOR:CODE\n' + (script.source || script.content));
+  res.type('text/plain').send('!VANTARMOR:CODE\n' + servedCode(script));
 });
 
 app.get('/auth/logout', (req, res) => {
@@ -2172,6 +2179,20 @@ app.get('/api/owner/backup', requireOwnerApi, async (req, res) => {
     console.error('[Respaldo] Descarga fallida:', err.message);
     res.status(500).json({ error: 'No se pudo crear el respaldo', detail: String(err?.message || err).slice(0, 300) });
   }
+});
+
+// Dueño: activa o desactiva la entrega del código ofuscado para un script (para probarlo en móvil antes de usarlo en todos)
+app.post('/api/owner/serve-protected', requireOwnerApi, (req, res) => {
+  const scriptId = Number(req.body?.scriptId);
+  if (!Number.isInteger(scriptId) || scriptId < 1) return res.status(400).json({ error: 'scriptId inválido' });
+  const on = req.body?.on ? 1 : 0;
+  if (on && !db.prepare('SELECT content FROM scripts WHERE id = ?').get(scriptId)?.content) {
+    return res.status(404).json({ error: 'Script no encontrado' });
+  }
+  const info = db.prepare('UPDATE scripts SET serve_protected = ? WHERE id = ?').run(on, scriptId);
+  if (!info.changes) return res.status(404).json({ error: 'Script no encontrado' });
+  auditLog(req.userId, 'settings', on ? 'entrega ofuscada activada' : 'entrega ofuscada desactivada', `script ${scriptId}`);
+  res.json({ ok: true, scriptId, serveProtected: on });
 });
 
 // Restaurar una copia (.db). El archivo se valida y queda pendiente: se aplica al reiniciar el servicio.

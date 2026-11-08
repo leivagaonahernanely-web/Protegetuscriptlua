@@ -173,6 +173,15 @@ pre{white-space:pre-wrap;word-break:break-all;background:#040407;border:1px soli
         </div>
       </div>
       <div class="muted" id="importStatus"></div>
+      <div class="row" style="justify-content:space-between;align-items:center;margin:16px 0;gap:12px;flex-wrap:wrap">
+        <div><strong>Entrega ofuscada por script</strong><div class="muted">Activa el código ofuscado solo en un script de prueba y pruébalo en móvil. Por defecto se entrega el original.</div></div>
+        <div class="row" style="gap:8px;align-items:center">
+          <input type="number" id="protScriptId" min="1" placeholder="ID del script" style="width:130px">
+          <button class="btn" type="button" onclick="setServeProtected(true)">Activar</button>
+          <button class="btn" type="button" onclick="setServeProtected(false)">Desactivar</button>
+        </div>
+      </div>
+      <div class="muted" id="protStatus"></div>
       <div class="mt-status" id="mtStatus">
         <span class="mt-dot"></span>
         <div>
@@ -748,6 +757,18 @@ async function loadServers() {
   }
 }
 $('srvRefresh').addEventListener('click', loadServers);
+async function setServeProtected(on) {
+  const status = document.getElementById('protStatus');
+  const scriptId = parseInt(document.getElementById('protScriptId').value, 10);
+  if (!Number.isInteger(scriptId) || scriptId < 1) { status.textContent = 'Escribe el ID del script.'; return; }
+  try {
+    const data = await api('POST', '/admin/api/serve-protected', { scriptId, on });
+    status.textContent = `Script ${data.scriptId}: ${data.serveProtected ? 'entrega ofuscada ACTIVADA' : 'entrega original (desactivada)'}.`;
+  } catch (err) {
+    status.textContent = `Error: ${err.message}`;
+  }
+}
+
 async function importDb() {
   const input = document.getElementById('importFile');
   const status = document.getElementById('importStatus');

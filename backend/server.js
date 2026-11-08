@@ -347,6 +347,8 @@ db.exec('CREATE INDEX IF NOT EXISTS keys_by_script ON keys(script_id)');
 db.exec('CREATE INDEX IF NOT EXISTS keys_by_discord ON keys(discord_id)');
 db.exec('CREATE INDEX IF NOT EXISTS plan_keys_by_user ON plan_keys(used_by)');
 // Solicitudes del plan Custom: el usuario elige cuántos scripts, ofuscaciones y paneles; el dueño las aprueba
+// Prueba gratis de Premium/Plus: una key por cuenta y plan. Reclamar otra vez (al vencer) suma 3 días a la misma key
+db.exec(`CREATE TABLE IF NOT EXISTS free_claims (user_id TEXT NOT NULL, plan TEXT NOT NULL, key TEXT NOT NULL UNIQUE, claimed_at INTEGER NOT NULL, expires_at INTEGER NOT NULL, renewals INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (user_id, plan))`);
 db.exec(`CREATE TABLE IF NOT EXISTS custom_plan_requests (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id TEXT NOT NULL, scripts INTEGER NOT NULL, obfuscations INTEGER NOT NULL, panels INTEGER NOT NULL, status TEXT NOT NULL DEFAULT 'pending', created_at INTEGER, decided_at INTEGER)`);
 function snapshotVersion(scriptId, { name, obfuscator, ffa, source }) {
   const hash = crypto.createHash('sha256').update(String(source ?? '')).digest('hex');
@@ -899,6 +901,53 @@ app.post('/api/plan/redeem', requireAuth, jsonLimit, (req, res) => {
 app.post('/api/plan/stay-free', requireAuth, (req, res) => {
   db.prepare("UPDATE users SET plan = 'free', plan_expires_at = NULL, plan_expired_at = NULL WHERE id = ?").run(req.userId);
   res.json({ ok: true });
+});
+
+// Pruebas gratis (3 días): estado de las keys de la cuenta
+const FREE_PLAN_DAYS = 3;
+const FREE_PLANS = { premium: 'PREMIUM-', plus: 'PLUS-' };
+app.get('/api/free-keys', requireAuth, (req, res) => {
+  const now = Math.floor(Date.now() / 1000);
+  const rows = db.prepare('SELECT plan, key, claimed_at, expires_at, renewals FROM free_claims WHERE user_id = ?').all(req.userId);
+  res.json(rows.map(r => ({ plan: r.plan, key: r.key, expires_at: r.expires_at, expired: r.expires_at <= now, renewals: r.renewals })));
+});
+
+// Reclamar o renovar: si nunca reclamó el plan, crea la key; si ya la tenía y venció, suma 3 días a la misma key.
+// No se puede reclamar mientras la prueba siga activa, ni si la cuenta ya tiene un plan pagado activo.
+app.post('/api/free-keys/claim', requireAuth, jsonLimit, (req, res) => {
+  if (maintenanceBlock(req, res)) return;
+  const plan = String(req.body?.plan || '').toLowerCase();
+  if (!FREE_PLANS[plan]) return res.status(400).json({ error: 'Plan inválido' });
+
+  const now = Math.floor(Date.now() / 1000);
+  // Un plan pagado activo no se reemplaza con la prueba (acortaría su vencimiento).
+  // Sí se permite si el plan activo es la propia prueba de la cuenta.
+  const me = stmt.userById.get(req.userId);
+  const activePaid = !!me && ['premium', 'plus', 'custom'].includes(me.plan) && me.plan_expires_at > now;
+  const fromFree = activePaid && me.plan === plan && !!db.prepare('SELECT 1 FROM free_claims WHERE user_id = ? AND plan = ? AND expires_at = ?')
+    .get(req.userId, me.plan, me.plan_expires_at);
+  if (activePaid && !fromFree) return res.status(409).json({ error: 'Ya tienes un plan activo' });
+
+  const expiresAt = now + FREE_PLAN_DAYS * 86400;
+  const result = db.transaction(() => {
+    const row = db.prepare('SELECT * FROM free_claims WHERE user_id = ? AND plan = ?').get(req.userId, plan);
+    if (row && row.expires_at > now) return { error: 'Tu prueba de ' + plan + ' sigue activa' };
+    let key = row?.key;
+    if (!row) {
+      key = FREE_PLANS[plan] + crypto.randomBytes(24).toString('base64url');
+      db.prepare('INSERT INTO free_claims (user_id, plan, key, claimed_at, expires_at, renewals) VALUES (?, ?, ?, ?, ?, 0)')
+        .run(req.userId, plan, key, now, expiresAt);
+    } else {
+      db.prepare('UPDATE free_claims SET expires_at = ?, renewals = renewals + 1 WHERE user_id = ? AND plan = ?')
+        .run(expiresAt, req.userId, plan);
+    }
+    db.prepare('UPDATE users SET plan = ?, plan_expires_at = ?, plan_expired_at = NULL WHERE id = ?').run(plan, expiresAt, req.userId);
+    return { key, renewed: !!row };
+  })();
+
+  if (result.error) return res.status(409).json({ error: result.error });
+  auditLog(req.userId, result.renewed ? 'free_key_renew' : 'free_key_claim', plan, `${FREE_PLAN_DAYS} días`);
+  res.json({ ok: true, plan, key: result.key, expires_at: expiresAt, renewed: result.renewed });
 });
 
 // Loader: sirve el código si la key es válida y el HWID coincide (o se vincula la primera vez)

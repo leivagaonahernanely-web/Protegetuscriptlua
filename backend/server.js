@@ -1092,13 +1092,9 @@ pcall(function() script_key = nil end)
 pcall(function() if _G then rawset(_G, "script_key", nil) end end)
 if not ok or type(body) ~= "string" then kick("SERVER_UNREACHABLE") end
 -- Entrega en dos pasos (solo scripts con secure_fetch): /auth dio un token; el código sale de /payload por POST
-if SECURE then
-  local _tp = "!VANTARMOR:TOKEN\\n"
-  if body:sub(1, #_tp) ~= _tp then
-    local _e = body:match("^!VANTARMOR:([%u_]+)")
-    if _e then kick(_e) end
-    kick("VERIFY_FAILED")
-  end
+-- La respuesta del servidor decide el flujo (no la marca SECURE del bootstrap): así un loader viejo o cacheado no se rechaza
+local _tp = "!VANTARMOR:TOKEN\\n"
+if body:sub(1, #_tp) == _tp then
   local _token = (body:sub(#_tp + 1):gsub("%s+$", ""))
   local _post = (type(request) == "function" and request)
     or (type(http_request) == "function" and http_request)
@@ -1338,8 +1334,9 @@ app.post('/scripts/hosted/:slug/payload', express.text({ type: () => true, limit
   const entry = payloadTokens.get(token);
   payloadTokens.delete(token);
   const script = stmt.scriptBySlug.get(req.params.slug);
-  // El token vale solo para la IP que hizo el login, una vez y 30 s
-  if (!entry || entry.expires < Date.now() || !script || script.id !== entry.scriptId || entry.ip !== (req.ip || null)) {
+  // El token vale para este script, una vez y 30 s
+  // No se compara la IP: en móviles el GET y el POST pueden salir por IPs distintas (cambio de Wi-Fi a datos)
+  if (!entry || entry.expires < Date.now() || !script || script.id !== entry.scriptId) {
     return res.status(403).type('text/plain').send('!VANTARMOR:TOKEN_INVALID');
   }
   res.type('text/plain').send(servedCode(script, { ip: req.ip, key: entry.key }));

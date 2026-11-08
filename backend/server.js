@@ -2163,6 +2163,28 @@ app.get('/api/owner/backup', requireOwnerApi, async (req, res) => {
   }
 });
 
+// Dueño: compacta la base SQLite para devolver al volumen el espacio libre de páginas borradas.
+// VACUUM necesita espacio libre igual al tamaño de la base, así que se niega si no hay margen.
+app.post('/api/owner/compact', requireOwnerApi, (req, res) => {
+  if (process.env.DB_ENGINE === 'postgres') return res.status(409).json({ error: 'La compactación solo aplica al modo SQLite' });
+  const mb = bytes => `${(bytes / 1048576).toFixed(1)} MB`;
+  try {
+    const before = fs.statSync(DATABASE_PATH).size;
+    const fsInfo = fs.statfsSync(path.dirname(DATABASE_PATH));
+    const free = fsInfo.bavail * fsInfo.bsize;
+    if (free < before * 1.1) {
+      return res.status(409).json({ error: `No hay espacio para compactar: libre ${mb(free)}, la base pesa ${mb(before)}. Aumenta el volumen y vuelve a intentar.` });
+    }
+    db.exec('VACUUM');
+    const after = fs.statSync(DATABASE_PATH).size;
+    auditLog(req.userId, 'settings', 'base compactada', `${mb(before)} -> ${mb(after)}`);
+    res.json({ ok: true, message: `Base compactada: ${mb(before)} -> ${mb(after)}` });
+  } catch (err) {
+    console.error('[Compactar] Fallido:', err.message);
+    res.status(500).json({ error: 'No se pudo compactar', detail: String(err?.message || err).slice(0, 300) });
+  }
+});
+
 // Dueño: activa o desactiva la entrega del código ofuscado para un script (para probarlo en móvil antes de usarlo en todos)
 app.post('/api/owner/serve-protected', requireOwnerApi, (req, res) => {
   const scriptId = Number(req.body?.scriptId);

@@ -117,6 +117,7 @@ const ALLOWED = {
   settings: { POST: '/settings' },
   broadcast: { GET: '/broadcast', POST: '/broadcast' },
   'serve-protected': { POST: '/serve-protected' },
+  compact: { POST: '/compact' },
 };
 
 async function forward(res, method, route, body) {

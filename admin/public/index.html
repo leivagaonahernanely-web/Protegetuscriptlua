@@ -182,6 +182,11 @@ pre{white-space:pre-wrap;word-break:break-all;background:#040407;border:1px soli
         </div>
       </div>
       <div class="muted" id="protStatus"></div>
+      <div class="row" style="justify-content:space-between;align-items:center;margin:16px 0;gap:12px;flex-wrap:wrap">
+        <div><strong>Compactar la base</strong><div class="muted">Devuelve al volumen el espacio que dejaron los datos borrados. Necesita espacio libre igual al tamaño de la base.</div></div>
+        <button class="btn" id="compactBtn" type="button" onclick="compactDb()">Compactar</button>
+      </div>
+      <div class="muted" id="compactStatus"></div>
       <div class="mt-status" id="mtStatus">
         <span class="mt-dot"></span>
         <div>
@@ -757,6 +762,22 @@ async function loadServers() {
   }
 }
 $('srvRefresh').addEventListener('click', loadServers);
+async function compactDb() {
+  const status = document.getElementById('compactStatus');
+  const btn = document.getElementById('compactBtn');
+  if (!confirm('Compactar la base ahora? Puede tardar un poco y la página no responde mientras tanto.')) return;
+  btn.disabled = true;
+  status.textContent = 'Compactando…';
+  try {
+    const data = await api('POST', '/admin/api/compact', {});
+    status.textContent = data.message;
+  } catch (err) {
+    status.textContent = `Error: ${err.message}`;
+  } finally {
+    btn.disabled = false;
+  }
+}
+
 async function setServeProtected(on) {
   const status = document.getElementById('protStatus');
   const scriptId = parseInt(document.getElementById('protScriptId').value, 10);

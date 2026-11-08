@@ -143,7 +143,10 @@ app.get('/admin/api/backup', requireSession, async (req, res) => {
       headers: { Authorization: `Bearer ${ADMIN_API_TOKEN}` },
       signal: AbortSignal.timeout(60_000),
     });
-    if (!out.ok) return res.status(out.status).json({ error: 'No se pudo crear el respaldo' });
+    if (!out.ok) {
+      const body = await out.json().catch(() => ({}));
+      return res.status(out.status).json({ error: body.error || 'No se pudo crear el respaldo', detail: body.detail || null });
+    }
     res.set('Content-Type', 'application/octet-stream');
     res.set('Content-Disposition', out.headers.get('content-disposition') || 'attachment; filename="vantarmor.db"');
     res.send(Buffer.from(await out.arrayBuffer()));

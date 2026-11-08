@@ -2154,7 +2154,7 @@ app.get('/api/owner/backup', requireOwnerApi, async (req, res) => {
   } catch (err) {
     fs.rmSync(file, { force: true });
     console.error('[Respaldo] Descarga fallida:', err.message);
-    res.status(500).json({ error: 'No se pudo crear el respaldo' });
+    res.status(500).json({ error: 'No se pudo crear el respaldo', detail: String(err?.message || err).slice(0, 300) });
   }
 });
 

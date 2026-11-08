@@ -711,31 +711,13 @@ function checkLuauSyntax(code) {
     });
   });
 }
-// Limpieza periódica de la caché de ofuscación (entradas con más de 90 días)
-{
-  const OBF_CACHE_TTL_DAYS = Number(process.env.OBF_CACHE_TTL_DAYS) || 90;
-  const pruneObfCache = () => {
-    try {
-      const cutoff = Math.floor(Date.now() / 1000) - OBF_CACHE_TTL_DAYS * 86400;
-      const r = db.prepare('DELETE FROM obf_cache WHERE created_at < ?').run(cutoff);
-      if (r.changes) console.log(`[obf_cache] ${r.changes} entradas antiguas eliminadas`);
-    } catch (err) { console.warn('[obf_cache] Error al limpiar:', err.message); }
-  };
-  pruneObfCache(); // limpieza al arrancar
-  setInterval(pruneObfCache, 24 * 60 * 60 * 1000).unref();
-}
+// La caché de ofuscación ya no se guarda en la base: cada salida ya queda en scripts.content y la caché
+// hacía crecer el volumen (hasta 90 días de versiones completas). Al arrancar se vacía; SQLite reutiliza ese espacio.
+try { db.exec('DELETE FROM obf_cache'); } catch (err) { console.warn('[obf_cache] No se pudo vaciar:', err.message); }
 
-const obfCacheGet = db.prepare('SELECT content FROM obf_cache WHERE hash = ?');
-const obfCachePut = db.prepare('INSERT OR REPLACE INTO obf_cache (hash, content, created_at) VALUES (?, ?, ?)');
 async function obfuscate(source, obfuscator, opts = {}) {
-  source = normalizeLuaSource(source); // BOM y línea #! fuera antes de ofuscar (y de la caché)
-  // La caché incluye la versión del motor de Ofuscador 4: al actualizar NextOfuscator no se devuelve lo viejo
-  const hash = crypto.createHash('sha256').update(`${obfuscator}|${opts.vm ? 1 : 0}|${obfuscator === 'next' ? NEXT_ENGINE_VERSION : ''}|${source}`).digest('hex');
-  const hit = obfCacheGet.get(hash);
-  if (hit) return hit.content;
-  const content = await obfuscateUncached(source, obfuscator, opts);
-  try { obfCachePut.run(hash, content, Math.floor(Date.now() / 1000)); } catch { /* la caché nunca rompe el guardado */ }
-  return content;
+  source = normalizeLuaSource(source); // BOM y línea #! fuera antes de ofuscar
+  return obfuscateUncached(source, obfuscator, opts);
 }
 // Huella de los archivos del motor de Ofuscador 4: cambia cada vez que se actualiza NextOfuscator
 const NEXT_ENGINE_VERSION = (() => {

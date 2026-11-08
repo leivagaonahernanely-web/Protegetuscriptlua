@@ -1174,7 +1174,7 @@ app.get('/files/v1/loaders/:file', async (req, res) => {
 // Registro de usos del loader en el canal de logs del creador (el bot se asigna al arrancar)
 let discordBot = null;
 // Plan Free: para crear scripts debe unirse a nuestro servidor de Discord (una sola vez)
-const DISCORD_JOIN_URL = 'https://discord.gg/zTeCGhQx';
+const DISCORD_JOIN_URL = 'https://discord.gg/aKQNc6pC';
 function discordJoinDone(userId) {
   return isPaidPlanId(userId) || Boolean(stmt.userById.get(userId)?.discord_joined);
 }

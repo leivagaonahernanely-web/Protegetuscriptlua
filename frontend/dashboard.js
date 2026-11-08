@@ -203,7 +203,7 @@
 
   // Plan Free: antes de crear scripts debe unirse al servidor de Discord. El aviso sale cada vez hasta que confirme
   function showDiscordGate(invite) {
-    const url = invite || 'https://discord.gg/zTeCGhQx';
+    const url = invite || 'https://discord.gg/aKQNc6pC';
     openModal('Únete a nuestro Discord', `
       <p>Para crear scripts con el plan Free necesitas estar en nuestro servidor de Discord.</p>
       <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:14px">
@@ -2365,7 +2365,7 @@
     const now = Date.now() / 1000;
     const paid = user.plan === 'premium' || user.plan === 'plus' || user.plan === 'custom';
     const name = user.plan === 'plus' ? 'Premium Plus' : 'Premium';
-    const discord = '<a href="https://discord.gg/zTeCGhQx" target="_blank" rel="noopener">nuestro Discord</a>';
+    const discord = '<a href="https://discord.gg/aKQNc6pC" target="_blank" rel="noopener">nuestro Discord</a>';
     let html = '';
     if (paid && user.plan_expires_at && user.plan_expires_at - now < 3 * 86400) {
       const dias = Math.max(1, Math.ceil((user.plan_expires_at - now) / 86400));

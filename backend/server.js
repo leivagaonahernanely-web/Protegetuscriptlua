@@ -2145,6 +2145,22 @@ app.post('/api/owner/users/:id/reset-quota', requireOwnerApi, (req, res) => {
 const defaultDiscordAvatar = id => { try { return `https://cdn.discordapp.com/embed/avatars/${Number((BigInt(id) >> 22n) % 6n)}.png`; } catch { return null; } };
 // Respaldo descargable para el dueño: copia en vivo de la base (se borra después de enviarla)
 app.get('/api/owner/backup', requireOwnerApi, async (req, res) => {
+  // SQLite: la copia se genera en memoria, sin escribir otra base completa en el volumen
+  if (typeof db.serialize === 'function') {
+    try {
+      const copy = db.serialize();
+      auditLog(req.userId, 'settings', 'respaldo descargado', '');
+      res.set({
+        'Content-Type': 'application/octet-stream',
+        'Content-Disposition': `attachment; filename="vantarmor-${ecuadorDay(Date.now())}.db"`,
+      });
+      return res.send(copy);
+    } catch (err) {
+      console.error('[Respaldo] Descarga fallida:', err.message);
+      return res.status(500).json({ error: 'No se pudo crear el respaldo', detail: String(err?.message || err).slice(0, 300) });
+    }
+  }
+  // PostgreSQL: se exporta a un archivo temporal y se descarga
   const file = path.join(BACKUP_DIR, `manual-${Date.now()}.db`);
   try {
     fs.mkdirSync(BACKUP_DIR, { recursive: true });

@@ -1339,7 +1339,8 @@ app.post('/scripts/hosted/:slug/payload', express.text({ type: () => true, limit
   if (!entry || entry.expires < Date.now() || !script || script.id !== entry.scriptId) {
     return res.status(403).type('text/plain').send('!VANTARMOR:TOKEN_INVALID');
   }
-  res.type('text/plain').send(servedCode(script, { ip: req.ip, key: entry.key }));
+  // El loader espera el mismo prefijo que en la entrega de un paso
+  res.type('text/plain').send('!VANTARMOR:CODE\n' + servedCode(script, { ip: req.ip, key: entry.key }));
 });
 
 // Endpoint de verificación: lo llama el bootstrap. Responde el código del script o "!VANTARMOR:CODIGO".

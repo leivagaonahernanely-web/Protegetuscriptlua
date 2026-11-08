@@ -262,6 +262,8 @@ db.exec(`
   if (!cols.includes('hwid_lock')) db.exec('ALTER TABLE scripts ADD COLUMN hwid_lock INTEGER DEFAULT 1');
   // 1 = entregar el código ofuscado (content). 0 = comportamiento actual (código original). Se activa por script tras probarlo en móvil
   if (!cols.includes('serve_protected')) db.exec('ALTER TABLE scripts ADD COLUMN serve_protected INTEGER DEFAULT 0');
+  // Entrega en dos pasos: /auth (GET) solo da un token de un solo uso, y el código sale de /payload (POST). 0 = como antes
+  if (!cols.includes('secure_fetch')) db.exec('ALTER TABLE scripts ADD COLUMN secure_fetch INTEGER DEFAULT 0');
   // Detección de keys compartidas (1 = activa)
   if (!cols.includes('share_detection')) db.exec('ALTER TABLE scripts ADD COLUMN share_detection INTEGER DEFAULT 1');
   if (!cols.includes('auto_revoke_dump')) db.exec('ALTER TABLE scripts ADD COLUMN auto_revoke_dump INTEGER DEFAULT 0');
@@ -960,12 +962,13 @@ pre{margin:0;padding:16px;background:#040407;font-family:ui-monospace,SFMono-Reg
 // Bootstrap que recibe el ejecutor al pedir la URL del loader.
 // Lee script_key, pide el script a /auth con key + HWID y, si algo falla, expulsa
 // al jugador con el mensaje de la tabla MSG. No contiene el código del script.
-function loaderBootstrap(slug, ffa) {
+function loaderBootstrap(slug, ffa, secure = false) {
   const authUrl = `${APP_URL}/scripts/hosted/${slug}/auth`;
   const payloadUrl = `${APP_URL}/scripts/hosted/${slug}/payload`;
   return `local AUTH_URL = ${JSON.stringify(authUrl)}
 local PAYLOAD_URL = ${JSON.stringify(payloadUrl)}
 local FFA = ${ffa ? 'true' : 'false'}
+local SECURE = ${secure ? 'true' : 'false'}
 local HEAD = "[ VANTARMOR ]\\n"
 local MSG = {
   KEY_REQUIRED = HEAD .. "A valid key is required.",
@@ -1088,6 +1091,26 @@ pcall(function() if getgenv then rawset(getgenv(), "script_key", nil) end end)
 pcall(function() script_key = nil end)
 pcall(function() if _G then rawset(_G, "script_key", nil) end end)
 if not ok or type(body) ~= "string" then kick("SERVER_UNREACHABLE") end
+-- Entrega en dos pasos (solo scripts con secure_fetch): /auth dio un token; el código sale de /payload por POST
+if SECURE then
+  local _tp = "!VANTARMOR:TOKEN\\n"
+  if body:sub(1, #_tp) ~= _tp then
+    local _e = body:match("^!VANTARMOR:([%u_]+)")
+    if _e then kick(_e) end
+    kick("VERIFY_FAILED")
+  end
+  local _token = (body:sub(#_tp + 1):gsub("%s+$", ""))
+  local _post = (type(request) == "function" and request)
+    or (type(http_request) == "function" and http_request)
+    or (type(syn) == "table" and type(syn.request) == "function" and syn.request)
+    or nil
+  if not _post then kick("EXECUTOR_NO_POST") end
+  local _okp, _resp = pcall(function()
+    return _post({ Url = PAYLOAD_URL, Method = "POST", Headers = { ["Content-Type"] = "text/plain" }, Body = _token })
+  end)
+  if not _okp or type(_resp) ~= "table" or type(_resp.Body) ~= "string" then kick("SERVER_UNREACHABLE") end
+  body = _resp.Body
+end
 -- El servidor responde "!VANTARMOR:CODIGO" (error) o "!VANTARMOR:CODE" seguido del script (éxito).
 -- Se usa string.sub en lugar de match para soportar scripts multilínea
 -- (el patrón (.*) no captura saltos de línea en Lua, y el $ tampoco funciona bien con salto final).
@@ -1136,7 +1159,7 @@ app.get('/scripts/hosted/:slug', async (req, res) => {
   }
   const script = stmt.scriptBySlug.get(req.params.slug);
   if (script) logLoaderDownload(script, req.ip);
-  const boot = await protectLoader(loaderBootstrap(req.params.slug, !!(script && script.ffa)));
+  const boot = await protectLoader(loaderBootstrap(req.params.slug, !!(script && script.ffa), !!(script && script.secure_fetch)));
   if (boot === null) return res.status(503).type('text/plain').send('-- loader no disponible temporalmente, intenta de nuevo');
   res.type('text/plain').send(boot);
 });
@@ -1150,7 +1173,7 @@ app.get('/files/v1/loaders/:file', async (req, res) => {
     return res.set({ ...PAGE_HEADERS, 'Content-Security-Policy': LOADER_CSP }).type('html').send(loaderPage(script));
   }
   logLoaderDownload(script, req.ip);
-  const boot = await protectLoader(loaderBootstrap(script.slug, !!script.ffa));
+  const boot = await protectLoader(loaderBootstrap(script.slug, !!script.ffa, !!script.secure_fetch));
   if (boot === null) return res.status(503).type('text/plain').send('-- loader no disponible temporalmente, intenta de nuevo');
   res.type('text/plain').send(boot);
 });
@@ -1274,9 +1297,9 @@ setInterval(() => {
   const now = Date.now();
   for (const [t, v] of payloadTokens) if (v.expires < now) payloadTokens.delete(t);
 }, 60_000).unref();
-function issuePayloadToken(scriptId, ip) {
+function issuePayloadToken(script, ip, key) {
   const token = crypto.randomBytes(24).toString('hex');
-  payloadTokens.set(token, { scriptId, ip: ip || null, expires: Date.now() + PAYLOAD_TTL_MS });
+  payloadTokens.set(token, { scriptId: script.id, key: key || null, ip: ip || null, expires: Date.now() + PAYLOAD_TTL_MS });
   return token;
 }
 
@@ -1308,9 +1331,10 @@ function servedCode(script, { ip, key } = {}) {
 }
 
 // Entrega el código con un token válido. El token se gasta aunque falle.
-app.get('/scripts/hosted/:slug/payload', (req, res) => {
+// Solo POST con el token en el cuerpo: un GET (navegador, curl) ya no devuelve código
+app.post('/scripts/hosted/:slug/payload', express.text({ type: () => true, limit: '1kb' }), (req, res) => {
   if (/text\/html/.test(req.get('accept') || '')) return res.status(403).type('text/plain').send('!VANTARMOR:FORBIDDEN');
-  const token = String(req.query.token || '');
+  const token = String(req.body || '').trim();
   const entry = payloadTokens.get(token);
   payloadTokens.delete(token);
   const script = stmt.scriptBySlug.get(req.params.slug);
@@ -1318,7 +1342,7 @@ app.get('/scripts/hosted/:slug/payload', (req, res) => {
   if (!entry || entry.expires < Date.now() || !script || script.id !== entry.scriptId || entry.ip !== (req.ip || null)) {
     return res.status(403).type('text/plain').send('!VANTARMOR:TOKEN_INVALID');
   }
-  res.type('text/plain').send(servedCode(script, { ip: req.ip }));
+  res.type('text/plain').send(servedCode(script, { ip: req.ip, key: entry.key }));
 });
 
 // Endpoint de verificación: lo llama el bootstrap. Responde el código del script o "!VANTARMOR:CODIGO".
@@ -1404,6 +1428,7 @@ app.get('/scripts/hosted/:slug/auth', (req, res) => {
       `• HWID: \`${/^[\x21-\x7E]{8,128}$/.test(ffaHwid) ? ffaHwid : 'sin dato'}\``,
       `• ID del script: \`${script.loader_id || script.id}\``,
     ], null, rbxid);
+    if (script.secure_fetch) return res.type('text/plain').send('!VANTARMOR:TOKEN\n' + issuePayloadToken(script, req.ip, null));
     return res.type('text/plain').send('!VANTARMOR:CODE\n' + servedCode(script, { ip: req.ip }));
   }
 
@@ -1450,6 +1475,7 @@ app.get('/scripts/hosted/:slug/auth', (req, res) => {
     `• ID del script: \`${script.loader_id || script.id}\``,
     `• Veces que esta key ejecutó este script: ${run?.exec_count ?? 1}`,
   ], k.discord_id, rbxid);
+  if (script.secure_fetch) return res.type('text/plain').send('!VANTARMOR:TOKEN\n' + issuePayloadToken(script, req.ip, key));
   res.type('text/plain').send('!VANTARMOR:CODE\n' + servedCode(script, { ip: req.ip, key }));
 });
 
@@ -2540,6 +2566,8 @@ app.post('/api/scripts', requireAuth, async (req, res) => {
     );
     db.prepare('UPDATE scripts SET loader_id = ? WHERE id = ?').run(crypto.randomBytes(20).toString('hex'), info.lastInsertRowid);
     db.prepare('UPDATE scripts SET perf_level = ? WHERE id = ?').run(analyzePerf(input.source, { obfuscator: input.obfuscator, vm: input.clydeVm === 1 }).level, info.lastInsertRowid);
+    // Solo los scripts nuevos usan la entrega en dos pasos; los existentes quedan como estaban (secure_fetch = 0)
+    db.prepare('UPDATE scripts SET secure_fetch = 1 WHERE id = ?').run(info.lastInsertRowid);
     snapshotVersion(info.lastInsertRowid, { name: input.name, obfuscator: input.obfuscator, ffa: input.isFfa, source: input.source });
     if (!input.isFfa) stmt.obfIncrement.run(req.userId);
     if (input.obfuscator === 'luau') luauBumpStmt.run(req.userId, luauDay());

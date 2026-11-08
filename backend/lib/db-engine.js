@@ -6,6 +6,7 @@
 // principal espera cada resultado con Atomics.wait sobre memoria compartida.
 import { Worker } from 'node:worker_threads';
 import { createRequire } from 'node:module';
+import { exportToSqlite } from './pg-export.js';
 
 const require = createRequire(import.meta.url);
 
@@ -92,6 +93,11 @@ export function openPostgresBridge(url, { backend } = {}) {
       };
     },
     pragma() { return []; },
+    // Respaldo: copia la base de PostgreSQL a un archivo SQLite (mismo esquema y datos)
+    backup(file) {
+      const Database = require('better-sqlite3');
+      return exportToSqlite(sql => call('raw', sql), file, Database);
+    },
     close() { worker.terminate(); },
   };
   return db;

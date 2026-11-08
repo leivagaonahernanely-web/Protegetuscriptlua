@@ -48,6 +48,8 @@ async function handle(req) {
     if (/\b(CREATE|ALTER|DROP)\b/i.test(req.sql)) await loadSchema();
     return null;
   }
+  // Lectura sin traducir: solo la usa el respaldo (metadatos y filas con SQL fijo del servidor)
+  if (req.op === 'raw') return (await client.query(req.sql)).rows;
   const pgSql = translateSql(req.sql, schema);
   if (pgSql === null) {
     if (req.op === 'all') return [];

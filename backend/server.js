@@ -13,6 +13,7 @@ import { fileURLToPath } from 'url';
 import { createRequire } from 'module';
 import { normalizeLuaSource } from './lib/lua-source.js';
 import { openDatabase } from './lib/db-engine.js';
+import { validateRemoteBlocks, remoteBlocks, stripRemoteBlocks, hasRemoteBlocks, remoteHeader, hasStrayMarkers } from './lib/remote-blocks.js';
 import { createQuota, PLAN_DAYS_DEFAULT, MONTH_SECONDS, FREE_RESET_SECONDS } from './lib/quota.js';
 import { analyzePerf } from './lib/perf.js';
 import { buildLua, BuildError } from './lib/nextofuscator/build.js';
@@ -1280,8 +1281,30 @@ function issuePayloadToken(scriptId, ip) {
 }
 
 // Código que se entrega al ejecutor: el ofuscado solo si el dueño lo activó para ese script
-function servedCode(script) {
-  return script.serve_protected && script.content ? script.content : (script.source || script.content);
+// Tokens de sesión para los bloques remotos: los emite /auth y los valida /remote.
+// Están atados a la IP, a la slug y (si hay) a la key, duran 15 min y se revisa la key en cada pedido.
+const remoteTokens = new Map(); // token -> { scriptId, slug, ip, key, expires, calls }
+const REMOTE_TTL_MS = 15 * 60_000;
+const REMOTE_MAX_CALLS = 300;
+setInterval(() => {
+  const now = Date.now();
+  for (const [t, v] of remoteTokens) if (v.expires < now) remoteTokens.delete(t);
+}, 60_000).unref();
+
+function issueRemoteToken(script, ip, key) {
+  const token = crypto.randomBytes(24).toString('hex');
+  remoteTokens.set(token, { scriptId: script.id, slug: script.slug, ip: ip || null, key: key || null, expires: Date.now() + REMOTE_TTL_MS, calls: 0 });
+  return token;
+}
+
+// Código que se entrega al ejecutor. Los bloques --@remote nunca van en el código: se piden aparte.
+function servedCode(script, { ip, key } = {}) {
+  const base = script.serve_protected && script.content
+    ? script.content
+    : (script.source ? stripRemoteBlocks(script.source) : script.content);
+  if (!hasRemoteBlocks(script.source || '')) return base;
+  const token = issueRemoteToken(script, ip, key);
+  return remoteHeader({ url: `${APP_URL}/scripts/hosted/${script.slug}/remote`, token }) + base;
 }
 
 // Entrega el código con un token válido. El token se gasta aunque falle.
@@ -1295,7 +1318,7 @@ app.get('/scripts/hosted/:slug/payload', (req, res) => {
   if (!entry || entry.expires < Date.now() || !script || script.id !== entry.scriptId || entry.ip !== (req.ip || null)) {
     return res.status(403).type('text/plain').send('!VANTARMOR:TOKEN_INVALID');
   }
-  res.type('text/plain').send(servedCode(script));
+  res.type('text/plain').send(servedCode(script, { ip: req.ip }));
 });
 
 // Endpoint de verificación: lo llama el bootstrap. Responde el código del script o "!VANTARMOR:CODIGO".
@@ -1381,7 +1404,7 @@ app.get('/scripts/hosted/:slug/auth', (req, res) => {
       `• HWID: \`${/^[\x21-\x7E]{8,128}$/.test(ffaHwid) ? ffaHwid : 'sin dato'}\``,
       `• ID del script: \`${script.loader_id || script.id}\``,
     ], null, rbxid);
-    return res.type('text/plain').send('!VANTARMOR:CODE\n' + servedCode(script));
+    return res.type('text/plain').send('!VANTARMOR:CODE\n' + servedCode(script, { ip: req.ip }));
   }
 
   const key = String(req.query.key || '').trim().slice(0, 64);
@@ -1427,7 +1450,7 @@ app.get('/scripts/hosted/:slug/auth', (req, res) => {
     `• ID del script: \`${script.loader_id || script.id}\``,
     `• Veces que esta key ejecutó este script: ${run?.exec_count ?? 1}`,
   ], k.discord_id, rbxid);
-  res.type('text/plain').send('!VANTARMOR:CODE\n' + servedCode(script));
+  res.type('text/plain').send('!VANTARMOR:CODE\n' + servedCode(script, { ip: req.ip, key }));
 });
 
 app.get('/auth/logout', (req, res) => {
@@ -2163,6 +2186,24 @@ app.get('/api/owner/backup', requireOwnerApi, async (req, res) => {
   }
 });
 
+// Bloque remoto (Fase 1): el ejecutor pide la expresión de un --@remote:nombre con el token de /auth
+app.get('/scripts/hosted/:slug/remote', (req, res) => {
+  const deny = () => res.status(403).type('text/plain').send('!VANTARMOR:REMOTE_DENIED');
+  const entry = remoteTokens.get(String(req.query.token || ''));
+  if (!entry || entry.expires < Date.now() || entry.slug !== req.params.slug || entry.ip !== (req.ip || null)) return deny();
+  if (++entry.calls > REMOTE_MAX_CALLS) return deny();
+  const script = stmt.scriptBySlug.get(req.params.slug);
+  if (!script || script.id !== entry.scriptId) return deny();
+  // La key se vuelve a revisar en cada pedido: si la banean o expira, deja de servir de inmediato
+  if (entry.key) {
+    const k = db.prepare('SELECT banned, expires_at FROM keys WHERE key = ? AND script_id = ?').get(entry.key, script.id);
+    if (!k || k.banned || (k.expires_at && k.expires_at * 1000 < Date.now())) return deny();
+  }
+  const body = remoteBlocks(script.source || '').get(String(req.query.name || ''));
+  if (body === undefined) return deny();
+  res.type('text/plain').send(body);
+});
+
 // Dueño: compacta la base SQLite para devolver al volumen el espacio libre de páginas borradas.
 // VACUUM necesita espacio libre igual al tamaño de la base, así que se niega si no hay margen.
 app.post('/api/owner/compact', requireOwnerApi, (req, res) => {
@@ -2485,9 +2526,12 @@ app.post('/api/scripts', requireAuth, async (req, res) => {
   }
 
   try {
-    const srcErr = await checkLuauSyntax(input.source);
+    const remoteErr = validateRemoteBlocks(input.source).error || (hasStrayMarkers(input.source) ? 'Hay marcadores --@remote sueltos fuera de un bloque.' : null);
+    if (remoteErr) return res.status(422).json({ error: remoteErr });
+    const code = stripRemoteBlocks(input.source); // lo que se compila y ofusca: sin los bloques secretos
+    const srcErr = await checkLuauSyntax(code);
     if (srcErr) return res.status(422).json({ error: `Tu código no compila: ${srcErr}` });
-    const content = input.obfuscator === 'none' ? input.source : await obfuscate(input.source, input.obfuscator, { vm: input.clydeVm === 1 });
+    const content = input.obfuscator === 'none' ? code : await obfuscate(code, input.obfuscator, { vm: input.clydeVm === 1 });
     const outErr = input.obfuscator === 'none' ? null : await checkLuauSyntax(content);
     if (outErr) return res.status(422).json({ error: `La versión ofuscada no compila. Avisa al equipo con este mensaje: ${outErr}` });
     const info = stmt.scriptInsert.run(
@@ -2536,9 +2580,12 @@ app.put('/api/scripts/:id', requireAuth, async (req, res) => {
   }
 
   try {
-    const srcErr = await checkLuauSyntax(input.source);
+    const remoteErr = validateRemoteBlocks(input.source).error || (hasStrayMarkers(input.source) ? 'Hay marcadores --@remote sueltos fuera de un bloque.' : null);
+    if (remoteErr) return res.status(422).json({ error: remoteErr });
+    const code = stripRemoteBlocks(input.source); // lo que se compila y ofusca: sin los bloques secretos
+    const srcErr = await checkLuauSyntax(code);
     if (srcErr) return res.status(422).json({ error: `Tu código no compila: ${srcErr}` });
-    const content = input.obfuscator === 'none' ? input.source : await obfuscate(input.source, input.obfuscator, { vm: input.clydeVm === 1 });
+    const content = input.obfuscator === 'none' ? code : await obfuscate(code, input.obfuscator, { vm: input.clydeVm === 1 });
     const outErr = input.obfuscator === 'none' ? null : await checkLuauSyntax(content);
     if (outErr) return res.status(422).json({ error: `La versión ofuscada no compila. Avisa al equipo con este mensaje: ${outErr}` });
     stmt.scriptUpdate.run(

@@ -927,17 +927,9 @@ app.get('/api/ads/unity-callback', (req, res) => {
 });
 // La app pide su sid (ID de la cuenta) antes de mostrar el anuncio, para que Unity lo devuelva firmado
 app.get('/api/ads/session', requireAuth, (req, res) => res.json({ sid: String(req.userId) }));
-// Consume el anuncio más reciente sin usar de esa cuenta. Devuelve false si no hay ninguno vigente.
-function takeAdCredit(userId, now) {
-  const row = db.prepare('SELECT oid FROM ad_credits WHERE sid = ? AND used_at IS NULL AND created_at > ? ORDER BY created_at DESC LIMIT 1')
-    .get(String(userId), now - AD_CREDIT_TTL);
-  if (!row) return false;
-  db.prepare('UPDATE ad_credits SET used_at = ? WHERE oid = ? AND used_at IS NULL').run(now, row.oid);
-  return true;
-}
 
 // Pruebas gratis (3 días): estado de las keys de la cuenta
-const FREE_PLAN_DAYS = 3;
+const FREE_PLAN_DAYS = 1; // cada anuncio visto da 1 día; al vencer hay que volver a ver uno
 const FREE_PLANS = { premium: 'PREMIUM-', plus: 'PLUS-' };
 app.get('/api/free-keys', requireAuth, (req, res) => {
   const now = Math.floor(Date.now() / 1000);
@@ -961,12 +953,16 @@ app.post('/api/free-keys/claim', requireAuth, jsonLimit, (req, res) => {
     .get(req.userId, me.plan, me.plan_expires_at);
   if (activePaid && !fromFree) return res.status(409).json({ error: 'Ya tienes un plan activo' });
 
+  // La app confirma que el anuncio recompensado de Unity terminó (evento onUnityAdsShowComplete).
+  // Esto no lo verifica el servidor: se acepta el aviso de la app, y el tope es 1 prueba activa a la vez.
+  if (req.body?.ad_done !== true) return res.status(402).json({ error: 'Mira un anuncio para continuar', code: 'AD_REQUIRED' });
+  const anyActive = db.prepare('SELECT 1 FROM free_claims WHERE user_id = ? AND expires_at > ?').get(req.userId, now);
+  if (anyActive) return res.status(409).json({ error: 'Tu prueba gratis sigue activa' });
+
   const expiresAt = now + FREE_PLAN_DAYS * 86400;
   const result = db.transaction(() => {
     const row = db.prepare('SELECT * FROM free_claims WHERE user_id = ? AND plan = ?').get(req.userId, plan);
     if (row && row.expires_at > now) return { error: 'Tu prueba de ' + plan + ' sigue activa' };
-    // Cada reclamo o renovación consume un anuncio completado (confirmado por el callback firmado)
-    if (!takeAdCredit(req.userId, now)) return { error: 'Mira un anuncio para continuar', code: 'AD_REQUIRED' };
     let key = row?.key;
     if (!row) {
       key = FREE_PLANS[plan] + crypto.randomBytes(24).toString('base64url');

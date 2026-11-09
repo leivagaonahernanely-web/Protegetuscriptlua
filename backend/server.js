@@ -431,6 +431,7 @@ const CLEAN_PAGES = {
   '/': 'index.html',
   '/login': 'login.html',
   '/dashboard': 'dashboard.html',
+  '/gratis': 'gratis.html',
   '/terminos': 'terminos.html',
   '/privacidad': 'privacidad.html',
   '/soporte': 'soporte.html',
@@ -932,6 +933,11 @@ app.get('/api/ads/session', requireAuth, (req, res) => res.json({ sid: String(re
 // Pruebas gratis (3 días): estado de las keys de la cuenta
 const FREE_PLAN_DAYS = 1; // cada reclamo da 1 día; al vencer hay que volver a ver anuncios
 const FREE_ADS_REQUIRED = 5; // anuncios vistos necesarios para reclamar
+// Solo lee el contador de anuncios vistos (no suma nada)
+app.get('/api/free-keys/ad-count', requireAuth, (req, res) => {
+  const watched = db.prepare('SELECT count FROM free_ad_views WHERE user_id = ?').get(req.userId)?.count || 0;
+  res.json({ watched, required: FREE_ADS_REQUIRED });
+});
 // Suma un anuncio visto a la cuenta (lo llama la app al terminar cada anuncio de Unity). Tope: FREE_ADS_REQUIRED
 app.post('/api/free-keys/ad-watched', requireAuth, jsonLimit, (req, res) => {
   const now = Math.floor(Date.now() / 1000);

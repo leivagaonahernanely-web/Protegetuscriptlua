@@ -1,0 +1,204 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Key gratis · VantArmor</title>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<style>
+  :root { --bg:#000; --card:#0d0d0d; --line:#262626; --text:#fff; --muted:#8a8a8a; }
+  * { box-sizing:border-box; }
+  body { margin:0; min-height:100vh; background:var(--bg); color:var(--text); font-family:system-ui,-apple-system,"Segoe UI",sans-serif; display:flex; justify-content:center; padding:24px 16px; }
+  .wrap { width:100%; max-width:420px; display:flex; flex-direction:column; gap:14px; }
+  .brand { display:flex; align-items:center; gap:10px; }
+  .brand img { width:36px; height:36px; border-radius:10px; border:1px solid #333; }
+  .brand span { font-weight:800; letter-spacing:2px; font-size:12px; text-transform:uppercase; color:var(--muted); }
+  h1 { font-size:26px; margin:6px 0 0; letter-spacing:-.5px; font-weight:800; }
+  .sub { color:var(--muted); font-size:14px; line-height:1.5; margin:0; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:16px; padding:18px; }
+  .progress { display:flex; gap:6px; }
+  .progress i { flex:1; height:6px; border-radius:6px; background:#222; }
+  .progress i.on { background:#fff; }
+  .ad-slot { min-height:250px; border:1px dashed #333; border-radius:12px; display:grid; place-items:center; color:#666; font-size:13px; text-align:center; padding:12px; margin:14px 0; background:#060606; }
+  .timer { color:var(--muted); font-size:13px; text-align:center; margin-bottom:12px; }
+  .btn { width:100%; border:0; border-radius:14px; padding:15px; font-size:15px; font-weight:800; letter-spacing:.4px; color:#000; background:#fff; cursor:pointer; text-transform:uppercase; }
+  .btn:disabled { opacity:.35; cursor:not-allowed; }
+  .btn.ghost { background:transparent; color:#fff; border:1px solid #444; margin-top:10px; }
+  .plans { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:12px; }
+  .keybox { font-family:ui-monospace,Menlo,monospace; font-size:14px; word-break:break-all; background:#060606; border:1px solid #333; border-radius:12px; padding:14px; margin-top:10px; }
+  .meta { color:var(--muted); font-size:13px; margin-top:10px; }
+  .err { color:#fca5a5; font-size:13px; min-height:18px; margin-top:10px; }
+  .hidden { display:none !important; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="brand"><img src="/favicon-192.png" alt="V"><span>VantArmor</span></div>
+  <h1>Key gratis</h1>
+  <p class="sub" id="intro">Mira 5 anuncios para desbloquear 1 día de Premium o Plus. Puedes volver a hacerlo cuando venza.</p>
+
+  <!-- Paso de anuncios -->
+  <div class="card" id="stepAds">
+    <div class="progress" id="prog"></div>
+    <div class="ad-slot" id="adSlot"></div>
+    <div class="timer" id="timer"></div>
+    <button class="btn" id="nextBtn" disabled>Continuar</button>
+    <div class="err" id="errAds"></div>
+  </div>
+
+  <!-- Paso de elegir plan -->
+  <div class="card hidden" id="stepPlan">
+    <p class="sub" style="color:#fff;">Listo. Elige tu plan:</p>
+    <div class="plans">
+      <button class="btn" data-plan="premium">Premium</button>
+      <button class="btn" data-plan="plus">Plus</button>
+    </div>
+    <div class="err" id="errPlan"></div>
+  </div>
+
+  <!-- Key activa -->
+  <div class="card hidden" id="stepKey">
+    <p class="sub" style="color:#fff;" id="keyTitle">Tu key</p>
+    <div class="keybox" id="keyTxt"></div>
+    <div class="meta" id="keyMeta"></div>
+    <button class="btn ghost" id="copyBtn">Copiar key</button>
+  </div>
+
+  <div class="err" id="errTop"></div>
+</div>
+
+<script>
+  // Pon aquí tu ID de editor de AdSense (ca-pub-...) y el ID de bloque. Mientras esté vacío, se muestra un espacio de prueba.
+  const ADSENSE_CLIENT = '';
+  const ADSENSE_SLOT = '';
+  const ADS_REQUIRED = 5;
+  const WAIT_SECONDS = 15;
+
+  const $ = id => document.getElementById(id);
+  let watched = 0, timerId = null, activeKey = null;
+
+  async function api(path, opts = {}) {
+    const headers = opts.body ? { 'Content-Type': 'application/json' } : {};
+    const res = await fetch(path, { credentials: 'include', ...opts, headers });
+    let data = null;
+    try { data = await res.json(); } catch (_) {}
+    if (!res.ok) { const e = new Error((data && data.error) || 'Error ' + res.status); e.status = res.status; e.data = data; throw e; }
+    return data;
+  }
+
+  function renderProgress() {
+    $('prog').innerHTML = Array.from({ length: ADS_REQUIRED }, (_, i) => `<i class="${i < watched ? 'on' : ''}"></i>`).join('');
+  }
+
+  function loadAd() {
+    const slot = $('adSlot');
+    if (!ADSENSE_CLIENT || !ADSENSE_SLOT) {
+      slot.textContent = 'Espacio de anuncio (AdSense pendiente de configurar)';
+      return;
+    }
+    slot.innerHTML = `<ins class="adsbygoogle" style="display:block;width:100%" data-ad-client="${ADSENSE_CLIENT}" data-ad-slot="${ADSENSE_SLOT}" data-ad-format="auto" data-full-width-responsive="true"></ins>`;
+    try { (window.adsbygoogle = window.adsbygoogle || []).push({}); } catch (_) {}
+  }
+
+  function startWait() {
+    clearInterval(timerId);
+    let left = WAIT_SECONDS;
+    const btn = $('nextBtn');
+    btn.disabled = true;
+    $('timer').textContent = `Espera ${left} s para continuar`;
+    loadAd();
+    timerId = setInterval(() => {
+      left--;
+      if (left <= 0) {
+        clearInterval(timerId);
+        $('timer').textContent = '';
+        btn.disabled = false;
+      } else {
+        $('timer').textContent = `Espera ${left} s para continuar`;
+      }
+    }, 1000);
+  }
+
+  async function nextAd() {
+    $('errAds').textContent = '';
+    try {
+      const data = await api('/api/free-keys/ad-watched', { method: 'POST', body: '{}' });
+      watched = data.watched;
+      renderProgress();
+      if (watched >= ADS_REQUIRED) return showPlanStep();
+      startWait();
+    } catch (e) {
+      $('errAds').textContent = e.message;
+    }
+  }
+
+  function showPlanStep() {
+    $('stepAds').classList.add('hidden');
+    $('stepPlan').classList.remove('hidden');
+  }
+
+  function showKey(data) {
+    activeKey = data;
+    $('stepAds').classList.add('hidden');
+    $('stepPlan').classList.add('hidden');
+    $('stepKey').classList.remove('hidden');
+    $('keyTitle').textContent = 'Tu key de ' + (data.plan === 'plus' ? 'Plus' : 'Premium');
+    $('keyTxt').textContent = data.key;
+    const exp = new Date(data.expires_at * 1000);
+    $('keyMeta').textContent = 'Vence: ' + exp.toLocaleString('es-EC', { dateStyle: 'medium', timeStyle: 'short' });
+  }
+
+  async function claim(plan) {
+    $('errPlan').textContent = '';
+    try {
+      const data = await api('/api/free-keys/claim', { method: 'POST', body: JSON.stringify({ plan }) });
+      showKey({ plan, key: data.key, expires_at: data.expires_at });
+    } catch (e) {
+      if (e.data && e.data.code === 'AD_REQUIRED') {
+        watched = e.data.watched;
+        renderProgress();
+        $('stepPlan').classList.add('hidden');
+        $('stepAds').classList.remove('hidden');
+        startWait();
+      } else {
+        $('errPlan').textContent = e.message;
+      }
+    }
+  }
+
+  async function init() {
+    try {
+      const keys = await api('/api/free-keys');
+      const current = keys.find(k => !k.expired);
+      if (current) {
+        return showKey({ plan: current.plan, key: current.key, expires_at: current.expires_at });
+      }
+      const status = await api('/api/free-keys/ad-count');
+      watched = status.watched;
+    } catch (e) {
+      if (e.status === 401) { location.href = '/login'; return; }
+      $('errTop').textContent = e.message;
+    }
+    renderProgress();
+    $('stepAds').classList.remove('hidden');
+    if (watched >= ADS_REQUIRED) return showPlanStep();
+    startWait();
+  }
+
+  $('nextBtn').addEventListener('click', nextAd);
+  document.querySelectorAll('[data-plan]').forEach(b => b.addEventListener('click', () => claim(b.dataset.plan)));
+  $('copyBtn').addEventListener('click', () => {
+    try { navigator.clipboard.writeText(activeKey.key); $('copyBtn').textContent = 'Copiada'; setTimeout(() => $('copyBtn').textContent = 'Copiar key', 1400); } catch (_) {}
+  });
+
+  if (ADSENSE_CLIENT) {
+    const s = document.createElement('script');
+    s.async = true;
+    s.src = 'https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=' + ADSENSE_CLIENT;
+    s.crossOrigin = 'anonymous';
+    document.head.appendChild(s);
+  }
+  init();
+</script>
+</body>
+</html>

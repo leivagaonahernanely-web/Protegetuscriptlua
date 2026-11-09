@@ -939,6 +939,11 @@ app.get('/api/free-keys/ad-count', requireAuth, (req, res) => {
   const watched = db.prepare('SELECT count FROM free_ad_views WHERE user_id = ?').get(req.userId)?.count || 0;
   res.json({ watched, required: FREE_ADS_REQUIRED });
 });
+// Vuelve el contador a 0 (se llama al elegir un plan, para que cada plan empiece de cero)
+app.post('/api/free-keys/ad-reset', requireAuth, jsonLimit, (req, res) => {
+  db.prepare('DELETE FROM free_ad_views WHERE user_id = ?').run(req.userId);
+  res.json({ watched: 0, required: FREE_ADS_REQUIRED });
+});
 // Suma un anuncio visto a la cuenta (lo llama la app al terminar cada anuncio de Unity). Tope: FREE_ADS_REQUIRED
 app.post('/api/free-keys/ad-watched', requireAuth, jsonLimit, (req, res) => {
   const now = Math.floor(Date.now() / 1000);

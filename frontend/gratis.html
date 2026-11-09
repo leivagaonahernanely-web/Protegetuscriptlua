@@ -204,7 +204,7 @@
   document.querySelectorAll('[data-plan]').forEach(b => b.addEventListener('click', async () => {
     plan = b.dataset.plan;
     try {
-      const st = await api('/api/free-keys/ad-count');
+      const st = await api('/api/free-keys/ad-reset', { method: 'POST', body: '{}' });
       watched = st.watched;
     } catch (e) { $('errTop').textContent = e.message; return; }
     goAds();

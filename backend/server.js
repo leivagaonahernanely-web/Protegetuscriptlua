@@ -348,6 +348,7 @@ db.exec('CREATE INDEX IF NOT EXISTS keys_by_discord ON keys(discord_id)');
 db.exec('CREATE INDEX IF NOT EXISTS plan_keys_by_user ON plan_keys(used_by)');
 // Solicitudes del plan Custom: el usuario elige cuántos scripts, ofuscaciones y paneles; el dueño las aprueba
 // Prueba gratis de Premium/Plus: una key por cuenta y plan. Reclamar otra vez (al vencer) suma 3 días a la misma key
+db.exec(`CREATE TABLE IF NOT EXISTS free_ad_views (user_id TEXT PRIMARY KEY, count INTEGER NOT NULL DEFAULT 0, updated_at INTEGER)`);
 db.exec(`CREATE TABLE IF NOT EXISTS free_claims (user_id TEXT NOT NULL, plan TEXT NOT NULL, key TEXT NOT NULL UNIQUE, claimed_at INTEGER NOT NULL, expires_at INTEGER NOT NULL, renewals INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (user_id, plan))`);
 // Créditos de anuncio recompensado (Unity Ads, callback server a server). oid es único: evita reusar un anuncio
 db.exec(`CREATE TABLE IF NOT EXISTS ad_credits (oid TEXT PRIMARY KEY, sid TEXT NOT NULL, created_at INTEGER NOT NULL, used_at INTEGER)`);
@@ -929,7 +930,16 @@ app.get('/api/ads/unity-callback', (req, res) => {
 app.get('/api/ads/session', requireAuth, (req, res) => res.json({ sid: String(req.userId) }));
 
 // Pruebas gratis (3 días): estado de las keys de la cuenta
-const FREE_PLAN_DAYS = 1; // cada anuncio visto da 1 día; al vencer hay que volver a ver uno
+const FREE_PLAN_DAYS = 1; // cada reclamo da 1 día; al vencer hay que volver a ver anuncios
+const FREE_ADS_REQUIRED = 5; // anuncios vistos necesarios para reclamar
+// Suma un anuncio visto a la cuenta (lo llama la app al terminar cada anuncio de Unity). Tope: FREE_ADS_REQUIRED
+app.post('/api/free-keys/ad-watched', requireAuth, jsonLimit, (req, res) => {
+  const now = Math.floor(Date.now() / 1000);
+  db.prepare(`INSERT INTO free_ad_views (user_id, count, updated_at) VALUES (?, 1, ?)
+    ON CONFLICT(user_id) DO UPDATE SET count = MIN(count + 1, ?), updated_at = ?`).run(req.userId, now, FREE_ADS_REQUIRED, now);
+  const count = db.prepare('SELECT count FROM free_ad_views WHERE user_id = ?').get(req.userId).count;
+  res.json({ watched: count, required: FREE_ADS_REQUIRED });
+});
 const FREE_PLANS = { premium: 'PREMIUM-', plus: 'PLUS-' };
 app.get('/api/free-keys', requireAuth, (req, res) => {
   const now = Math.floor(Date.now() / 1000);
@@ -953,9 +963,11 @@ app.post('/api/free-keys/claim', requireAuth, jsonLimit, (req, res) => {
     .get(req.userId, me.plan, me.plan_expires_at);
   if (activePaid && !fromFree) return res.status(409).json({ error: 'Ya tienes un plan activo' });
 
-  // La app confirma que el anuncio recompensado de Unity terminó (evento onUnityAdsShowComplete).
-  // Esto no lo verifica el servidor: se acepta el aviso de la app, y el tope es 1 prueba activa a la vez.
-  if (req.body?.ad_done !== true) return res.status(402).json({ error: 'Mira un anuncio para continuar', code: 'AD_REQUIRED' });
+  // Hacen falta FREE_ADS_REQUIRED anuncios vistos (contador que suma la app al terminar cada anuncio de Unity)
+  const watched = db.prepare('SELECT count FROM free_ad_views WHERE user_id = ?').get(req.userId)?.count || 0;
+  if (watched < FREE_ADS_REQUIRED) {
+    return res.status(402).json({ error: `Mira ${FREE_ADS_REQUIRED - watched} anuncio(s) más`, code: 'AD_REQUIRED', watched, required: FREE_ADS_REQUIRED });
+  }
   const anyActive = db.prepare('SELECT 1 FROM free_claims WHERE user_id = ? AND expires_at > ?').get(req.userId, now);
   if (anyActive) return res.status(409).json({ error: 'Tu prueba gratis sigue activa' });
 
@@ -973,6 +985,7 @@ app.post('/api/free-keys/claim', requireAuth, jsonLimit, (req, res) => {
         .run(expiresAt, req.userId, plan);
     }
     db.prepare('UPDATE users SET plan = ?, plan_expires_at = ?, plan_expired_at = NULL WHERE id = ?').run(plan, expiresAt, req.userId);
+    db.prepare('DELETE FROM free_ad_views WHERE user_id = ?').run(req.userId); // el contador vuelve a 0 tras reclamar
     return { key, renewed: !!row };
   })();
 

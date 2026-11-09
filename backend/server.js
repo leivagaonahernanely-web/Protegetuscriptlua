@@ -932,7 +932,8 @@ app.get('/api/ads/session', requireAuth, (req, res) => res.json({ sid: String(re
 
 // Pruebas gratis (3 días): estado de las keys de la cuenta
 const FREE_PLAN_DAYS = 1; // cada reclamo da 1 día; al vencer hay que volver a ver anuncios
-const FREE_ADS_REQUIRED = 5; // anuncios vistos necesarios para reclamar
+const FREE_ADS_REQUIRED = { premium: 3, plus: 7 }; // anuncios vistos necesarios según el plan
+const FREE_ADS_MAX = Math.max(...Object.values(FREE_ADS_REQUIRED));
 // Solo lee el contador de anuncios vistos (no suma nada)
 app.get('/api/free-keys/ad-count', requireAuth, (req, res) => {
   const watched = db.prepare('SELECT count FROM free_ad_views WHERE user_id = ?').get(req.userId)?.count || 0;
@@ -942,7 +943,7 @@ app.get('/api/free-keys/ad-count', requireAuth, (req, res) => {
 app.post('/api/free-keys/ad-watched', requireAuth, jsonLimit, (req, res) => {
   const now = Math.floor(Date.now() / 1000);
   db.prepare(`INSERT INTO free_ad_views (user_id, count, updated_at) VALUES (?, 1, ?)
-    ON CONFLICT(user_id) DO UPDATE SET count = MIN(count + 1, ?), updated_at = ?`).run(req.userId, now, FREE_ADS_REQUIRED, now);
+    ON CONFLICT(user_id) DO UPDATE SET count = MIN(count + 1, ?), updated_at = ?`).run(req.userId, now, FREE_ADS_MAX, now);
   const count = db.prepare('SELECT count FROM free_ad_views WHERE user_id = ?').get(req.userId).count;
   res.json({ watched: count, required: FREE_ADS_REQUIRED });
 });
@@ -971,8 +972,9 @@ app.post('/api/free-keys/claim', requireAuth, jsonLimit, (req, res) => {
 
   // Hacen falta FREE_ADS_REQUIRED anuncios vistos (contador que suma la app al terminar cada anuncio de Unity)
   const watched = db.prepare('SELECT count FROM free_ad_views WHERE user_id = ?').get(req.userId)?.count || 0;
-  if (watched < FREE_ADS_REQUIRED) {
-    return res.status(402).json({ error: `Mira ${FREE_ADS_REQUIRED - watched} anuncio(s) más`, code: 'AD_REQUIRED', watched, required: FREE_ADS_REQUIRED });
+  const need = FREE_ADS_REQUIRED[plan];
+  if (watched < need) {
+    return res.status(402).json({ error: `Mira ${need - watched} anuncio(s) más`, code: 'AD_REQUIRED', watched, required: need });
   }
   const anyActive = db.prepare('SELECT 1 FROM free_claims WHERE user_id = ? AND expires_at > ?').get(req.userId, now);
   if (anyActive) return res.status(409).json({ error: 'Tu prueba gratis sigue activa' });

@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Key gratis · VantArmor</title>
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-9678380836418099" crossorigin="anonymous"></script>
 <style>
   :root { --bg:#000; --card:#0d0d0d; --line:#262626; --text:#fff; --muted:#8a8a8a; }
   * { box-sizing:border-box; }
@@ -19,42 +20,44 @@
   .progress { display:flex; gap:6px; }
   .progress i { flex:1; height:6px; border-radius:6px; background:#222; }
   .progress i.on { background:#fff; }
-  .ad-slot { min-height:250px; border:1px dashed #333; border-radius:12px; display:grid; place-items:center; color:#666; font-size:13px; text-align:center; padding:12px; margin:14px 0; background:#060606; }
-  .timer { color:var(--muted); font-size:13px; text-align:center; margin-bottom:12px; }
+  .ad-slot { min-height:250px; border:1px dashed #333; border-radius:12px; display:grid; place-items:center; color:#666; font-size:13px; text-align:center; padding:12px; margin:14px 0; background:#060606; overflow:hidden; }
+  .timer { color:var(--muted); font-size:13px; text-align:center; margin-bottom:12px; min-height:17px; }
   .btn { width:100%; border:0; border-radius:14px; padding:15px; font-size:15px; font-weight:800; letter-spacing:.4px; color:#000; background:#fff; cursor:pointer; text-transform:uppercase; }
   .btn:disabled { opacity:.35; cursor:not-allowed; }
   .btn.ghost { background:transparent; color:#fff; border:1px solid #444; margin-top:10px; }
   .plans { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-top:12px; }
+  .plans .btn small { display:block; font-size:11px; font-weight:600; margin-top:4px; opacity:.7; text-transform:none; }
   .keybox { font-family:ui-monospace,Menlo,monospace; font-size:14px; word-break:break-all; background:#060606; border:1px solid #333; border-radius:12px; padding:14px; margin-top:10px; }
   .meta { color:var(--muted); font-size:13px; margin-top:10px; }
   .err { color:#fca5a5; font-size:13px; min-height:18px; margin-top:10px; }
+  .link { background:none; border:0; color:var(--muted); font-size:13px; text-decoration:underline; cursor:pointer; padding:0; margin-top:10px; }
   .hidden { display:none !important; }
 </style>
-<script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-9678380836418099" crossorigin="anonymous"></script>
 </head>
 <body>
 <div class="wrap">
   <div class="brand"><img src="/favicon-192.png" alt="V"><span>VantArmor</span></div>
   <h1>Key gratis</h1>
-  <p class="sub" id="intro">Mira 5 anuncios para desbloquear 1 día de Premium o Plus. Puedes volver a hacerlo cuando venza.</p>
+  <p class="sub" id="intro">Elige un plan. Cada anuncio que veas suma al contador; al completar la cantidad de tu plan se te entrega la key de 1 día.</p>
 
-  <!-- Paso de anuncios -->
-  <div class="card" id="stepAds">
-    <div class="progress" id="prog"></div>
+  <!-- Paso 1: elegir plan -->
+  <div class="card hidden" id="stepPlan">
+    <p class="sub" style="color:#fff;">¿Qué plan quieres probar?</p>
+    <div class="plans">
+      <button class="btn" data-plan="premium">Premium<small>3 anuncios</small></button>
+      <button class="btn" data-plan="plus">Plus<small>7 anuncios</small></button>
+    </div>
+  </div>
+
+  <!-- Paso 2: anuncios -->
+  <div class="card hidden" id="stepAds">
+    <p class="sub" style="color:#fff;" id="adsTitle"></p>
+    <div class="progress" id="prog" style="margin-top:12px;"></div>
     <div class="ad-slot" id="adSlot"></div>
     <div class="timer" id="timer"></div>
     <button class="btn" id="nextBtn" disabled>Continuar</button>
+    <button class="link" id="changePlan">Cambiar de plan</button>
     <div class="err" id="errAds"></div>
-  </div>
-
-  <!-- Paso de elegir plan -->
-  <div class="card hidden" id="stepPlan">
-    <p class="sub" style="color:#fff;">Listo. Elige tu plan:</p>
-    <div class="plans">
-      <button class="btn" data-plan="premium">Premium</button>
-      <button class="btn" data-plan="plus">Plus</button>
-    </div>
-    <div class="err" id="errPlan"></div>
   </div>
 
   <!-- Key activa -->
@@ -69,16 +72,15 @@
 </div>
 
 <script>
-  // Pon aquí tu ID de editor de AdSense (ca-pub-...) y el ID de bloque. Mientras esté vacío, se muestra un espacio de prueba.
+  // Espacio de anuncio: banner 300x250 de Adsterra (tiene prioridad). Si está vacío, se usa AdSense.
+  const ADSTERRA_300_KEY = '2670e732be1b87c93036622776971e50';
   const ADSENSE_CLIENT = 'ca-pub-9678380836418099';
   const ADSENSE_SLOT = '';
-  // Banner 300x250 de Adsterra (clave de la unidad)
-  const ADSTERRA_300_KEY = '2670e732be1b87c93036622776971e50';
-  const ADS_REQUIRED = 5;
+  const REQUIRED = { premium: 3, plus: 7 };
   const WAIT_SECONDS = 15;
 
   const $ = id => document.getElementById(id);
-  let watched = 0, timerId = null, activeKey = null;
+  let watched = 0, need = 0, plan = null, timerId = null, activeKey = null;
 
   async function api(path, opts = {}) {
     const headers = opts.body ? { 'Content-Type': 'application/json' } : {};
@@ -89,124 +91,129 @@
     return data;
   }
 
-  function renderProgress() {
-    $('prog').innerHTML = Array.from({ length: ADS_REQUIRED }, (_, i) => `<i class="${i < watched ? 'on' : ''}"></i>`).join('');
+  function show(id) {
+    ['stepPlan', 'stepAds', 'stepKey'].forEach(s => $(s).classList.toggle('hidden', s !== id));
   }
 
-  function loadAd() {
+  function renderProgress() {
+    $('prog').innerHTML = Array.from({ length: need }, (_, i) => `<i class="${i < watched ? 'on' : ''}"></i>`).join('');
+    $('adsTitle').textContent = `Plan ${plan === 'plus' ? 'Plus' : 'Premium'}: ${watched} de ${need} anuncios`;
+  }
+
+  function mountAd() {
     const slot = $('adSlot');
     slot.innerHTML = '';
     if (ADSTERRA_300_KEY) {
-      // Banner 300x250 de Adsterra: se crean los <script> a mano para que se ejecuten
-      const wrap = document.createElement('div');
       const cfg = document.createElement('script');
       cfg.textContent = "atOptions = { 'key' : '" + ADSTERRA_300_KEY + "', 'format' : 'iframe', 'height' : 250, 'width' : 300, 'params' : {} };";
       const lib = document.createElement('script');
       lib.src = 'https://bauval.org/22/' + ADSTERRA_300_KEY;
-      wrap.appendChild(cfg);
-      wrap.appendChild(lib);
-      slot.appendChild(wrap);
+      slot.appendChild(cfg);
+      slot.appendChild(lib);
       return;
     }
-    if (!ADSENSE_CLIENT || !ADSENSE_SLOT) {
-      slot.textContent = 'Espacio de anuncio (pendiente de configurar)';
+    if (ADSENSE_CLIENT && ADSENSE_SLOT) {
+      slot.innerHTML = `<ins class="adsbygoogle" style="display:block;width:100%" data-ad-client="${ADSENSE_CLIENT}" data-ad-slot="${ADSENSE_SLOT}" data-ad-format="auto" data-full-width-responsive="true"></ins>`;
+      try { (window.adsbygoogle = window.adsbygoogle || []).push({}); } catch (_) {}
       return;
     }
-    slot.innerHTML = `<ins class="adsbygoogle" style="display:block;width:100%" data-ad-client="${ADSENSE_CLIENT}" data-ad-slot="${ADSENSE_SLOT}" data-ad-format="auto" data-full-width-responsive="true"></ins>`;
-    try { (window.adsbygoogle = window.adsbygoogle || []).push({}); } catch (_) {}
+    slot.textContent = 'Espacio de anuncio (pendiente de configurar)';
   }
 
   function startWait() {
     clearInterval(timerId);
     let left = WAIT_SECONDS;
-    const btn = $('nextBtn');
-    btn.disabled = true;
+    $('nextBtn').disabled = true;
     $('timer').textContent = `Espera ${left} s para continuar`;
-    loadAd();
+    mountAd();
     timerId = setInterval(() => {
       left--;
       if (left <= 0) {
         clearInterval(timerId);
         $('timer').textContent = '';
-        btn.disabled = false;
+        $('nextBtn').disabled = false;
       } else {
         $('timer').textContent = `Espera ${left} s para continuar`;
       }
     }, 1000);
   }
 
+  function goAds() {
+    need = REQUIRED[plan];
+    $('errAds').textContent = '';
+    show('stepAds');
+    renderProgress();
+    if (watched >= need) return claim();
+    startWait();
+  }
+
   async function nextAd() {
     $('errAds').textContent = '';
+    $('nextBtn').disabled = true;
     try {
       const data = await api('/api/free-keys/ad-watched', { method: 'POST', body: '{}' });
       watched = data.watched;
       renderProgress();
-      if (watched >= ADS_REQUIRED) return showPlanStep();
+      if (watched >= need) return claim();
       startWait();
     } catch (e) {
       $('errAds').textContent = e.message;
+      $('nextBtn').disabled = false;
     }
   }
 
-  function showPlanStep() {
-    $('stepAds').classList.add('hidden');
-    $('stepPlan').classList.remove('hidden');
-  }
-
-  function showKey(data) {
-    activeKey = data;
-    $('stepAds').classList.add('hidden');
-    $('stepPlan').classList.add('hidden');
-    $('stepKey').classList.remove('hidden');
-    $('keyTitle').textContent = 'Tu key de ' + (data.plan === 'plus' ? 'Plus' : 'Premium');
-    $('keyTxt').textContent = data.key;
-    const exp = new Date(data.expires_at * 1000);
-    $('keyMeta').textContent = 'Vence: ' + exp.toLocaleString('es-EC', { dateStyle: 'medium', timeStyle: 'short' });
-  }
-
-  async function claim(plan) {
-    $('errPlan').textContent = '';
+  async function claim() {
+    clearInterval(timerId);
+    $('timer').textContent = '';
+    $('nextBtn').disabled = true;
     try {
       const data = await api('/api/free-keys/claim', { method: 'POST', body: JSON.stringify({ plan }) });
       showKey({ plan, key: data.key, expires_at: data.expires_at });
     } catch (e) {
       if (e.data && e.data.code === 'AD_REQUIRED') {
         watched = e.data.watched;
-        renderProgress();
-        $('stepPlan').classList.add('hidden');
-        $('stepAds').classList.remove('hidden');
-        startWait();
+        goAds();
       } else {
-        $('errPlan').textContent = e.message;
+        $('errAds').textContent = e.message;
       }
     }
+  }
+
+  function showKey(data) {
+    activeKey = data;
+    show('stepKey');
+    $('keyTitle').textContent = 'Tu key de ' + (data.plan === 'plus' ? 'Plus' : 'Premium');
+    $('keyTxt').textContent = data.key;
+    const exp = new Date(data.expires_at * 1000);
+    $('keyMeta').textContent = 'Vence: ' + exp.toLocaleString('es-EC', { dateStyle: 'medium', timeStyle: 'short' });
   }
 
   async function init() {
     try {
       const keys = await api('/api/free-keys');
       const current = keys.find(k => !k.expired);
-      if (current) {
-        return showKey({ plan: current.plan, key: current.key, expires_at: current.expires_at });
-      }
-      const status = await api('/api/free-keys/ad-count');
-      watched = status.watched;
+      if (current) return showKey({ plan: current.plan, key: current.key, expires_at: current.expires_at });
+      show('stepPlan');
     } catch (e) {
       if (e.status === 401) { location.href = '/login'; return; }
       $('errTop').textContent = e.message;
+      show('stepPlan');
     }
-    renderProgress();
-    $('stepAds').classList.remove('hidden');
-    if (watched >= ADS_REQUIRED) return showPlanStep();
-    startWait();
   }
 
+  document.querySelectorAll('[data-plan]').forEach(b => b.addEventListener('click', async () => {
+    plan = b.dataset.plan;
+    try {
+      const st = await api('/api/free-keys/ad-count');
+      watched = st.watched;
+    } catch (e) { $('errTop').textContent = e.message; return; }
+    goAds();
+  }));
   $('nextBtn').addEventListener('click', nextAd);
-  document.querySelectorAll('[data-plan]').forEach(b => b.addEventListener('click', () => claim(b.dataset.plan)));
+  $('changePlan').addEventListener('click', () => { clearInterval(timerId); show('stepPlan'); });
   $('copyBtn').addEventListener('click', () => {
     try { navigator.clipboard.writeText(activeKey.key); $('copyBtn').textContent = 'Copiada'; setTimeout(() => $('copyBtn').textContent = 'Copiar key', 1400); } catch (_) {}
   });
-
   init();
 </script>
 </body>

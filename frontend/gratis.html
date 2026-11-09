@@ -72,6 +72,8 @@
   // Pon aquí tu ID de editor de AdSense (ca-pub-...) y el ID de bloque. Mientras esté vacío, se muestra un espacio de prueba.
   const ADSENSE_CLIENT = 'ca-pub-9678380836418099';
   const ADSENSE_SLOT = '';
+  // Banner 300x250 de Adsterra (clave de la unidad)
+  const ADSTERRA_300_KEY = '2670e732be1b87c93036622776971e50';
   const ADS_REQUIRED = 5;
   const WAIT_SECONDS = 15;
 
@@ -93,8 +95,21 @@
 
   function loadAd() {
     const slot = $('adSlot');
+    slot.innerHTML = '';
+    if (ADSTERRA_300_KEY) {
+      // Banner 300x250 de Adsterra: se crean los <script> a mano para que se ejecuten
+      const wrap = document.createElement('div');
+      const cfg = document.createElement('script');
+      cfg.textContent = "atOptions = { 'key' : '" + ADSTERRA_300_KEY + "', 'format' : 'iframe', 'height' : 250, 'width' : 300, 'params' : {} };";
+      const lib = document.createElement('script');
+      lib.src = 'https://bauval.org/22/' + ADSTERRA_300_KEY;
+      wrap.appendChild(cfg);
+      wrap.appendChild(lib);
+      slot.appendChild(wrap);
+      return;
+    }
     if (!ADSENSE_CLIENT || !ADSENSE_SLOT) {
-      slot.textContent = 'Espacio de anuncio (AdSense pendiente de configurar)';
+      slot.textContent = 'Espacio de anuncio (pendiente de configurar)';
       return;
     }
     slot.innerHTML = `<ins class="adsbygoogle" style="display:block;width:100%" data-ad-client="${ADSENSE_CLIENT}" data-ad-slot="${ADSENSE_SLOT}" data-ad-format="auto" data-full-width-responsive="true"></ins>`;

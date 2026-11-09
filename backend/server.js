@@ -431,7 +431,7 @@ const CLEAN_PAGES = {
   '/': 'index.html',
   '/login': 'login.html',
   '/dashboard': 'dashboard.html',
-  '/gratis': 'gratis.html',
+  '/keys-free': 'keys-free.html',
   '/terminos': 'terminos.html',
   '/privacidad': 'privacidad.html',
   '/soporte': 'soporte.html',

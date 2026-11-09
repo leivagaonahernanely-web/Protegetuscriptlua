@@ -30,6 +30,7 @@
   .err { color:#fca5a5; font-size:13px; min-height:18px; margin-top:10px; }
   .hidden { display:none !important; }
 </style>
+<script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-9678380836418099" crossorigin="anonymous"></script>
 </head>
 <body>
 <div class="wrap">
@@ -69,7 +70,7 @@
 
 <script>
   // Pon aquí tu ID de editor de AdSense (ca-pub-...) y el ID de bloque. Mientras esté vacío, se muestra un espacio de prueba.
-  const ADSENSE_CLIENT = '';
+  const ADSENSE_CLIENT = 'ca-pub-9678380836418099';
   const ADSENSE_SLOT = '';
   const ADS_REQUIRED = 5;
   const WAIT_SECONDS = 15;
@@ -191,13 +192,6 @@
     try { navigator.clipboard.writeText(activeKey.key); $('copyBtn').textContent = 'Copiada'; setTimeout(() => $('copyBtn').textContent = 'Copiar key', 1400); } catch (_) {}
   });
 
-  if (ADSENSE_CLIENT) {
-    const s = document.createElement('script');
-    s.async = true;
-    s.src = 'https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=' + ADSENSE_CLIENT;
-    s.crossOrigin = 'anonymous';
-    document.head.appendChild(s);
-  }
   init();
 </script>
 </body>

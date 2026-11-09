@@ -349,6 +349,8 @@ db.exec('CREATE INDEX IF NOT EXISTS plan_keys_by_user ON plan_keys(used_by)');
 // Solicitudes del plan Custom: el usuario elige cuántos scripts, ofuscaciones y paneles; el dueño las aprueba
 // Prueba gratis de Premium/Plus: una key por cuenta y plan. Reclamar otra vez (al vencer) suma 3 días a la misma key
 db.exec(`CREATE TABLE IF NOT EXISTS free_claims (user_id TEXT NOT NULL, plan TEXT NOT NULL, key TEXT NOT NULL UNIQUE, claimed_at INTEGER NOT NULL, expires_at INTEGER NOT NULL, renewals INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (user_id, plan))`);
+// Créditos de anuncio recompensado (Unity Ads, callback server a server). oid es único: evita reusar un anuncio
+db.exec(`CREATE TABLE IF NOT EXISTS ad_credits (oid TEXT PRIMARY KEY, sid TEXT NOT NULL, created_at INTEGER NOT NULL, used_at INTEGER)`);
 db.exec(`CREATE TABLE IF NOT EXISTS custom_plan_requests (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id TEXT NOT NULL, scripts INTEGER NOT NULL, obfuscations INTEGER NOT NULL, panels INTEGER NOT NULL, status TEXT NOT NULL DEFAULT 'pending', created_at INTEGER, decided_at INTEGER)`);
 function snapshotVersion(scriptId, { name, obfuscator, ffa, source }) {
   const hash = crypto.createHash('sha256').update(String(source ?? '')).digest('hex');
@@ -903,6 +905,37 @@ app.post('/api/plan/stay-free', requireAuth, (req, res) => {
   res.json({ ok: true });
 });
 
+// Callback de Unity Ads (server a server). Unity firma sid, oid y hmac (HMAC-MD5) con el secreto que te da su soporte.
+// Sin UNITY_ADS_S2S_SECRET el callback se rechaza: no se puede falsificar un anuncio.
+const UNITY_ADS_S2S_SECRET = process.env.UNITY_ADS_S2S_SECRET || '';
+const AD_CREDIT_TTL = 30 * 60; // segundos que dura un anuncio visto sin reclamar
+app.get('/api/ads/unity-callback', (req, res) => {
+  if (!UNITY_ADS_S2S_SECRET) return res.status(503).type('text/plain').send('Callbacks no configurados');
+  const params = req.query;
+  if (!Object.values(params).every(v => typeof v === 'string')) return res.status(400).type('text/plain').send('Parámetros inválidos');
+  const { hmac, ...rest } = params;
+  if (typeof hmac !== 'string') return res.status(400).type('text/plain').send('Falta firma');
+  const payload = Object.keys(rest).sort().map(k => `${k}=${rest[k]}`).join(',');
+  const expected = crypto.createHmac('md5', UNITY_ADS_S2S_SECRET).update(payload).digest('hex');
+  const a = Buffer.from(hmac), b = Buffer.from(expected);
+  if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return res.status(403).type('text/plain').send('Firma incorrecta');
+  const sid = rest.sid || '', oid = rest.oid || '';
+  if (!sid || !oid) return res.status(400).type('text/plain').send('Faltan sid u oid');
+  const info = db.prepare('INSERT OR IGNORE INTO ad_credits (oid, sid, created_at) VALUES (?, ?, ?)').run(oid, sid, Math.floor(Date.now() / 1000));
+  if (!info.changes) return res.status(400).type('text/plain').send('Duplicate order');
+  res.type('text/plain').send('1');
+});
+// La app pide su sid (ID de la cuenta) antes de mostrar el anuncio, para que Unity lo devuelva firmado
+app.get('/api/ads/session', requireAuth, (req, res) => res.json({ sid: String(req.userId) }));
+// Consume el anuncio más reciente sin usar de esa cuenta. Devuelve false si no hay ninguno vigente.
+function takeAdCredit(userId, now) {
+  const row = db.prepare('SELECT oid FROM ad_credits WHERE sid = ? AND used_at IS NULL AND created_at > ? ORDER BY created_at DESC LIMIT 1')
+    .get(String(userId), now - AD_CREDIT_TTL);
+  if (!row) return false;
+  db.prepare('UPDATE ad_credits SET used_at = ? WHERE oid = ? AND used_at IS NULL').run(now, row.oid);
+  return true;
+}
+
 // Pruebas gratis (3 días): estado de las keys de la cuenta
 const FREE_PLAN_DAYS = 3;
 const FREE_PLANS = { premium: 'PREMIUM-', plus: 'PLUS-' };
@@ -932,6 +965,8 @@ app.post('/api/free-keys/claim', requireAuth, jsonLimit, (req, res) => {
   const result = db.transaction(() => {
     const row = db.prepare('SELECT * FROM free_claims WHERE user_id = ? AND plan = ?').get(req.userId, plan);
     if (row && row.expires_at > now) return { error: 'Tu prueba de ' + plan + ' sigue activa' };
+    // Cada reclamo o renovación consume un anuncio completado (confirmado por el callback firmado)
+    if (!takeAdCredit(req.userId, now)) return { error: 'Mira un anuncio para continuar', code: 'AD_REQUIRED' };
     let key = row?.key;
     if (!row) {
       key = FREE_PLANS[plan] + crypto.randomBytes(24).toString('base64url');
@@ -945,7 +980,7 @@ app.post('/api/free-keys/claim', requireAuth, jsonLimit, (req, res) => {
     return { key, renewed: !!row };
   })();
 
-  if (result.error) return res.status(409).json({ error: result.error });
+  if (result.error) return res.status(result.code === 'AD_REQUIRED' ? 402 : 409).json({ error: result.error, code: result.code || null });
   auditLog(req.userId, result.renewed ? 'free_key_renew' : 'free_key_claim', plan, `${FREE_PLAN_DAYS} días`);
   res.json({ ok: true, plan, key: result.key, expires_at: expiresAt, renewed: result.renewed });
 });

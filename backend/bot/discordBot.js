@@ -693,7 +693,10 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
     const creator = script.user_id ? q.userById.get(script.user_id) : null;
     // Apodo en el servidor (o nombre visible) del dueño; si no se pudo leer, el nombre de usuario
     const creatorName = displayName || creator?.username || (script.user_id ? `ID ${script.user_id}` : 'Vantarmor');
-    const creatorIcon = script.user_id ? (creator?.custom_avatar || avatarUrl(script.user_id, creator?.avatar)) : undefined;
+    // Discord solo acepta iconos con URL absoluta (https). La foto subida a la web se guarda como ruta
+    // relativa (/images/...), y eso hacía que Discord rechazara el panel; en ese caso se usa el avatar de Discord.
+    const customIcon = creator?.custom_avatar?.startsWith('https://') ? creator.custom_avatar : null;
+    const creatorIcon = script.user_id ? (customIcon || avatarUrl(script.user_id, creator?.avatar)) : undefined;
     const defaultDescription = `This control panel is for the project: **${script.name}**\nIf you're a buyer, click on the buttons below to redeem your key, get the script or get your role`;
     const embed = new EmbedBuilder()
       .setColor(0x5865f2)

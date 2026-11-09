@@ -31,6 +31,7 @@
   .meta { color:var(--muted); font-size:13px; margin-top:10px; }
   .err { color:#fca5a5; font-size:13px; min-height:18px; margin-top:10px; }
   .link { background:none; border:0; color:var(--muted); font-size:13px; text-decoration:underline; cursor:pointer; padding:0; margin-top:10px; }
+  .countdown { font-size:44px; font-weight:800; letter-spacing:1px; text-align:center; font-variant-numeric:tabular-nums; margin:18px 0 6px; }
   .hidden { display:none !important; }
 </style>
 </head>
@@ -60,12 +61,12 @@
     <div class="err" id="errAds"></div>
   </div>
 
-  <!-- Key activa -->
+  <!-- Plan activo: solo temporizador -->
   <div class="card hidden" id="stepKey">
-    <p class="sub" style="color:#fff;" id="keyTitle">Tu key</p>
-    <div class="keybox" id="keyTxt"></div>
+    <p class="sub" style="color:#fff;" id="keyTitle">Plan activo</p>
+    <p class="sub" style="margin-top:6px;">Tu key se asignó automáticamente a tu cuenta.</p>
+    <div class="countdown" id="countdown">--:--:--</div>
     <div class="meta" id="keyMeta"></div>
-    <button class="btn ghost" id="copyBtn">Copiar key</button>
   </div>
 
   <div class="err" id="errTop"></div>
@@ -80,7 +81,7 @@
   const WAIT_SECONDS = 15;
 
   const $ = id => document.getElementById(id);
-  let watched = 0, need = 0, plan = null, timerId = null, activeKey = null;
+  let watched = 0, need = 0, plan = null, timerId = null;
 
   async function api(path, opts = {}) {
     const headers = opts.body ? { 'Content-Type': 'application/json' } : {};
@@ -179,13 +180,21 @@
     }
   }
 
+  let countTimer = null;
   function showKey(data) {
-    activeKey = data;
     show('stepKey');
-    $('keyTitle').textContent = 'Tu key de ' + (data.plan === 'plus' ? 'Plus' : 'Premium');
-    $('keyTxt').textContent = data.key;
+    $('keyTitle').textContent = 'Plan ' + (data.plan === 'plus' ? 'Plus' : 'Premium') + ' activo';
     const exp = new Date(data.expires_at * 1000);
     $('keyMeta').textContent = 'Vence: ' + exp.toLocaleString('es-EC', { dateStyle: 'medium', timeStyle: 'short' });
+    clearInterval(countTimer);
+    const tick = () => {
+      const left = Math.max(0, Math.floor(data.expires_at - Date.now() / 1000));
+      if (left === 0) { clearInterval(countTimer); $('countdown').textContent = '0:00:00'; setTimeout(() => location.reload(), 1500); return; }
+      const h = Math.floor(left / 3600), m = Math.floor(left % 3600 / 60), sec = left % 60;
+      $('countdown').textContent = h + ':' + String(m).padStart(2, '0') + ':' + String(sec).padStart(2, '0');
+    };
+    tick();
+    countTimer = setInterval(tick, 1000);
   }
 
   async function init() {
@@ -211,9 +220,6 @@
   }));
   $('nextBtn').addEventListener('click', nextAd);
   $('changePlan').addEventListener('click', () => { clearInterval(timerId); show('stepPlan'); });
-  $('copyBtn').addEventListener('click', () => {
-    try { navigator.clipboard.writeText(activeKey.key); $('copyBtn').textContent = 'Copiada'; setTimeout(() => $('copyBtn').textContent = 'Copiar key', 1400); } catch (_) {}
-  });
   init();
 </script>
 </body>

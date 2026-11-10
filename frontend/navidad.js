@@ -83,6 +83,7 @@
       'padding:6px 11px;border-radius:999px;font:600 11px/1 system-ui,-apple-system,"Segoe UI",sans-serif;color:#f5f5f8;',
       'background:rgba(18,18,22,.78);border:1px solid rgba(255,255,255,.12);pointer-events:none;',
       'backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);letter-spacing:.2px}',
+      '@media (max-width:700px){.navidad-chip{display:none}}',
       '.navidad-chip::before{content:"";width:8px;height:8px;border-radius:50%;',
       'background:linear-gradient(135deg,#e11d48,#22c55e);box-shadow:0 0 8px rgba(225,29,72,.6)}',
 

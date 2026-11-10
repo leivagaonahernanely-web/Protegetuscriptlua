@@ -1059,6 +1059,7 @@
 <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-9678380836418099" crossorigin="anonymous"></script>
 <!-- NAVIDAD: borrar esta línea al terminar la temporada -->
 <script src="/navidad.js" defer></script>
+<link rel="stylesheet" href="/motion.css">
 </head>
 <body>
 
@@ -1497,21 +1498,27 @@
     });
   });
 
-  const observer = new IntersectionObserver((entries) => {
-    entries.forEach(entry => {
-      if (entry.isIntersecting) {
-        entry.target.style.opacity = '1';
-        entry.target.style.transform = 'translateY(0)';
-      }
-    });
-  }, { threshold: 0.1 });
+  // Revelado al bajar: los elementos de cada grupo entran uno tras otro.
+  // Con "reducir movimiento" activado no se ocultan y se ven de inmediato.
+  if (!window.matchMedia('(prefers-reduced-motion: reduce)').matches && 'IntersectionObserver' in window) {
+    const revealObserver = new IntersectionObserver((entries) => {
+      entries.forEach(entry => {
+        if (!entry.isIntersecting) return;
+        entry.target.classList.add('in');
+        revealObserver.unobserve(entry.target);
+      });
+    }, { threshold: 0.12, rootMargin: '0px 0px -40px 0px' });
 
-  document.querySelectorAll('.feature, .step, .plan').forEach(el => {
-    el.style.opacity = '0';
-    el.style.transform = 'translateY(20px)';
-    el.style.transition = 'opacity .6s ease, transform .6s ease';
-    observer.observe(el);
-  });
+    const position = new Map();
+    document.querySelectorAll('.feature, .step, .plan').forEach(el => {
+      const parent = el.parentElement;
+      const i = position.get(parent) || 0;
+      position.set(parent, i + 1);
+      el.classList.add('rv');
+      el.style.setProperty('--d', (Math.min(i, 6) * 90) + 'ms');
+      revealObserver.observe(el);
+    });
+  }
 </script>
 <script>
   // Mantenimiento: pantalla completa en el inicio mientras esté activo (se revisa cada minuto)

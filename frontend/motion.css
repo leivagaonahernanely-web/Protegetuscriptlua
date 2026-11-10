@@ -1,0 +1,49 @@
+/* Movimiento y accesibilidad compartidos por todas las páginas.
+   Se carga al final del <head>. Usa selectores con :where() para no pelear con los estilos de cada página. */
+
+:root {
+  --ease-out: cubic-bezier(.22, 1, .36, 1);
+  --ease-in-out: cubic-bezier(.65, 0, .35, 1);
+  --dur-fast: .18s;
+  --dur: .32s;
+  --dur-slow: .7s;
+}
+
+/* Foco visible solo para teclado (no molesta al hacer clic con mouse) */
+:where(a, button, [role="button"], summary, input, select, textarea):focus-visible {
+  outline: 2px solid #f5f5f8;
+  outline-offset: 3px;
+  border-radius: 8px;
+}
+
+/* Entrada de vista: cada sección nueva aparece con un desplazamiento corto */
+@keyframes vantViewIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: none; }
+}
+:where([data-view]):not([hidden]) {
+  animation: vantViewIn var(--dur) var(--ease-out) both;
+}
+
+/* Quien tenga activado "reducir movimiento" ve la web sin animaciones */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Revelado al bajar (lo activa index.html con la clase .rv; .in cuando entra en pantalla).
+   Usa la propiedad translate, para no pelear con los transform de hover de cada tarjeta. */
+.rv {
+  opacity: 0;
+  translate: 0 22px;
+  transition: opacity var(--dur-slow) var(--ease-out), translate var(--dur-slow) var(--ease-out);
+  transition-delay: var(--d, 0ms);
+}
+.rv.in {
+  opacity: 1;
+  translate: 0 0;
+}

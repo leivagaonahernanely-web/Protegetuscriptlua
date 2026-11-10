@@ -934,7 +934,7 @@ app.get('/api/ads/session', requireAuth, (req, res) => res.json({ sid: String(re
 
 // Pruebas gratis (3 días): estado de las keys de la cuenta
 const FREE_PLAN_DAYS = 1; // cada reclamo da 1 día; al vencer hay que volver a ver anuncios
-const FREE_ADS_REQUIRED = { premium: 3, plus: 7 }; // anuncios vistos necesarios según el plan
+const FREE_ADS_REQUIRED = { premium: 7, plus: 14 }; // anuncios vistos necesarios según el plan
 const FREE_ADS_MAX = Math.max(...Object.values(FREE_ADS_REQUIRED));
 // Solo lee el contador de anuncios vistos (no suma nada)
 app.get('/api/free-keys/ad-count', requireAuth, (req, res) => {

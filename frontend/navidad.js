@@ -79,8 +79,8 @@
       '@keyframes navidad-frost-out{from{opacity:1;transform:scale(.6)}to{opacity:0;transform:scale(2.2)}}',
 
       /* Chip de temporada: cuenta regresiva o saludo */
-      '.navidad-chip{position:fixed;left:16px;bottom:16px;z-index:9999;display:flex;align-items:center;gap:8px;',
-      'padding:8px 14px;border-radius:999px;font:600 13px/1 system-ui,-apple-system,"Segoe UI",sans-serif;color:#f5f5f8;',
+      '.navidad-chip{position:fixed;right:14px;top:34px;z-index:9999;display:flex;align-items:center;gap:8px;',
+      'padding:6px 11px;border-radius:999px;font:600 11px/1 system-ui,-apple-system,"Segoe UI",sans-serif;color:#f5f5f8;',
       'background:rgba(18,18,22,.78);border:1px solid rgba(255,255,255,.12);pointer-events:none;',
       'backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);letter-spacing:.2px}',
       '.navidad-chip::before{content:"";width:8px;height:8px;border-radius:50%;',

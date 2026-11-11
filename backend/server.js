@@ -1189,7 +1189,7 @@ if loaderTampered() then
 end
 -- Contactar el servidor con hasta 3 reintentos (Railway puede tardar al arrancar)
 local ok, body = false, ""
-local _url = AUTH_BASE .. "&key=" .. enc(key) .. "&hwid=" .. enc(hwid) .. "&rbxid=" .. enc(rbxid)
+local _url = AUTH_BASE .. "&key=" .. enc(key) .. "&hwid=" .. enc(hwid) .. "&rbxid=" .. enc(rbxid) .. "&v=2"
 for _attempt = 1, 3 do
   ok, body = pcall(function() return game:HttpGet(_url) end)
   if ok and type(body) == "string" then break end
@@ -1216,6 +1216,81 @@ if body:sub(1, #_tp) == _tp then
   end)
   if not _okp or type(_resp) ~= "table" or type(_resp.Body) ~= "string" then kick("SERVER_UNREACHABLE") end
   body = _resp.Body
+end
+-- Entrega cifrada (v2): "!VANTARMOR:ENC\n<key 32 hex>\n<ciphertext base64>"
+-- Se descifra en Lua puro con XXTEA: sin librerias del executor, corre en cualquier executor
+local _encp = "!VANTARMOR:ENC\\n"
+if body:sub(1, #_encp) == _encp then
+  local _rest = body:sub(#_encp + 1)
+  local _nl = _rest:find("\\n", 1, true)
+  if not _nl then kick("VERIFY_FAILED") end
+  local _khex = _rest:sub(1, _nl - 1)
+  local _b64 = _rest:sub(_nl + 1)
+  _b64 = (_b64:gsub("^%s+", ""))
+  _b64 = (_b64:gsub("%s+$", ""))
+  if #_khex ~= 32 or #_b64 == 0 then kick("VERIFY_FAILED") end
+  local _k = {}
+  for _j = 0, 3 do
+    local _w = 0
+    for _i = 1, 4 do
+      _w = _w | ((tonumber(_khex:sub(_j * 8 + _i * 2 - 1, _j * 8 + _i * 2), 16) or 0) << ((_i - 1) * 8))
+    end
+    _k[_j + 1] = _w
+  end
+  local _AL = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+  local _im = {}
+  for _i = 1, 64 do _im[_AL:byte(_i)] = _i - 1 end
+  local _bytes = {}
+  local _bn = 0
+  local _acc, _bits = 0, 0
+  for _i = 1, #_b64 do
+    local _d = _im[_b64:byte(_i)]
+    if _d then
+      _acc = ((_acc << 6) | _d) & 0xFFFFFF
+      _bits += 6
+      if _bits >= 8 then
+        _bits -= 8
+        _bn += 1
+        _bytes[_bn] = (_acc >> _bits) & 0xFF
+      end
+    end
+  end
+  if _bn == 0 or _bn % 4 ~= 0 then kick("VERIFY_FAILED") end
+  local _M, _DL = 0xFFFFFFFF, 0x9E3779B9
+  local _m = _bn // 4
+  if _m < 2 then kick("VERIFY_FAILED") end
+  local function _rd(i0)
+    return _bytes[i0] | (_bytes[i0 + 1] << 8) | (_bytes[i0 + 2] << 16) | (_bytes[i0 + 3] << 24)
+  end
+  local function _mx(sum, y, z, p0, e, k)
+    return (((z >> 5) ~ (y << 2)) + ((y >> 3) ~ (z << 4))) ~ ((sum ~ y) + (k[(p0 & 3) ~ e] ~ z))
+  end
+  local _v = {}
+  for _i = 1, _m do _v[_i] = _rd((_i - 1) * 4 + 1) end
+  local _rounds = 6 + 52 // _m
+  local _sum = (_DL * _rounds) & _M
+  local _y = _v[1]
+  repeat
+    local _e = (_sum >> 2) & 3
+    for _p = _m, 2, -1 do
+      local _z = _v[_p - 1]
+      _y = (_v[_p] - _mx(_sum, _y, _z, _p - 1, _e, _k)) & _M
+      _v[_p] = _y
+    end
+    local _z2 = _v[_m]
+    _y = (_v[1] - _mx(_sum, _y, _z2, 0, _e, _k)) & _M
+    _v[1] = _y
+    _sum = (_sum - _DL) & _M
+  until _sum == 0
+  local _parts = {}
+  for _i = 1, _m do
+    local _w = _v[_i]
+    _parts[_i] = string.char(_w & 0xFF, (_w >> 8) & 0xFF, (_w >> 16) & 0xFF, (_w >> 24) & 0xFF)
+  end
+  local _pt = table.concat(_parts)
+  local _len = #_pt
+  while _len > 0 and _pt:byte(_len) == 0 do _len -= 1 end
+  body = "!VANTARMOR:CODE\\n" .. _pt:sub(1, _len)
 end
 -- El servidor responde "!VANTARMOR:CODIGO" (error) o "!VANTARMOR:CODE" seguido del script (éxito).
 -- Se usa string.sub en lugar de match para soportar scripts multilínea
@@ -1463,9 +1538,9 @@ setInterval(() => {
   const now = Date.now();
   for (const [t, v] of payloadTokens) if (v.expires < now) payloadTokens.delete(t);
 }, 60_000).unref();
-function issuePayloadToken(script, ip, key) {
+function issuePayloadToken(script, ip, key, v) {
   const token = crypto.randomBytes(24).toString('hex');
-  payloadTokens.set(token, { scriptId: script.id, key: key || null, ip: ip || null, expires: Date.now() + PAYLOAD_TTL_MS });
+  payloadTokens.set(token, { scriptId: script.id, key: key || null, ip: ip || null, expires: Date.now() + PAYLOAD_TTL_MS, v: v === '2' });
   return token;
 }
 
@@ -1496,6 +1571,57 @@ function servedCode(script, { ip, key } = {}) {
   return remoteHeader({ url: `${APP_URL}/scripts/hosted/${script.slug}/remote`, token }) + base;
 }
 
+// Entrega cifrada (v2, estilo Luarmor): el código sale cifrado con XXTEA y una key de sesión
+// aleatoria. Un fetch a mano a /auth sin key válida no recibe nada, y cada entrega es un blob
+// distinto que no se puede reusar. La misma rutina corre en Lua puro dentro del bootstrap.
+const XXTEA_DELTA = 0x9E3779B9 >>> 0;
+function xxteaWords(buf) {
+  const n = buf.length >>> 2;
+  const w = new Array(n).fill(0);
+  for (let i = 0; i < n; i++) w[i] = buf.readUInt32LE(i * 4) >>> 0;
+  return w;
+}
+function xxteaWordsToBuf(w) {
+  const out = Buffer.alloc(w.length * 4);
+  for (let i = 0; i < w.length; i++) out.writeUInt32LE(w[i] >>> 0, i * 4);
+  return out;
+}
+function xxteaMx(sum, y, z, p0, e, k) {
+  const a = (((z >>> 5) ^ ((y << 2) >>> 0)) + ((y >>> 3) ^ ((z << 4) >>> 0))) >>> 0;
+  const b = ((sum ^ y) + ((k[(p0 & 3) ^ e] ^ z) >>> 0)) >>> 0;
+  return (a ^ b) >>> 0;
+}
+function xxteaEncrypt(plain, key16) {
+  let bytes = Buffer.from(String(plain), 'utf8');
+  const pad = (4 - (bytes.length % 4)) % 4;
+  if (pad) bytes = Buffer.concat([bytes, Buffer.alloc(pad)]);
+  if (bytes.length < 8) bytes = Buffer.concat([bytes, Buffer.alloc(8 - bytes.length)]);
+  const v = xxteaWords(bytes);
+  const k = xxteaWords(key16);
+  const n = v.length;
+  const rounds = 6 + Math.floor(52 / n);
+  let sum = 0;
+  let z = v[n - 1];
+  for (let r = 0; r < rounds; r++) {
+    sum = (sum + XXTEA_DELTA) >>> 0;
+    const e = (sum >>> 2) & 3;
+    for (let p = 0; p < n - 1; p++) {
+      const y = v[p + 1];
+      z = v[p] = (v[p] + xxteaMx(sum, y, z, p, e, k)) >>> 0;
+    }
+    const y0 = v[0];
+    z = v[n - 1] = (v[n - 1] + xxteaMx(sum, y0, z, n - 1, e, k)) >>> 0;
+  }
+  return xxteaWordsToBuf(v);
+}
+// Entrega el código al ejecutor: texto plano (loaders viejos) o cifrado (loader v2)
+function sendExecutorCode(req, res, script, opts, enc) {
+  const code = servedCode(script, opts);
+  if (!enc) return res.type('text/plain').send('!VANTARMOR:CODE\n' + code);
+  const key16 = crypto.randomBytes(16);
+  const ct = xxteaEncrypt(code, key16);
+  return res.type('text/plain').send(`!VANTARMOR:ENC\n${key16.toString('hex')}\n${ct.toString('base64')}`);
+}
 // Entrega el código con un token válido. El token se gasta aunque falle.
 // Solo POST con el token en el cuerpo: un GET (navegador, curl) ya no devuelve código
 const payloadHandler = (req, res, slug) => {
@@ -1518,7 +1644,7 @@ const payloadHandler = (req, res, slug) => {
     return res.status(403).type('text/plain').send('!VANTARMOR:TOKEN_INVALID');
   }
   // El loader espera el mismo prefijo que en la entrega de un paso
-  res.type('text/plain').send('!VANTARMOR:CODE\n' + servedCode(script, { ip: req.ip, key: entry.key }));
+  return sendExecutorCode(req, res, script, { ip: req.ip, key: entry.key }, entry.v === true);
 };
 // Ruta antigua (por slug): se mantiene para bootstraps que ya estuvieran en ejecución
 app.post('/scripts/hosted/:slug/payload', express.text({ type: () => true, limit: '1kb' }), (req, res) => payloadHandler(req, res, req.params.slug));
@@ -1614,8 +1740,8 @@ const authHandler = (req, res, slug) => {
       `• HWID: \`${/^[\x21-\x7E]{8,128}$/.test(ffaHwid) ? ffaHwid : 'sin dato'}\``,
       `• ID del script: \`${script.loader_id || script.id}\``,
     ], null, rbxid);
-    if (script.secure_fetch) return res.type('text/plain').send('!VANTARMOR:TOKEN\n' + issuePayloadToken(script, req.ip, null));
-    return res.type('text/plain').send('!VANTARMOR:CODE\n' + servedCode(script, { ip: req.ip }));
+    if (script.secure_fetch) return res.type('text/plain').send('!VANTARMOR:TOKEN\n' + issuePayloadToken(script, req.ip, null, req.query.v));
+    return sendExecutorCode(req, res, script, { ip: req.ip }, req.query.v === '2');
   }
 
   const key = String(req.query.key || '').trim().slice(0, 64);
@@ -1661,8 +1787,8 @@ const authHandler = (req, res, slug) => {
     `• ID del script: \`${script.loader_id || script.id}\``,
     `• Veces que esta key ejecutó este script: ${run?.exec_count ?? 1}`,
   ], k.discord_id, rbxid);
-  if (script.secure_fetch) return res.type('text/plain').send('!VANTARMOR:TOKEN\n' + issuePayloadToken(script, req.ip, key));
-  res.type('text/plain').send('!VANTARMOR:CODE\n' + servedCode(script, { ip: req.ip, key }));
+  if (script.secure_fetch) return res.type('text/plain').send('!VANTARMOR:TOKEN\n' + issuePayloadToken(script, req.ip, key, req.query.v));
+  return sendExecutorCode(req, res, script, { ip: req.ip, key }, req.query.v === '2');
 };
 // Ruta antigua (por slug): se mantiene para bootstraps que ya estuvieran en ejecución
 app.get('/scripts/hosted/:slug/auth', (req, res) => authHandler(req, res, req.params.slug));

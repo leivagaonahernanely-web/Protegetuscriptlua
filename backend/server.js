@@ -168,7 +168,99 @@ if (process.env.DB_ENGINE !== 'postgres' && fs.existsSync(`${DATABASE_PATH}.impo
   console.log(`[Restauración] Copia aplicada en ${DATABASE_PATH}. La anterior quedó como ${DATABASE_PATH}.replaced-${stamp}`);
 }
 
-const db = openDatabase(DATABASE_PATH);
+// Abre la base y, si conviene, la compacta al arrancar. Los DELETE de las podas reutilizan
+// paginas internas y el archivo deja de crecer, pero solo un VACUUM devuelve el espacio al
+// volumen, y un VACUUM normal no cabe cuando el volumen esta lleno. Ruta segura: VACUUM INTO
+// a /tmp (disco efimero del contenedor, no gasta volumen), verificacion de integridad y de
+// conteos, y recien entonces se reemplaza el archivo. Si algo falla, la base original queda.
+function openCompactedDb() {
+  let conn = openDatabase(DATABASE_PATH);
+  if (process.env.DB_ENGINE === 'postgres') return conn;
+  const mb = b => `${(b / 1048576).toFixed(1)} MB`;
+  const tmp = '/tmp/vantarmor-compact.db';
+  const bakTmp = '/tmp/vantarmor-precompact.bak';
+  try {
+    // poda previa: asi el VACUUM recupera justo las paginas que quedaron libres
+    try { conn.prepare('DELETE FROM script_logs WHERE created_at < ?').run(Math.floor(Date.now() / 1000) - 7 * 86400); } catch {}
+    try { conn.prepare('DELETE FROM loader_downloads WHERE created_at < ?').run(Math.floor(Date.now() / 1000) - 30 * 86400); } catch {} // 30 dias, mismo valor que LOADER_LOG_DAYS (declarado mas abajo)
+    // resto de restauraciones anteriores (.replaced-*, .import): cada una pesa lo mismo que la base
+    const dir = path.dirname(DATABASE_PATH);
+    const baseName = path.basename(DATABASE_PATH);
+    for (const f of fs.readdirSync(dir)) {
+      if (f === baseName + '.import' || f.startsWith(baseName + '.replaced-') || f.startsWith(baseName + '.precompact')) {
+        const p = path.join(dir, f);
+        const s = fs.statSync(p).size;
+        fs.unlinkSync(p);
+        console.log(`[Limpieza] Resto de restauracion eliminado: ${f} (${mb(s)})`);
+      }
+    }
+    const pageSize = conn.pragma('page_size', { simple: true });
+    const freelist = conn.pragma('freelist_count', { simple: true });
+    const fileBytes = fs.statSync(DATABASE_PATH).size;
+    const freeable = freelist * pageSize;
+    if (freeable < fileBytes * 0.1) {
+      console.log(`[Limpieza] Compactacion al arranque omitida: recuperables ${mb(freeable)} de ${mb(fileBytes)}`);
+      return conn;
+    }
+    try { fs.unlinkSync(tmp); } catch {}
+    try { fs.unlinkSync(bakTmp); } catch {}
+    conn.pragma('wal_checkpoint(TRUNCATE)');
+    conn.exec(`VACUUM INTO '${tmp}'`);
+    const vacSize = fs.statSync(tmp).size;
+    const counts = {};
+    for (const t of ['users', 'scripts', 'keys']) {
+      try { counts[t] = conn.prepare(`SELECT COUNT(*) AS n FROM ${t}`).get().n; } catch { counts[t] = null; }
+    }
+    const Database = createRequire(import.meta.url)('better-sqlite3');
+    const check = new Database(tmp, { readonly: true });
+    try {
+      const integrity = check.pragma('integrity_check', { simple: true });
+      if (integrity !== 'ok') throw new Error(`la copia compacta no paso la verificacion (${integrity})`);
+      for (const [t, n] of Object.entries(counts)) {
+        if (n == null) continue;
+        const m = check.prepare(`SELECT COUNT(*) AS n FROM ${t}`).get().n;
+        if (m !== n) throw new Error(`conteo distinto en ${t}: ${n} -> ${m}`);
+      }
+    } finally { check.close(); }
+    const bak = `${DATABASE_PATH}.precompact`;
+    try { fs.rmSync(bak, { force: true }); } catch {}
+    const free = fs.statfsSync(dir).bavail * fs.statfsSync(dir).bsize;
+    let bakOnTmp = false;
+    if (free >= vacSize * 1.1) {
+      fs.renameSync(DATABASE_PATH, bak); // la original queda en el volumen como respaldo
+    } else {
+      // volumen sin margen: respaldo en el disco efimero y se libera el volumen para copiar
+      fs.copyFileSync(DATABASE_PATH, bakTmp);
+      fs.unlinkSync(DATABASE_PATH);
+      bakOnTmp = true;
+    }
+    try {
+      fs.copyFileSync(tmp, DATABASE_PATH);
+    } catch (err) {
+      try { fs.rmSync(DATABASE_PATH, { force: true }); } catch {}
+      if (!bakOnTmp && fs.existsSync(bak)) fs.renameSync(bak, DATABASE_PATH);
+      else fs.copyFileSync(bakTmp, DATABASE_PATH);
+      throw err;
+    }
+    conn.close();
+    conn = openDatabase(DATABASE_PATH);
+    for (const [t, n] of Object.entries(counts)) {
+      if (n == null) continue;
+      const m = conn.prepare(`SELECT COUNT(*) AS n FROM ${t}`).get().n;
+      if (m !== n) throw new Error(`conteo distinto tras reemplazar en ${t}`);
+    }
+    try { fs.rmSync(bak, { force: true }); } catch {}
+    try { fs.unlinkSync(tmp); } catch {}
+    try { fs.unlinkSync(bakTmp); } catch {}
+    console.log(`[Limpieza] Base compactada al arranque: ${mb(fileBytes)} -> ${mb(fs.statSync(DATABASE_PATH).size)}`);
+  } catch (err) {
+    console.warn('[Limpieza] Compactacion al arranque falló:', err.message);
+    try { if (conn.open === false) conn = openDatabase(DATABASE_PATH); } catch {}
+  }
+  return conn;
+}
+
+const db = openCompactedDb();
 db.exec(`
   CREATE TABLE IF NOT EXISTS users (
     id TEXT PRIMARY KEY,
@@ -2629,7 +2721,7 @@ app.post('/api/owner/compact', requireOwnerApi, (req, res) => {
     const fsInfo = fs.statfsSync(path.dirname(DATABASE_PATH));
     const free = fsInfo.bavail * fsInfo.bsize;
     if (free < before * 1.1) {
-      return res.status(409).json({ error: `No hay espacio para compactar: libre ${mb(free)}, la base pesa ${mb(before)}. Aumenta el volumen y vuelve a intentar.` });
+      return res.status(409).json({ error: `No hay espacio para compactar ahora: libre ${mb(free)}, la base pesa ${mb(before)}. Al reiniciar el servicio la base se compacta sola (usa una copia temporal fuera del volumen); si aun asi no alcanza, amplía el volumen en Railway.` });
     }
     db.exec('VACUUM');
     const after = fs.statSync(DATABASE_PATH).size;

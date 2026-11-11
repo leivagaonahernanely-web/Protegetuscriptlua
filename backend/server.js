@@ -1240,22 +1240,48 @@ task.spawn(fn)
 `;
 }
 
-// El bootstrap NO se ofusca con un ofuscador externo: RealObfuscator (modo VM) y NextOfuscator
-// ambos fallan en Roblox móvil con "attempt to call a nil value" porque generan una capa VM/wrapper
-// con opcodes o upvalues que el executor móvil no soporta. En su lugar, la URL del loader sirve un
-// stub mínimo con el bootstrap codificado (cada byte desplazado +1 y escapado como \ddd): un fetch
-// a la URL no devuelve código legible, solo un blob. La decodificación en el executor es aritmética
-// pura de Lua (string.byte/string.char), sin opcodes de VM, así que corre donde la ofuscación real
-// fallaba. La seguridad fuerte sigue en el servidor (validación de key/HWID), no en ocultar el stub.
+// El bootstrap del loader se sirve ofuscado con los ofuscadores reales del servidor, en este orden:
+// Clyde en modo VM, RealObfuscator (VM) y NextOfuscator de reserva. Cada resultado queda en memoria:
+// mismo bootstrap plano = misma salida, sin volver a ofuscar en cada descarga. Nota histórica: la
+// capa VM falló en algunos ejecutores móviles ("attempt to call a nil value"); por eso queda el
+// stub de respaldo (bytes desplazados + escapes \ddd, ilegible a simple vista, decodificado con Lua
+// puro) y LOADER_OBF=off como salida rápida si algún día hay que revertir. La seguridad fuerte
+// sigue en el servidor (validación de key/HWID), no en ocultar el loader.
+const LOADER_OBF = String(process.env.LOADER_OBF || '').trim().toLowerCase();
+const LOADER_OBF_CHAIN = LOADER_OBF === 'off' ? [] : ['clyde', 'real', 'next'];
+const loaderObfCache = new Map();
 function loaderEncodedBlob(plain) {
   const bytes = Buffer.from(String(plain), 'utf8');
   let out = '"';
   for (const b of bytes) out += '\\' + String((b + 1) & 0xff);
   return out + '"';
 }
-function loaderStub(loaderId, ffa, secure) {
-  const blob = loaderEncodedBlob(loaderBootstrap(loaderId, ffa, secure));
+function loaderStubFromPlain(plain) {
+  const blob = loaderEncodedBlob(plain);
   return `-- VANTARMOR\nlocal _b = ${blob}\nlocal _t = {}\nfor _i = 1, #_b do _t[_i] = string.char((string.byte(_b, _i) + 255) % 256) end\nlocal _fn = loadstring(table.concat(_t))\nif not _fn then error("[VANTARMOR] loader invalido", 0) end\n_fn()\n`;
+}
+function loaderStub(loaderId, ffa, secure) {
+  return loaderStubFromPlain(loaderBootstrap(loaderId, ffa, secure));
+}
+async function protectLoader(loaderId, ffa, secure) {
+  const plain = loaderBootstrap(loaderId, ffa, secure);
+  const cacheKey = crypto.createHash('sha256').update(plain).digest('hex');
+  const cached = loaderObfCache.get(cacheKey);
+  if (cached !== undefined) return cached;
+  let out = null;
+  for (const name of LOADER_OBF_CHAIN) {
+    try {
+      const result = await obfuscate(plain, name, { vm: name === 'clyde' });
+      if (result && String(result).trim()) { out = String(result).trim() + '\n'; break; }
+      console.warn(`[Loader] Ofuscador ${name} devolvió salida vacía`);
+    } catch (err) {
+      console.warn(`[Loader] Ofuscador ${name} falló:`, String(err.message || err).slice(0, 200));
+    }
+  }
+  if (out === null) out = loaderStubFromPlain(plain);
+  if (loaderObfCache.size > 500) loaderObfCache.clear();
+  loaderObfCache.set(cacheKey, out);
+  return out;
 }
 
 // Herramientas de descarga (curl, wget, scripts de Python, etc.) que piden el bootstrap a mano.
@@ -1292,7 +1318,7 @@ function sendAuthDecoy(req, res) {
 }
 
 // Página pública: el navegador ve solo el snippet (solo lectura); el ejecutor recibe el bootstrap.
-app.get('/scripts/hosted/:slug', (req, res) => {
+app.get('/scripts/hosted/:slug', async (req, res) => {
   if (/text\/html/.test(req.get('accept') || '')) {
     const script = stmt.scriptBySlug.get(req.params.slug);
     if (!script) return res.status(404).type('text/plain').send('-- script no encontrado');
@@ -1301,11 +1327,11 @@ app.get('/scripts/hosted/:slug', (req, res) => {
   if (isLoaderProbe(req)) return sendLoaderDecoy(req, res);
   const script = stmt.scriptBySlug.get(req.params.slug);
   if (script) logLoaderDownload(script, req.ip);
-  res.type('text/plain').send(loaderStub(script ? script.loader_id : '', !!(script && script.ffa), !!(script && script.secure_fetch)));
+  res.type('text/plain').send(await protectLoader(script ? script.loader_id : '', !!(script && script.ffa), !!(script && script.secure_fetch)));
 });
 
 // Loader con URL de archivo: /files/v1/loaders/<loader_id>.lua (mismo contenido que /scripts/hosted/<slug>)
-app.get('/files/v1/loaders/:file', (req, res) => {
+app.get('/files/v1/loaders/:file', async (req, res) => {
   const m = /^([0-9a-f]{40})\.lua$/.exec(req.params.file);
   const script = m ? stmt.scriptByLoaderId.get(m[1]) : null;
   if (!script) return res.status(404).type('text/plain').send('-- script no encontrado');
@@ -1314,7 +1340,7 @@ app.get('/files/v1/loaders/:file', (req, res) => {
   }
   if (isLoaderProbe(req)) return sendLoaderDecoy(req, res);
   logLoaderDownload(script, req.ip);
-  res.type('text/plain').send(loaderStub(script.loader_id, !!script.ffa, !!script.secure_fetch));
+  res.type('text/plain').send(await protectLoader(script.loader_id, !!script.ffa, !!script.secure_fetch));
 });
 
 // Tokens de un solo uso para entregar el código: /auth los emite, /payload los consume.

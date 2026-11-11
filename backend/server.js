@@ -1241,14 +1241,14 @@ task.spawn(fn)
 }
 
 // El bootstrap del loader se sirve ofuscado con los ofuscadores reales del servidor, en este orden:
-// Clyde en modo VM, RealObfuscator (VM) y NextOfuscator de reserva. Cada resultado queda en memoria:
-// mismo bootstrap plano = misma salida, sin volver a ofuscar en cada descarga. Nota histórica: la
-// capa VM falló en algunos ejecutores móviles ("attempt to call a nil value"); por eso queda el
-// stub de respaldo (bytes desplazados + escapes \ddd, ilegible a simple vista, decodificado con Lua
-// puro) y LOADER_OBF=off como salida rápida si algún día hay que revertir. La seguridad fuerte
-// sigue en el servidor (validación de key/HWID), no en ocultar el loader.
+// Clyde (ligero, sin VM) y NextOfuscator de reserva. Cada resultado queda en memoria: mismo
+// bootstrap plano = misma salida, sin volver a ofuscar en cada descarga. Sin modo VM: la capa VM
+// rompía ejecutores móviles (leía script_key mal y kickeaba con "A valid key is required"); por
+// eso queda el stub de respaldo (bytes desplazados + escapes \ddd, ilegible a simple vista,
+// decodificado con Lua puro) y LOADER_OBF=off como salida rápida. La seguridad fuerte sigue en el
+// servidor (validación de key/HWID), no en ocultar el loader.
 const LOADER_OBF = String(process.env.LOADER_OBF || '').trim().toLowerCase();
-const LOADER_OBF_CHAIN = LOADER_OBF === 'off' ? [] : ['clyde', 'real', 'next'];
+const LOADER_OBF_CHAIN = LOADER_OBF === 'off' ? [] : ['clyde', 'next'];
 const loaderObfCache = new Map();
 function loaderEncodedBlob(plain) {
   const bytes = Buffer.from(String(plain), 'utf8');
@@ -1271,7 +1271,8 @@ async function protectLoader(loaderId, ffa, secure) {
   let out = null;
   for (const name of LOADER_OBF_CHAIN) {
     try {
-      const result = await obfuscate(plain, name, { vm: name === 'clyde' });
+      // Sin modo VM: la capa VM rompía ejecutores móviles (kickeaba con "A valid key is required")
+      const result = await obfuscate(plain, name, { vm: false });
       if (result && String(result).trim()) { out = String(result).trim() + '\n'; break; }
       console.warn(`[Loader] Ofuscador ${name} devolvió salida vacía`);
     } catch (err) {

@@ -1217,7 +1217,7 @@ if body:sub(1, #_tp) == _tp then
   if not _okp or type(_resp) ~= "table" or type(_resp.Body) ~= "string" then kick("SERVER_UNREACHABLE") end
   body = _resp.Body
 end
--- Entrega cifrada (v2): "!VANTARMOR:ENC\n<key 32 hex>\n<ciphertext base64>"
+-- Entrega cifrada (v2): prefijo !VANTARMOR:ENC, luego key de 32 hex y ciphertext base64
 -- Se descifra en Lua puro con XXTEA: sin librerias del executor, corre en cualquier executor
 local _encp = "!VANTARMOR:ENC\\n"
 if body:sub(1, #_encp) == _encp then

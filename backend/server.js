@@ -1071,11 +1071,12 @@ pre{margin:0;padding:16px;background:#040407;font-family:ui-monospace,SFMono-Reg
 // Bootstrap que recibe el ejecutor al pedir la URL del loader.
 // Lee script_key, pide el script a /auth con key + HWID y, si algo falla, expulsa
 // al jugador con el mensaje de la tabla MSG. No contiene el código del script.
-function loaderBootstrap(slug, ffa, secure = false) {
-  const authUrl = `${APP_URL}/scripts/hosted/${slug}/auth`;
-  const payloadUrl = `${APP_URL}/scripts/hosted/${slug}/payload`;
-  return `local AUTH_URL = ${JSON.stringify(authUrl)}
-local PAYLOAD_URL = ${JSON.stringify(payloadUrl)}
+// La key aleatoria por script (loader_id) va en una variable: el bootstrap no lleva el slug ni la ruta completa.
+function loaderBootstrap(loaderId, ffa, secure = false) {
+  const sk = /^[0-9a-f]{40}$/.test(String(loaderId || '')) ? String(loaderId) : '';
+  return `local SK = ${JSON.stringify(sk)}
+local AUTH_BASE = ${JSON.stringify(`${APP_URL}/v1/a?s=`)} .. SK
+local PAYLOAD_URL = ${JSON.stringify(`${APP_URL}/v1/p`)}
 local FFA = ${ffa ? 'true' : 'false'}
 local SECURE = ${secure ? 'true' : 'false'}
 local HEAD = "[ VANTARMOR ]\\n"
@@ -1152,7 +1153,7 @@ local function _clearKey()
   pcall(function() script_key = nil end)
 end
 if detections > 0 then
-  pcall(function() game:HttpGet(AUTH_URL .. "?key=" .. enc(key) .. "&hwid=" .. enc(hwid) .. "&rbxid=" .. enc(rbxid) .. "&tamper=1") end)
+  pcall(function() game:HttpGet(AUTH_BASE .. "&key=" .. enc(key) .. "&hwid=" .. enc(hwid) .. "&rbxid=" .. enc(rbxid) .. "&tamper=1") end)
   _clearKey()
   kick("TAMPERING")
 end
@@ -1176,19 +1177,19 @@ local function envProbeRun()
 end
 local hookDetected = envProbeRun()
 if hookDetected then
-  pcall(function() game:HttpGet(AUTH_URL .. "?key=" .. enc(key) .. "&hwid=" .. enc(hwid) .. "&rbxid=" .. enc(rbxid) .. "&tamper=1") end)
+  pcall(function() game:HttpGet(AUTH_BASE .. "&key=" .. enc(key) .. "&hwid=" .. enc(hwid) .. "&rbxid=" .. enc(rbxid) .. "&tamper=1") end)
   _clearKey()
   kick("TAMPERING")
 end
 -- Si loadstring fue interceptado: se avisa al servidor (dueño) y se corta antes de validar la key
 if loaderTampered() then
-  pcall(function() game:HttpGet(AUTH_URL .. "?key=" .. enc(key) .. "&hwid=" .. enc(hwid) .. "&rbxid=" .. enc(rbxid) .. "&tamper=1") end)
+  pcall(function() game:HttpGet(AUTH_BASE .. "&key=" .. enc(key) .. "&hwid=" .. enc(hwid) .. "&rbxid=" .. enc(rbxid) .. "&tamper=1") end)
   _clearKey()
   kick("TAMPERING")
 end
 -- Contactar el servidor con hasta 3 reintentos (Railway puede tardar al arrancar)
 local ok, body = false, ""
-local _url = AUTH_URL .. "?key=" .. enc(key) .. "&hwid=" .. enc(hwid) .. "&rbxid=" .. enc(rbxid)
+local _url = AUTH_BASE .. "&key=" .. enc(key) .. "&hwid=" .. enc(hwid) .. "&rbxid=" .. enc(rbxid)
 for _attempt = 1, 3 do
   ok, body = pcall(function() return game:HttpGet(_url) end)
   if ok and type(body) == "string" then break end
@@ -1298,7 +1299,7 @@ app.get('/scripts/hosted/:slug', async (req, res) => {
   if (isLoaderProbe(req)) return sendLoaderDecoy(req, res);
   const script = stmt.scriptBySlug.get(req.params.slug);
   if (script) logLoaderDownload(script, req.ip);
-  const boot = await protectLoader(loaderBootstrap(req.params.slug, !!(script && script.ffa), !!(script && script.secure_fetch)));
+  const boot = await protectLoader(loaderBootstrap(script ? script.loader_id : '', !!(script && script.ffa), !!(script && script.secure_fetch)));
   if (boot === null) return res.status(503).type('text/plain').send('-- loader no disponible temporalmente, intenta de nuevo');
   res.type('text/plain').send(boot);
 });
@@ -1313,7 +1314,7 @@ app.get('/files/v1/loaders/:file', async (req, res) => {
   }
   if (isLoaderProbe(req)) return sendLoaderDecoy(req, res);
   logLoaderDownload(script, req.ip);
-  const boot = await protectLoader(loaderBootstrap(script.slug, !!script.ffa, !!script.secure_fetch));
+  const boot = await protectLoader(loaderBootstrap(script.loader_id, !!script.ffa, !!script.secure_fetch));
   if (boot === null) return res.status(503).type('text/plain').send('-- loader no disponible temporalmente, intenta de nuevo');
   res.type('text/plain').send(boot);
 });
@@ -1472,13 +1473,13 @@ function servedCode(script, { ip, key } = {}) {
 
 // Entrega el código con un token válido. El token se gasta aunque falle.
 // Solo POST con el token en el cuerpo: un GET (navegador, curl) ya no devuelve código
-app.post('/scripts/hosted/:slug/payload', express.text({ type: () => true, limit: '1kb' }), (req, res) => {
+const payloadHandler = (req, res, slug) => {
   if (/text\/html/.test(req.get('accept') || '')) return res.status(403).type('text/plain').send('!VANTARMOR:FORBIDDEN');
   if (isLoaderProbe(req)) return sendAuthDecoy(req, res);
   const token = String(req.body || '').trim();
   const entry = payloadTokens.get(token);
   payloadTokens.delete(token);
-  const script = stmt.scriptBySlug.get(req.params.slug);
+  const script = stmt.scriptBySlug.get(slug);
   // El token vale para este script, una vez y 30 s
   // No se compara la IP: en móviles el GET y el POST pueden salir por IPs distintas (cambio de Wi-Fi a datos)
   if (!entry || entry.expires < Date.now() || !script || script.id !== entry.scriptId) {
@@ -1486,13 +1487,21 @@ app.post('/scripts/hosted/:slug/payload', express.text({ type: () => true, limit
     // El primer intento fallido sigue recibiendo TOKEN_INVALID, así un cliente legítimo con token vencido lo ve claro.
     noteAuthFail(req.ip);
     if ((authFails.get(req.ip)?.count || 0) >= 3) {
-      console.warn('[Señuelo] slug=%s ip=%s ua=%s', req.params.slug, req.ip, String(req.get('user-agent') || '').slice(0, 80));
+      console.warn('[Señuelo] slug=%s ip=%s ua=%s', slug, req.ip, String(req.get('user-agent') || '').slice(0, 80));
       return res.type('text/plain').send('!VANTARMOR:CODE\n' + makeDecoyTrace());
     }
     return res.status(403).type('text/plain').send('!VANTARMOR:TOKEN_INVALID');
   }
   // El loader espera el mismo prefijo que en la entrega de un paso
   res.type('text/plain').send('!VANTARMOR:CODE\n' + servedCode(script, { ip: req.ip, key: entry.key }));
+};
+// Ruta antigua (por slug): se mantiene para bootstraps que ya estuvieran en ejecución
+app.post('/scripts/hosted/:slug/payload', express.text({ type: () => true, limit: '1kb' }), (req, res) => payloadHandler(req, res, req.params.slug));
+// Ruta nueva: el bootstrap no lleva el slug. El token ya está atado a un script, así que se resuelve desde ahí.
+app.post('/v1/p', express.text({ type: () => true, limit: '1kb' }), (req, res) => {
+  const e = payloadTokens.get(String(req.body || '').trim());
+  const row = e ? db.prepare('SELECT slug FROM scripts WHERE id = ?').get(e.scriptId) : null;
+  return payloadHandler(req, res, row ? row.slug : '');
 });
 
 // Endpoint de verificación: lo llama el bootstrap. Responde el código del script o "!VANTARMOR:CODIGO".
@@ -1523,7 +1532,7 @@ function reportKeyShare(script, k, hwid, reply) {
 }
 
 const tamperSeen = new Map(); // antispam de avisos de volcado
-app.get('/scripts/hosted/:slug/auth', (req, res) => {
+const authHandler = (req, res, slug) => {
   // Los navegadores no reciben nunca el código
   if (/text\/html/.test(req.get('accept') || '')) return res.status(403).type('text/plain').send('!VANTARMOR:FORBIDDEN');
   // Herramientas de descarga identificadas (curl, Python, etc.) reciben señuelo
@@ -1538,9 +1547,9 @@ app.get('/scripts/hosted/:slug/auth', (req, res) => {
     return res.type('text/plain').send(`!VANTARMOR:${code}`);
   };
 
-  const script = stmt.scriptBySlug.get(req.params.slug);
+  const script = stmt.scriptBySlug.get(slug);
   if (!script) {
-    const gone = db.prepare('SELECT 1 FROM deleted_scripts WHERE slug = ?').get(req.params.slug);
+    const gone = db.prepare('SELECT 1 FROM deleted_scripts WHERE slug = ?').get(slug);
     return reply(gone ? 'SCRIPT_DELETED' : 'SCRIPT_NOT_FOUND');
   }
   if (maintenanceAllOn() && !isOwnerId(script.user_id)) return reply('MAINTENANCE_ALL');
@@ -1629,6 +1638,15 @@ app.get('/scripts/hosted/:slug/auth', (req, res) => {
   ], k.discord_id, rbxid);
   if (script.secure_fetch) return res.type('text/plain').send('!VANTARMOR:TOKEN\n' + issuePayloadToken(script, req.ip, key));
   res.type('text/plain').send('!VANTARMOR:CODE\n' + servedCode(script, { ip: req.ip, key }));
+};
+// Ruta antigua (por slug): se mantiene para bootstraps que ya estuvieran en ejecución
+app.get('/scripts/hosted/:slug/auth', (req, res) => authHandler(req, res, req.params.slug));
+// Ruta nueva: el bootstrap lleva la key aleatoria por script (loader_id) en ?s=, no el slug
+app.get('/v1/a', (req, res) => {
+  if (isLoaderProbe(req)) return sendAuthDecoy(req, res);
+  const sk = String(req.query.s || '');
+  const row = /^[0-9a-f]{40}$/.test(sk) ? stmt.scriptByLoaderId.get(sk) : null;
+  return authHandler(req, res, row ? row.slug : '');
 });
 
 app.get('/auth/logout', (req, res) => {

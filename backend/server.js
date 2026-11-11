@@ -1257,7 +1257,7 @@ async function protectLoader(plain) {
 
 // Herramientas de descarga (curl, wget, scripts de Python, etc.) que piden el bootstrap a mano.
 // Los ejecutores no entran aquí: su User-Agent no coincide con estos nombres.
-const LOADER_PROBE_UA = /\b(curl|wget|python-requests|python-urllib|httpie|postman|go-http-client)\b/i;
+const LOADER_PROBE_UA = /(curl|wget|python-requests|python-urllib|httpie|postman|go-http-client)/i;
 function isLoaderProbe(req) {
   return LOADER_PROBE_UA.test(String(req.get('user-agent') || ''));
 }

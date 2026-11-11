@@ -1248,7 +1248,8 @@ if body:sub(1, #_tp) == _tp then
   body = _resp.Body
 end
 -- Entrega cifrada (v2): prefijo !VANTARMOR:ENC, luego key de 32 hex y ciphertext base64
--- Se descifra en Lua puro con XXTEA: sin librerias del executor, corre en cualquier executor
+-- Descifrado en Lua puro SIN operadores de bits (no compilan en algunos executors moviles):
+-- solo aritmetica, xor por nibbles. Corre en cualquier executor
 local _encp = "!VANTARMOR:ENC\\n"
 if body:sub(1, #_encp) == _encp then
   local _rest = body:sub(#_encp + 1)
@@ -1259,11 +1260,14 @@ if body:sub(1, #_encp) == _encp then
   _b64 = (_b64:gsub("^%s+", ""))
   _b64 = (_b64:gsub("%s+$", ""))
   if #_khex ~= 32 or #_b64 == 0 then kick("VERIFY_FAILED") end
+  local _hx = {}
+  for _i = 1, 32 do _hx[_i] = tonumber(_khex:sub(_i, _i), 16) or 0 end
   local _k = {}
   for _j = 0, 3 do
     local _w = 0
-    for _i = 1, 4 do
-      _w = _w | ((tonumber(_khex:sub(_j * 8 + _i * 2 - 1, _j * 8 + _i * 2), 16) or 0) << ((_i - 1) * 8))
+    for _i = 0, 3 do
+      local _p = _j * 4 + _i
+      _w = _w + (_hx[_p * 2 + 1] * 16 + _hx[_p * 2 + 2]) * 256 ^ _i
     end
     _k[_j + 1] = _w
   end
@@ -1276,50 +1280,81 @@ if body:sub(1, #_encp) == _encp then
   for _i = 1, #_b64 do
     local _d = _im[_b64:byte(_i)]
     if _d then
-      _acc = ((_acc << 6) | _d) & 0xFFFFFF
-      _bits += 6
+      _acc = _acc * 64 + _d
+      _bits = _bits + 6
       if _bits >= 8 then
-        _bits -= 8
-        _bn += 1
-        _bytes[_bn] = (_acc >> _bits) & 0xFF
+        _bits = _bits - 8
+        _bn = _bn + 1
+        _bytes[_bn] = math.floor(_acc / 2 ^ _bits) % 256
+        _acc = _acc % 2 ^ _bits
       end
     end
   end
   if _bn == 0 or _bn % 4 ~= 0 then kick("VERIFY_FAILED") end
-  local _M, _DL = 0xFFFFFFFF, 0x9E3779B9
-  local _m = _bn // 4
+  local _M = 4294967296
+  local _DL = 2654435769
+  local _m = _bn / 4
   if _m < 2 then kick("VERIFY_FAILED") end
-  local function _rd(i0)
-    return _bytes[i0] | (_bytes[i0 + 1] << 8) | (_bytes[i0 + 2] << 16) | (_bytes[i0 + 3] << 24)
+  local _v = {}
+  for _i = 1, _m do
+    local _o = (_i - 1) * 4
+    _v[_i] = _bytes[_o + 1] + _bytes[_o + 2] * 256 + _bytes[_o + 3] * 65536 + _bytes[_o + 4] * 16777216
+  end
+  local _XN = {}
+  for _a = 0, 15 do
+    for _b = 0, 15 do
+      local _x, _p, _aa, _bb = 0, 1, _a, _b
+      for _ = 1, 4 do
+        if _aa % 2 ~= _bb % 2 then _x = _x + _p end
+        _p = _p * 2
+        _aa = math.floor(_aa / 2)
+        _bb = math.floor(_bb / 2)
+      end
+      _XN[_a * 16 + _b] = _x
+    end
+  end
+  local function _xor(a, b)
+    local _r, _p = 0, 1
+    for _ = 1, 8 do
+      _r = _r + _XN[(a % 16) * 16 + (b % 16)] * _p
+      a = math.floor(a / 16)
+      b = math.floor(b / 16)
+      _p = _p * 16
+    end
+    return _r
   end
   local function _mx(sum, y, z, p0, e, k)
-    return (((z >> 5) ~ (y << 2)) + ((y >> 3) ~ (z << 4))) ~ ((sum ~ y) + (k[(p0 & 3) ~ e] ~ z))
+    local _t1 = _xor(math.floor(z / 32), (y * 4) % _M)
+    local _t2 = _xor(math.floor(y / 8), (z * 16) % _M)
+    local _s1 = (_t1 + _t2) % _M
+    local _t3 = _xor(sum, y)
+    local _t4 = _xor(k[_xor(p0 % 4, e) + 1], z)
+    local _s2 = (_t3 + _t4) % _M
+    return _xor(_s1, _s2)
   end
-  local _v = {}
-  for _i = 1, _m do _v[_i] = _rd((_i - 1) * 4 + 1) end
-  local _rounds = 6 + 52 // _m
-  local _sum = (_DL * _rounds) & _M
+  local _rounds = 6 + math.floor(52 / _m)
+  local _sum = (_DL * _rounds) % _M
   local _y = _v[1]
   repeat
-    local _e = (_sum >> 2) & 3
+    local _e = math.floor(_sum / 4) % 4
     for _p = _m, 2, -1 do
       local _z = _v[_p - 1]
-      _y = (_v[_p] - _mx(_sum, _y, _z, _p - 1, _e, _k)) & _M
+      _y = (_v[_p] - _mx(_sum, _y, _z, _p - 1, _e, _k)) % _M
       _v[_p] = _y
     end
     local _z2 = _v[_m]
-    _y = (_v[1] - _mx(_sum, _y, _z2, 0, _e, _k)) & _M
+    _y = (_v[1] - _mx(_sum, _y, _z2, 0, _e, _k)) % _M
     _v[1] = _y
-    _sum = (_sum - _DL) & _M
+    _sum = (_sum - _DL) % _M
   until _sum == 0
   local _parts = {}
   for _i = 1, _m do
     local _w = _v[_i]
-    _parts[_i] = string.char(_w & 0xFF, (_w >> 8) & 0xFF, (_w >> 16) & 0xFF, (_w >> 24) & 0xFF)
+    _parts[_i] = string.char(_w % 256, math.floor(_w / 256) % 256, math.floor(_w / 65536) % 256, math.floor(_w / 16777216) % 256)
   end
   local _pt = table.concat(_parts)
   local _len = #_pt
-  while _len > 0 and _pt:byte(_len) == 0 do _len -= 1 end
+  while _len > 0 and _pt:byte(_len) == 0 do _len = _len - 1 end
   body = "!VANTARMOR:CODE\\n" .. _pt:sub(1, _len)
 end
 -- El servidor responde "!VANTARMOR:CODIGO" (error) o "!VANTARMOR:CODE" seguido del script (éxito).

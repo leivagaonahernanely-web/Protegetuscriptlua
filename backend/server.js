@@ -1257,13 +1257,35 @@ async function protectLoader(plain) {
 
 // Herramientas de descarga (curl, wget, scripts de Python, etc.) que piden el bootstrap a mano.
 // Los ejecutores no entran aquí: su User-Agent no coincide con estos nombres.
-const LOADER_PROBE_UA = /(curl|wget|python-requests|python-urllib|httpie|postman|go-http-client)/i;
+const LOADER_PROBE_UA = /(curl|wget|python-requests|python-urllib|httpie|postman|go-http-client|okhttp|java\/|libwww|scrapy|aiohttp|fetch\/|undici|node-fetch|axios)/i;
 function isLoaderProbe(req) {
   return LOADER_PROBE_UA.test(String(req.get('user-agent') || ''));
 }
 function sendLoaderDecoy(req, res) {
   console.warn('[Señuelo loader] ip=%s ua=%s', req.ip, String(req.get('user-agent') || '').slice(0, 80));
   return res.type('text/plain').send(makeDecoyTrace());
+}
+
+// Ejecutores y clientes conocidos de Roblox que llaman a /auth.
+// Roblox usa "Roblox/WinInet"; los ejecutores populares usan su propio nombre.
+// Si el UA es vacío o no coincide con ninguno → señuelo.
+// Lista permisiva: preferimos no bloquear ejecutores legítimos desconocidos en lugar de
+// bloquear usuarios reales, así que solo bloqueamos lo que sí identificamos como herramienta.
+const ROBLOX_EXECUTOR_UA = /(roblox|WinInet|synapse|wave|krnl|hydrogen|script-ware|fluxus|electron|solara|delta|celery|xeno|trigon|crypt|arceus|evon|vega|codex|bloxstrap)/i;
+function isRobloxAuthRequest(req) {
+  const ua = String(req.get('user-agent') || '');
+  // Si es herramienta de descarga conocida → NO es ejecutor
+  if (isLoaderProbe(req)) return false;
+  // Si coincide con ejecutor o cliente Roblox conocido → SÍ
+  if (ROBLOX_EXECUTOR_UA.test(ua)) return true;
+  // UA vacío: en Railway llega así desde algunos ejecutores → permitir
+  if (ua.trim() === '') return true;
+  // UA desconocido pero no bloqueado → permitir para no romper ejecutores nuevos
+  return true;
+}
+function sendAuthDecoy(req, res) {
+  console.warn('[Señuelo /auth] ip=%s ua=%s', req.ip, String(req.get('user-agent') || '').slice(0, 80));
+  return res.type('text/plain').send('!VANTARMOR:FORBIDDEN');
 }
 
 // Página pública: el navegador ve solo el snippet (solo lectura); el ejecutor recibe el bootstrap.
@@ -1452,6 +1474,7 @@ function servedCode(script, { ip, key } = {}) {
 // Solo POST con el token en el cuerpo: un GET (navegador, curl) ya no devuelve código
 app.post('/scripts/hosted/:slug/payload', express.text({ type: () => true, limit: '1kb' }), (req, res) => {
   if (/text\/html/.test(req.get('accept') || '')) return res.status(403).type('text/plain').send('!VANTARMOR:FORBIDDEN');
+  if (isLoaderProbe(req)) return sendAuthDecoy(req, res);
   const token = String(req.body || '').trim();
   const entry = payloadTokens.get(token);
   payloadTokens.delete(token);
@@ -1503,6 +1526,8 @@ const tamperSeen = new Map(); // antispam de avisos de volcado
 app.get('/scripts/hosted/:slug/auth', (req, res) => {
   // Los navegadores no reciben nunca el código
   if (/text\/html/.test(req.get('accept') || '')) return res.status(403).type('text/plain').send('!VANTARMOR:FORBIDDEN');
+  // Herramientas de descarga identificadas (curl, Python, etc.) reciben señuelo
+  if (isLoaderProbe(req)) return sendAuthDecoy(req, res);
   const FAIL_CODES = new Set(['KEY_INVALID', 'KEY_REQUIRED', 'SCRIPT_NOT_FOUND']);
   const reply = code => {
     // Solo los fallos pasan por el contador: una key válida nunca se bloquea aunque su IP tenga fallos previos

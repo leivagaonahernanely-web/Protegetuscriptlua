@@ -3,6 +3,7 @@ import cookieParser from 'cookie-parser';
 import cors from 'cors';
 import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
+import { makeDecoyTrace } from './lib/decoy-trace.js';
 import net from 'net';
 import dns from 'dns';
 import path from 'path';
@@ -1445,6 +1446,13 @@ app.post('/scripts/hosted/:slug/payload', express.text({ type: () => true, limit
   // El token vale para este script, una vez y 30 s
   // No se compara la IP: en móviles el GET y el POST pueden salir por IPs distintas (cambio de Wi-Fi a datos)
   if (!entry || entry.expires < Date.now() || !script || script.id !== entry.scriptId) {
+    // Señuelo: a la IP que insiste con tokens inválidos se le entrega una traza falsa (sin código real).
+    // El primer intento fallido sigue recibiendo TOKEN_INVALID, así un cliente legítimo con token vencido lo ve claro.
+    noteAuthFail(req.ip);
+    if ((authFails.get(req.ip)?.count || 0) >= 3) {
+      console.warn('[Señuelo] slug=%s ip=%s ua=%s', req.params.slug, req.ip, String(req.get('user-agent') || '').slice(0, 80));
+      return res.type('text/plain').send('!VANTARMOR:CODE\n' + makeDecoyTrace());
+    }
     return res.status(403).type('text/plain').send('!VANTARMOR:TOKEN_INVALID');
   }
   // El loader espera el mismo prefijo que en la entrega de un paso

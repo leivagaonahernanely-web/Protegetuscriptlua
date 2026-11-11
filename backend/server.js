@@ -1255,6 +1255,17 @@ async function protectLoader(plain) {
   }
 }
 
+// Herramientas de descarga (curl, wget, scripts de Python, etc.) que piden el bootstrap a mano.
+// Los ejecutores no entran aquí: su User-Agent no coincide con estos nombres.
+const LOADER_PROBE_UA = /\b(curl|wget|python-requests|python-urllib|httpie|postman|go-http-client)\b/i;
+function isLoaderProbe(req) {
+  return LOADER_PROBE_UA.test(String(req.get('user-agent') || ''));
+}
+function sendLoaderDecoy(req, res) {
+  console.warn('[Señuelo loader] ip=%s ua=%s', req.ip, String(req.get('user-agent') || '').slice(0, 80));
+  return res.type('text/plain').send(makeDecoyTrace());
+}
+
 // Página pública: el navegador ve solo el snippet (solo lectura); el ejecutor recibe el bootstrap.
 app.get('/scripts/hosted/:slug', async (req, res) => {
   if (/text\/html/.test(req.get('accept') || '')) {
@@ -1262,6 +1273,7 @@ app.get('/scripts/hosted/:slug', async (req, res) => {
     if (!script) return res.status(404).type('text/plain').send('-- script no encontrado');
     return res.set({ ...PAGE_HEADERS, 'Content-Security-Policy': LOADER_CSP }).type('html').send(loaderPage(script));
   }
+  if (isLoaderProbe(req)) return sendLoaderDecoy(req, res);
   const script = stmt.scriptBySlug.get(req.params.slug);
   if (script) logLoaderDownload(script, req.ip);
   const boot = await protectLoader(loaderBootstrap(req.params.slug, !!(script && script.ffa), !!(script && script.secure_fetch)));
@@ -1277,6 +1289,7 @@ app.get('/files/v1/loaders/:file', async (req, res) => {
   if (/text\/html/.test(req.get('accept') || '')) {
     return res.set({ ...PAGE_HEADERS, 'Content-Security-Policy': LOADER_CSP }).type('html').send(loaderPage(script));
   }
+  if (isLoaderProbe(req)) return sendLoaderDecoy(req, res);
   logLoaderDownload(script, req.ip);
   const boot = await protectLoader(loaderBootstrap(script.slug, !!script.ffa, !!script.secure_fetch));
   if (boot === null) return res.status(503).type('text/plain').send('-- loader no disponible temporalmente, intenta de nuevo');

@@ -727,6 +727,36 @@ function checkLuauSyntax(code) {
 // hacía crecer el volumen (hasta 90 días de versiones completas). Al arrancar se vacía; SQLite reutiliza ese espacio.
 try { db.exec('DELETE FROM obf_cache'); } catch (err) { console.warn('[obf_cache] No se pudo vaciar:', err.message); }
 
+// Retención: el detalle de ejecuciones (script_logs) se poda a 7 dias, en el arranque y cada 6 h.
+// El DELETE reutiliza paginas internas (el archivo deja de crecer); el VACUUM solo corre si hay
+// espacio libre de sobra en el volumen, igual que el endpoint manual de compactar.
+const SCRIPT_LOG_DAYS = 7;
+function pruneScriptLogs() {
+  try {
+    const cutoff = Math.floor(Date.now() / 1000) - SCRIPT_LOG_DAYS * 86400;
+    const info = db.prepare('DELETE FROM script_logs WHERE created_at < ?').run(cutoff);
+    if (info.changes > 0) console.log('[Limpieza] script_logs: %d entradas de mas de %d dias eliminadas', info.changes, SCRIPT_LOG_DAYS);
+  } catch (err) { console.warn('[Limpieza] script_logs:', err.message); }
+}
+function compactDbIfRoom(reason) {
+  if (process.env.DB_ENGINE === 'postgres') return;
+  try {
+    const before = fs.statSync(DATABASE_PATH).size;
+    const fsInfo = fs.statfsSync(path.dirname(DATABASE_PATH));
+    const free = fsInfo.bavail * fsInfo.bsize;
+    if (free < before * 1.1) {
+      console.log('[Limpieza] VACUUM omitido (%s): libre %.1f MB, base %.1f MB', reason, free / 1048576, before / 1048576);
+      return;
+    }
+    db.exec('VACUUM');
+    const after = fs.statSync(DATABASE_PATH).size;
+    console.log('[Limpieza] VACUUM ok (%s): %.1f MB -> %.1f MB', reason, before / 1048576, after / 1048576);
+  } catch (err) { console.warn('[Limpieza] VACUUM:', err.message); }
+}
+pruneScriptLogs();
+compactDbIfRoom('arranque');
+setInterval(() => { pruneScriptLogs(); compactDbIfRoom('programado'); }, 6 * 3600_000).unref();
+
 async function obfuscate(source, obfuscator, opts = {}) {
   source = normalizeLuaSource(source); // BOM y línea #! fuera antes de ofuscar
   return obfuscateUncached(source, obfuscator, opts);
@@ -1322,8 +1352,11 @@ task.spawn(fn)
 // eso queda el stub de respaldo (bytes desplazados + escapes \ddd, ilegible a simple vista,
 // decodificado con Lua puro) y LOADER_OBF=off como salida rápida. La seguridad fuerte sigue en el
 // servidor (validación de key/HWID), no en ocultar el loader.
-const LOADER_OBF = String(process.env.LOADER_OBF || '').trim().toLowerCase();
-const LOADER_OBF_CHAIN = LOADER_OBF === 'off' ? [] : ['clyde', 'next'];
+// La cadena de ofuscadores va APAGADA por defecto: su salida hace que el executor llame a nil
+// en móvil ("attempt to call a nil value"). La entrega por defecto es el stub codificado, que
+// corre en cualquier executor. Para activarla: LOADER_OBF=on
+const LOADER_OBF = String(process.env.LOADER_OBF || 'off').trim().toLowerCase();
+const LOADER_OBF_CHAIN = (LOADER_OBF === 'off' || LOADER_OBF === '') ? [] : ['clyde', 'next'];
 const loaderObfCache = new Map();
 function loaderEncodedBlob(plain) {
   const bytes = Buffer.from(String(plain), 'utf8');

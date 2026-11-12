@@ -2238,7 +2238,7 @@ function logWithRoblox(scriptId, lines, userId, rbxid) {
 }
 
 const payloadTokens = new Map(); // token -> { scriptId, expires }
-const PAYLOAD_TTL_MS = 120_000; // 2 min: en móviles la descarga y descifrado de un payload grande tarda más de 30 s y el token vencía antes de usarse
+const PAYLOAD_TTL_MS = 30_000;
 setInterval(() => {
   const now = Date.now();
   for (const [t, v] of payloadTokens) if (v.expires < now) payloadTokens.delete(t);

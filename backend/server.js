@@ -2055,6 +2055,72 @@ function issueRemoteToken(script, ip, key) {
 }
 
 // Código que se entrega al ejecutor. Los bloques --@remote nunca van en el código: se piden aparte.
+// ---- Webhooks protegidos (estilo Luarmor V4) + variables de entorno ----
+// El dueño marca en el source una línea `--@webhook:nombre https://...`. El servidor guarda la URL
+// y la quita del código entregado; el script llama VANT_SEND_WEBHOOK("nombre", payload) y el
+// servidor (no el cliente) lleva la URL, limita 30/min por IP, y sustituye %VARIABLES% que el
+// cliente no puede falsear. Máximo 6 por script, payloads hasta 7000 caracteres, 3 embeds.
+db.exec('CREATE TABLE IF NOT EXISTS script_webhooks (script_id INTEGER, name TEXT, url TEXT, PRIMARY KEY (script_id, name))');
+const webhookStmt = {
+  byScript: db.prepare('SELECT name, url FROM script_webhooks WHERE script_id = ? ORDER BY rowid'),
+  clear: db.prepare('DELETE FROM script_webhooks WHERE script_id = ?'),
+  save: db.prepare('INSERT INTO script_webhooks (script_id, name, url) VALUES (?, ?, ?)'),
+};
+const WEBHOOK_LINE = /^--@webhook:([A-Za-z0-9_]{1,40})[ \t]+(\S+)[ \t]*$/gm;
+function parseWebhookMarkers(source) {
+  const text = String(source ?? '');
+  const list = [];
+  const names = new Set();
+  for (const m of text.matchAll(WEBHOOK_LINE)) {
+    const name = m[1];
+    const url = m[2];
+    if (names.has(name)) return { error: `El webhook --@webhook:${name} está repetido.` };
+    if (!/^https:\/\//.test(url)) return { error: `La URL del webhook --@webhook:${name} debe empezar por https://` };
+    names.add(name);
+    list.push({ name, url });
+  }
+  if (list.length > 6) return { error: 'Máximo 6 webhooks protegidos por script.' };
+  if ((text.match(/--@webhook:/g) || []).length !== list.length) return { error: 'Revisa la sintaxis de --@webhook:nombre URL (una por línea, URL https).' };
+  return { list };
+}
+const stripWebhookMarkers = source => String(source ?? '').replace(/^--@webhook:[^\n]*\r?\n?/gm, '');
+const saveScriptWebhooks = (scriptId, list) => {
+  webhookStmt.clear.run(scriptId);
+  for (const h of list) webhookStmt.save.run(scriptId, h.name, h.url);
+};
+
+// Sesión de webhook: token por entrega, vive 6 h. El servidor re-chequea la key en cada envío.
+const webhookSessions = new Map(); // token -> { scriptId, key, ip, expires }
+const WEBHOOK_SESSION_TTL = 6 * 3600_000;
+setInterval(() => { const t = Date.now(); for (const [k, v] of webhookSessions) if (v.expires < t) webhookSessions.delete(k); }, 300_000).unref();
+const webhookRate = new Map(); // ip -> marcas de tiempo de la última ventana
+setInterval(() => { const cut = Date.now() - 60_000; for (const [k, arr] of webhookRate) { const keep = arr.filter(x => x > cut); if (keep.length) webhookRate.set(k, keep); else webhookRate.delete(k); } }, 60_000).unref();
+const keyInfoStmt = db.prepare('SELECT discord_id, exec_count, expires_at FROM keys WHERE key = ? AND script_id = ?');
+
+function runtimeHeader(script, ip, key) {
+  const info = key ? keyInfoStmt.get(key, script.id) : null;
+  const esc = s => String(s).replace(/[\\"]/g, '\\$&');
+  const secondsLeft = info && info.expires_at ? Math.max(0, Math.floor(info.expires_at - Date.now() / 1000)) : 'math.huge';
+  let head = `-- [VantArmor] Variables de entorno fijadas por el servidor\n`
+    + `VANT_IsUserPremium = ${info ? 'true' : 'false'}\n`
+    + `VANT_LinkedDiscordID = "${esc(info && info.discord_id ? info.discord_id : '')}"\n`
+    + `VANT_TotalExecutions = ${info && info.exec_count ? info.exec_count : 0}\n`
+    + `VANT_SecondsLeft = ${secondsLeft}\n`
+    + `VANT_ScriptName = "${esc(script.name)}"\n`;
+  const hooks = webhookStmt.byScript.all(script.id);
+  if (hooks.length && key) {
+    const sTok = crypto.randomBytes(24).toString('hex');
+    webhookSessions.set(sTok, { scriptId: script.id, key, ip: ip || null, expires: Date.now() + WEBHOOK_SESSION_TTL });
+    head += `local __vm_ws = "${sTok}"\n`
+      + `local function VANT_SEND_WEBHOOK(name, payload)\n`
+      + `  pcall(function()\n`
+      + `    local _r = request or http_request or (syn and syn.request)\n`
+      + `    if _r then _r({ Url = ${JSON.stringify(APP_URL + '/v1/w')}, Method = "POST", Headers = { ["Content-Type"] = "application/json" }, Body = game:GetService("HttpService"):JSONEncode({ t = __vm_ws, n = tostring(name), p = payload }) }) end\n`
+      + `  end)\nend\n`;
+  }
+  return head;
+}
+
 function servedCode(script, { ip, key } = {}) {
   // La ruta del loader SIEMPRE sirve la copia protegida (ofuscada): el toggle
   // serve_protected solo controla la vista previa del panel, nunca lo que
@@ -2062,9 +2128,10 @@ function servedCode(script, { ip, key } = {}) {
   const base = script.content
     ? script.content
     : (script.source ? stripRemoteBlocks(script.source) : script.content);
-  if (!hasRemoteBlocks(script.source || '')) return base;
+  const head = runtimeHeader(script, ip, key);
+  if (!hasRemoteBlocks(script.source || '')) return head + base;
   const token = issueRemoteToken(script, ip, key);
-  return remoteHeader({ url: `${APP_URL}/scripts/hosted/${script.slug}/remote`, token }) + base;
+  return head + remoteHeader({ url: `${APP_URL}/scripts/hosted/${script.slug}/remote`, token }) + base;
 }
 
 // Entrega cifrada (v2, estilo Luarmor): el código sale cifrado con XXTEA y una key de sesión
@@ -3138,6 +3205,47 @@ app.get('/api/owner/backup', requireOwnerApi, async (req, res) => {
   }
 });
 
+// Webhook protegido: el ejecutor manda { t, n, p }. La URL nunca viaja al cliente.
+app.post('/v1/w', express.json({ type: () => true, limit: '12kb' }), async (req, res) => {
+  const deny = () => res.status(403).json({ ok: false });
+  const body = req.body || {};
+  const entry = webhookSessions.get(String(body.t || ''));
+  if (!entry || entry.expires < Date.now()) return deny();
+  const script = db.prepare('SELECT id FROM scripts WHERE id = ?').get(entry.scriptId);
+  if (!script) return deny();
+  if (entry.key) {
+    const k = db.prepare('SELECT banned, expires_at FROM keys WHERE key = ? AND script_id = ?').get(entry.key, script.id);
+    if (!k || k.banned || (k.expires_at && k.expires_at * 1000 < Date.now())) return deny();
+  }
+  // 30 envíos por minuto por IP (igual que la referencia)
+  const now = Date.now();
+  const arr = (webhookRate.get(String(req.ip || '')) || []).filter(x => x > now - 60_000);
+  if (arr.length >= 30) return res.status(429).json({ ok: false });
+  arr.push(now);
+  webhookRate.set(String(req.ip || ''), arr);
+  const hook = webhookStmt.byScript.all(script.id).find(h => h.name === String(body.n || ''));
+  if (!hook) return res.status(404).json({ ok: false });
+  const payload = body.p;
+  if (typeof payload !== 'object' || payload === null || Array.isArray(payload)) return res.status(400).json({ ok: false });
+  if (payload.embeds && (!Array.isArray(payload.embeds) || payload.embeds.length > 3)) return res.status(400).json({ ok: false });
+  let json;
+  try { json = JSON.stringify(payload); } catch { return res.status(400).json({ ok: false }); }
+  if (json.length > 7000) return res.status(413).json({ ok: false });
+  // Variables del servidor: el cliente no puede falsearlas
+  const info = entry.key ? keyInfoStmt.get(entry.key, script.id) : null;
+  let country = '';
+  try { country = countryOf(req.ip) || ''; } catch { /* país desconocido no rompe el envío */ }
+  json = json
+    .replaceAll('%DISCORD_ID%', info && info.discord_id ? String(info.discord_id) : '')
+    .replaceAll('%CLIENT_IP%', String(req.ip || ''))
+    .replaceAll('%COUNTRY_CODE%', country)
+    .replaceAll('%USER_KEY%', entry.key || '');
+  try {
+    await fetch(hook.url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: json, signal: AbortSignal.timeout(5000) });
+  } catch { /* el webhook nunca rompe el loader */ }
+  res.status(204).end();
+});
+
 // Bloque remoto (Fase 1): el ejecutor pide la expresión de un --@remote:nombre con el token de /auth
 app.get('/scripts/hosted/:slug/remote', (req, res) => {
   const deny = () => res.status(403).type('text/plain').send('!VANTARMOR:REMOTE_DENIED');
@@ -3493,7 +3601,9 @@ app.post('/api/scripts', requireAuth, async (req, res) => {
   try {
     const remoteErr = validateRemoteBlocks(input.source).error || (hasStrayMarkers(input.source) ? 'Hay marcadores --@remote sueltos fuera de un bloque.' : null);
     if (remoteErr) return res.status(422).json({ error: remoteErr });
-    const code = stripRemoteBlocks(input.source); // lo que se compila y ofusca: sin los bloques secretos
+    const _wh = parseWebhookMarkers(input.source);
+    if (_wh.error) return res.status(422).json({ error: _wh.error });
+    const code = stripWebhookMarkers(stripRemoteBlocks(input.source)); // lo que se compila y ofusca: sin los bloques secretos ni las URLs
     const srcErr = await checkLuauSyntax(code);
     if (srcErr) return res.status(422).json({ error: `Tu código no compila: ${srcErr}` });
     const content = input.obfuscator === 'none' ? code : await obfuscate(code, input.obfuscator, { vm: input.clydeVm === 1 });
@@ -3507,6 +3617,7 @@ app.post('/api/scripts', requireAuth, async (req, res) => {
     db.prepare('UPDATE scripts SET perf_level = ? WHERE id = ?').run(analyzePerf(input.source, { obfuscator: input.obfuscator, vm: input.clydeVm === 1 }).level, info.lastInsertRowid);
     // Solo los scripts nuevos usan la entrega en dos pasos; los existentes quedan como estaban (secure_fetch = 0)
     db.prepare('UPDATE scripts SET secure_fetch = 1 WHERE id = ?').run(info.lastInsertRowid);
+    saveScriptWebhooks(Number(info.lastInsertRowid), _wh.list);
     if (!input.isFfa) stmt.obfIncrement.run(req.userId);
     if (input.obfuscator === 'luau') luauBumpStmt.run(req.userId, luauDay());
     db.prepare('UPDATE users SET scripts_period = COALESCE(scripts_period, 0) + 1 WHERE id = ?').run(req.userId);
@@ -3522,7 +3633,7 @@ app.delete('/api/scripts/:id', requireAuth, (req, res) => {
   if (!script) return res.status(404).json({ error: 'Script no encontrado' });
   db.transaction(() => {
     db.prepare('DELETE FROM keys WHERE script_id = ?').run(script.id);
-    for (const table of ['bot_panels', 'bot_access_rules', 'bot_blacklist']) {
+    for (const table of ['bot_panels', 'bot_access_rules', 'bot_blacklist', 'script_webhooks']) {
       db.prepare(`DELETE FROM ${table} WHERE script_id = ?`).run(script.id);
     }
     db.prepare('DELETE FROM scripts WHERE id = ? AND user_id = ?').run(script.id, req.userId);
@@ -3548,7 +3659,9 @@ app.put('/api/scripts/:id', requireAuth, async (req, res) => {
   try {
     const remoteErr = validateRemoteBlocks(input.source).error || (hasStrayMarkers(input.source) ? 'Hay marcadores --@remote sueltos fuera de un bloque.' : null);
     if (remoteErr) return res.status(422).json({ error: remoteErr });
-    const code = stripRemoteBlocks(input.source); // lo que se compila y ofusca: sin los bloques secretos
+    const _wh = parseWebhookMarkers(input.source);
+    if (_wh.error) return res.status(422).json({ error: _wh.error });
+    const code = stripWebhookMarkers(stripRemoteBlocks(input.source)); // lo que se compila y ofusca: sin los bloques secretos ni las URLs
     const srcErr = await checkLuauSyntax(code);
     if (srcErr) return res.status(422).json({ error: `Tu código no compila: ${srcErr}` });
     const content = input.obfuscator === 'none' ? code : await obfuscate(code, input.obfuscator, { vm: input.clydeVm === 1 });
@@ -3561,6 +3674,7 @@ app.put('/api/scripts/:id', requireAuth, async (req, res) => {
     db.prepare('UPDATE scripts SET perf_level = ? WHERE id = ?').run(analyzePerf(input.source, { obfuscator: input.obfuscator, vm: input.clydeVm === 1 }).level, script.id);
     if (!input.isFfa) stmt.obfIncrement.run(req.userId);
     if (input.obfuscator === 'luau' && !input.isFfa) luauBumpStmt.run(req.userId, luauDay());
+    saveScriptWebhooks(script.id, _wh.list);
     res.json({ ok: true });
   } catch (err) {
     saveErrorResponse(res, err, 'Editar script');

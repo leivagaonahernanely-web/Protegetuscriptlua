@@ -574,7 +574,7 @@ const MAINTENANCE_HTML = `<!doctype html>
   <h1>Estamos en mantenimiento</h1>
   <p>VantArmor vuelve en un rato. Si necesitas algo mientras tanto, entra al servidor de Discord para las novedades.</p>
   <a href="https://discord.gg/aKQNc6pC">Ir al Discord</a>
-  <a href="/admin" style="margin-left:12px;opacity:.7">Admins only</a>
+  <a href="/" style="margin-left:12px;opacity:.7">Admins only</a>
 </div></body></html>`;
 
 // Rutas de loader: la respuesta depende del interruptor de loaders (print de Lua)

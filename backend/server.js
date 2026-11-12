@@ -613,7 +613,7 @@ const MAINTENANCE_HTML = `<!doctype html>
   <p>VantArmor vuelve en un rato. Si necesitas algo mientras tanto, entra al servidor de Discord para las novedades.</p>
   <a href="https://discord.gg/aKQNc6pC">Ir al Discord</a>
   <a href="/" style="margin-left:12px;opacity:.7">Admins only</a>
-</div><div id="langSlot" style="position:fixed;top:14px;right:14px;z-index:50"></div><script src="/i18n.js"></script></body></html>`;
+</div><script src="/i18n.js"></script></body></html>`;
 
 // Rutas de loader: la respuesta depende del interruptor de loaders (print de Lua)
 const LOADER_PATH_RE = /^\/(v1\/l|v1\/a|scripts\/hosted\/[^/]+(\/auth|\/remote)?|files\/v1\/loaders\/[^/]+)\/?$/;

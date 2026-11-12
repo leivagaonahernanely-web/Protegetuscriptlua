@@ -48,12 +48,34 @@ export function tokenize(src) {
     }
     // shebang / luau type annotations basicas: <, :: se tratan como punct
     if (c >= '0' && c <= '9' || (c === '.' && src[i+1] >= '0' && src[i+1] <= '9')) {
-      const m = src.slice(i).match(/^0[xX][0-9a-fA-F_]+|^\d[\d_]*(\.\d[\d_]*)?([eE][+-]?\d+)?/);
-      if (!m) throw new LexError('numero mal formado', line);
+      const s = src.slice(i);
+      let m = null;
+      let isHex = /^0[xX]/.test(s);
+      if (isHex) {
+        m = s.match(/^0[xX][0-9a-fA-F_]*\.?[0-9a-fA-F_]*(?:[pP][+-]?\d+)?/);
+        if (m && !/[0-9a-fA-F]/.test(m[0].slice(2).replace(/\./g, ''))) m = null;
+      } else {
+        m = s.match(/^(?:\d[\d_]*(?:\.\d[\d_]*)?|\.\d[\d_]*)(?:[eE][+-]?\d+)?/);
+      }
+      if (!m || !m[0]) throw new LexError('numero mal formado', line);
       const txt = m[0].replace(/_/g, '');
       let val;
-      if (/^0[xX]/.test(txt)) val = parseInt(txt, 16);
-      else val = parseFloat(txt);
+      if (isHex) {
+        const pm = txt.match(/[pP]([+-]?\d+)$/);
+        const exp = pm ? parseInt(pm[1], 10) : 0;
+        const mant = txt.replace(/[pP][+-]?\d+$/, '');
+        const body = mant.slice(2);
+        if (body.indexOf('.') === -1) {
+          val = parseInt(body, 16) * Math.pow(2, exp);
+        } else {
+          const dot = body.indexOf('.');
+          const ip = body.slice(0, dot) || '0';
+          const fp = body.slice(dot + 1);
+          val = (parseInt(ip, 16) + parseInt(fp || '0', 16) * Math.pow(2, -4 * fp.length)) * Math.pow(2, exp);
+        }
+      } else {
+        val = parseFloat(txt);
+      }
       push('num', val); i += m[0].length; continue;
     }
     if (c === '"' || c === "'") {

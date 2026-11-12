@@ -156,7 +156,7 @@
     document.querySelectorAll('.view').forEach(v => v.classList.toggle('active', v.dataset.view === name));
     if (name === 'soporte') loadSupport();
     if (name === 'stats') { loadExecStats(); }
-    if (name === 'profile' && hasPerkPlan()) { loadWebhooks(); loadActivity(); }
+    if (name === 'profile' && hasPerkPlan()) { loadWebhooks(); }
     $('pageTitle').firstChild.textContent = NAV[name].title;
     $('pageSub').textContent = NAV[name].sub;
     if (name === 'profile') renderProfile();
@@ -2511,26 +2511,6 @@
 
   // ---------- WEBHOOKS (perfil) ----------
   const WH_EVENT_LABEL = { 'key.created': 'Key creada', 'key.banned': 'Key baneada', 'key.shared': 'Key compartida', 'script.tamper': 'Intento de dump', 'webhook.test': 'Prueba' };
-  async function loadActivity() {
-    const box = $('pfActivity');
-    if (!box) return;
-    box.innerHTML = '<p class="hint">Cargando actividad…</p>';
-    try {
-      const { redemptions, logs, deleted = [], obfTotal = 0 } = await api('/api/me/activity');
-      const rows = [
-        ...redemptions.map(r => ({ at: r.used_at, text: `Canjeaste una key de ${PLAN_LABELS[planKey(r.plan)] || r.plan}` })),
-        ...logs.map(l => ({ at: l.created_at, text: `${l.script_name || 'Script'}: ${l.text}` })),
-        ...deleted.map(d => ({ at: d.deleted_at, text: `🗑️ Script eliminado: ${d.name || 'sin nombre'}` })),
-      ].sort((a, b) => b.at - a.at).slice(0, 30);
-      const summary = `<p class="hint"><strong>Ofuscaciones totales: ${esc(String(obfTotal))}</strong></p>`;
-      box.innerHTML = summary + (rows.length
-        ? rows.map(r => `<div class="activity-row"><span class="hint">${fmtDate(r.at)}</span><span>${esc(r.text)}</span></div>`).join('')
-        : '<p class="hint">Aún no hay actividad.</p>');
-    } catch (err) {
-      box.innerHTML = `<p class="hint">No pude cargar la actividad: ${esc(err.message)}</p>`;
-    }
-  }
-
   async function loadWebhooks() {
     const box = $('whList');
     if (!box) return;

@@ -1642,10 +1642,41 @@ function discordJoinDone(userId) {
 db.exec(`CREATE TABLE IF NOT EXISTS execution_daily (script_id INTEGER NOT NULL, day TEXT NOT NULL, n INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (script_id, day))`);
 // IP de cada descarga del loader (/files/v1/loaders). Solo lo ve el dueño, en su panel privado.
 db.exec(`CREATE TABLE IF NOT EXISTS user_images (user_id TEXT NOT NULL, kind TEXT NOT NULL, mime TEXT NOT NULL, data TEXT NOT NULL, updated_at INTEGER, PRIMARY KEY (user_id, kind))`);
-function saveUserImage(userId, kind, mime, b64) {
+// Las imágenes van a archivos en IMAGES_DIR, no a la base (así la base no crece con fotos).
+// Por defecto están junto a la base, en el mismo volumen: para que no ocupen el volumen de la base,
+// apunta IMAGES_DIR a otro disco o servicio. La fila de user_images guarda "file:<nombre>".
+const IMAGES_DIR = process.env.IMAGES_DIR || path.join(path.dirname(DATABASE_PATH), 'images');
+const IMAGE_EXT = { png: 'png', jpeg: 'jpg', webp: 'webp', gif: 'gif' };
+function writeImageFile(userId, kind, mime, buf) {
+  const ext = IMAGE_EXT[String(mime).split('/')[1]];
+  if (!ext) throw new Error('tipo de imagen no permitido');
+  fs.mkdirSync(IMAGES_DIR, { recursive: true });
+  const name = `${userId}-${kind}.${ext}`;
+  const tmp = path.join(IMAGES_DIR, `.${name}.tmp`);
+  fs.writeFileSync(tmp, buf);
+  fs.renameSync(tmp, path.join(IMAGES_DIR, name));
+  return name;
+}
+function removeUserImage(userId, kind) {
+  const row = db.prepare('SELECT data FROM user_images WHERE user_id = ? AND kind = ?').get(userId, kind);
+  if (row?.data?.startsWith('file:')) {
+    try { fs.rmSync(path.join(IMAGES_DIR, path.basename(row.data.slice(5))), { force: true }); } catch { /* el archivo ya no está */ }
+  }
   db.prepare('DELETE FROM user_images WHERE user_id = ? AND kind = ?').run(userId, kind);
+}
+function saveUserImage(userId, kind, mime, b64) {
+  const buf = Buffer.from(b64, 'base64');
+  removeUserImage(userId, kind);
+  const name = writeImageFile(userId, kind, mime, buf);
   db.prepare('INSERT INTO user_images (user_id, kind, mime, data, updated_at) VALUES (?, ?, ?, ?, ?)')
-    .run(userId, kind, mime, b64, Math.floor(Date.now() / 1000));
+    .run(userId, kind, mime, `file:${name}`, Math.floor(Date.now() / 1000));
+}
+// Migración: las imágenes que ya estaban en la base pasan a archivos (la base libera ese espacio al compactar)
+for (const row of db.prepare("SELECT user_id, kind, mime, data FROM user_images WHERE data NOT LIKE 'file:%'").all()) {
+  try {
+    const name = writeImageFile(row.user_id, row.kind, row.mime, Buffer.from(row.data, 'base64'));
+    db.prepare('UPDATE user_images SET data = ? WHERE user_id = ? AND kind = ?').run(`file:${name}`, row.user_id, row.kind);
+  } catch (err) { console.warn('[Imágenes] No se migró', row.user_id, row.kind, err.message); }
 }
 db.exec(`CREATE TABLE IF NOT EXISTS loader_downloads (id INTEGER PRIMARY KEY AUTOINCREMENT, script_id INTEGER, slug TEXT, ip TEXT, created_at INTEGER NOT NULL)`);
 // Scripts borrados: el loader distingue "borrado" de "no existe" y el historial muestra cada borrado
@@ -2017,19 +2048,6 @@ app.get('/auth/logout', (req, res) => {
 // ==========================================
 // 6. API
 // ==========================================
-// Actividad reciente del usuario: canjes de plan y últimos eventos de sus scripts
-app.get('/api/me/activity', requireAuth, (req, res) => {
-  const redemptions = db.prepare(`SELECT plan, used_at FROM plan_keys
-    WHERE used_by = ? AND used_at IS NOT NULL ORDER BY used_at DESC LIMIT 10`).all(req.userId);
-  const logs = db.prepare(`SELECT l.script_name, l.text, l.created_at FROM script_logs l
-    JOIN scripts s ON s.id = l.script_id
-    WHERE s.user_id = ? ORDER BY l.id DESC LIMIT 25`).all(req.userId)
-    .map(l => ({ script_name: l.script_name, text: String(l.text || '').slice(0, 160), created_at: l.created_at }));
-  const deleted = db.prepare('SELECT name, deleted_at FROM deleted_scripts WHERE user_id = ? ORDER BY id DESC LIMIT 25').all(req.userId);
-  const obfTotal = stmt.obfUsed.get(req.userId)?.obf_used ?? 0;
-  res.json({ redemptions, logs, deleted, obfTotal });
-});
-
 app.get('/api/me', requireAuth, (req, res) => {
   const user = stmt.userById.get(req.userId);
   if (!user) {
@@ -2451,7 +2469,7 @@ app.post('/api/me/avatar', requireAuth, requirePerkPlan, (req, res) => {
   const raw = String(req.body?.url ?? '').trim();
   if (!raw) {
     db.prepare('UPDATE users SET custom_avatar = NULL WHERE id = ?').run(req.userId);
-    db.prepare('DELETE FROM user_images WHERE user_id = ? AND kind = ?').run(req.userId, 'profile');
+    removeUserImage(req.userId, 'profile');
     return res.json({ ok: true, avatarUrl: null });
   }
   let parsed;
@@ -2506,8 +2524,14 @@ app.get('/images/:userId/:kind', (req, res) => {
   if (!/^\d{5,25}$/.test(req.params.userId) || !['profile', 'bot', 'prices', 'welcome'].includes(req.params.kind)) return res.status(404).end();
   const row = db.prepare('SELECT mime, data FROM user_images WHERE user_id = ? AND kind = ?').get(req.params.userId, req.params.kind);
   if (!row) return res.status(404).end();
+  let buf;
+  try {
+    buf = row.data.startsWith('file:')
+      ? fs.readFileSync(path.join(IMAGES_DIR, path.basename(row.data.slice(5))))
+      : Buffer.from(row.data, 'base64'); // filas antiguas que aún no migraron
+  } catch { return res.status(404).end(); }
   res.set({ 'Content-Type': row.mime, 'Cache-Control': 'public, max-age=300', 'X-Content-Type-Options': 'nosniff' });
-  res.send(Buffer.from(row.data, 'base64'));
+  res.send(buf);
 });
 
 // Foto del bot solo en los servidores donde el creador tiene su panel. Vacío = quitarla.
@@ -2516,7 +2540,7 @@ app.post('/api/me/bot-avatar', requireAuth, requirePerkPlan, async (req, res) =>
   if (!raw) {
     if (discordBot?.setGuildAvatarFor) await discordBot.setGuildAvatarFor(req.userId, null).catch(() => {});
     db.prepare('UPDATE users SET bot_avatar = NULL WHERE id = ?').run(req.userId);
-    db.prepare('DELETE FROM user_images WHERE user_id = ? AND kind = ?').run(req.userId, 'bot');
+    removeUserImage(req.userId, 'bot');
     return res.json({ ok: true });
   }
   let parsed;

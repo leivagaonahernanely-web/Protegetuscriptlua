@@ -1365,6 +1365,8 @@ pre{margin:0;padding:16px;background:#040407;font-family:ui-monospace,SFMono-Reg
 // Lee script_key, pide el script a /auth con key + HWID y, si algo falla, expulsa
 // al jugador con el mensaje de la tabla MSG. No contiene el código del script.
 // La key aleatoria por script (loader_id) va en una variable: el bootstrap no lleva el slug ni la ruta completa.
+// Diagnostico del bootstrap: solo con LOADER_DEBUG=1 en el servidor. Por defecto apagado.
+const LOADER_DEBUG = process.env.LOADER_DEBUG === '1';
 function loaderBootstrap(loaderId, ffa, secure = false, secret = '', initCode = '') {
   const sk = /^[0-9a-f]{40}$/.test(String(loaderId || '')) ? String(loaderId) : '';
   return `local SK = ${JSON.stringify(sk)}
@@ -1647,6 +1649,9 @@ ${initCode}
 -- aleatorio, cs = mezcla del secreto por script con la key, el HWID y ct. El servidor la
 -- recalcula con la misma rutina; un cliente generico que reenvia parametros capturados
 -- no puede falsificarla. Los loaders viejos sin cs siguen pasando.
+local _DBG = ${LOADER_DEBUG ? 'true' : 'false'}
+local function _dbg(m) if _DBG then print("[VANT-DBG] " .. tostring(m)) end end
+_dbg("paso 0: key=<" .. tostring(key) .. "> hwid=" .. tostring(hwid) .. " rbxid=" .. tostring(rbxid))
 local _AS_SECRET = ${JSON.stringify(secret || '')}
 local _ct = tostring(math.floor(os.time() / 10))
 local _cn = string.format("%08x%08x", math.floor((os.clock() * 1000000) % 4294967296), math.random(0, 2147483647))
@@ -1669,6 +1674,7 @@ do
   _b4 = _as_h % 256
   _cs = string.format("%02x%02x%02x%02x", _b1, _b2, _b3, _b4)
 end
+_dbg("paso 1: firma ct=" .. _ct .. " cs=" .. _cs)
 -- Pide el codigo al servidor. Va en una funcion para poder reintentar cuando el token de sesion
 -- caduca entre la autenticacion y la entrega (el servidor contesta TOKEN_INVALID).
 local function _getCode()
@@ -1684,6 +1690,7 @@ local _authJson = nil
 pcall(function()
   _authJson = game:GetService("HttpService"):JSONEncode({ s = SK, key = key, hwid = hwid, rbxid = rbxid, v = "2", ver = 3, lt = _lowTrust and 1 or 0, ct = _ct, cn = _cn, cs = _cs })
 end)
+_dbg("paso 2: json=" .. tostring(_authJson ~= nil) .. " request=" .. tostring(_postFn ~= nil))
 if _postFn and _authJson then
   for _attempt = 1, 3 do
     ok, body = pcall(function()
@@ -1695,6 +1702,7 @@ if _postFn and _authJson then
     if _attempt < 3 then task.wait(1 + math.random() * 2) end
   end
 end
+_dbg("paso 3: POST ok=" .. tostring(ok) .. " body=" .. tostring(body):sub(1, 160))
 if not (ok and type(body) == "string" and #body > 0) then
   local _url = AUTH_BASE .. "&key=" .. enc(key) .. "&hwid=" .. enc(hwid) .. "&rbxid=" .. enc(rbxid) .. "&v=2&ver=3" .. (_lowTrust and "&lt=1" or "") .. "&ct=" .. _ct .. "&cn=" .. _cn .. "&cs=" .. _cs
   for _attempt = 1, 3 do

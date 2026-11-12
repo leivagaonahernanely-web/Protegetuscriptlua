@@ -947,6 +947,131 @@ export function emitRuntime(data, seed, ops, opts = {}) {
     for (let i = 0; i < enc.length; i++) enc2 += String.fromCharCode(enc.charCodeAt(i) ^ ks2[i]);
     enc = enc2;
   }
+  // ---- prologo anti-env + guardia: generado por semilla, sin texto legible ----
+  const AEOFF = 37 + (seed % 71);
+  const E = (s) => 'string.char(' + [...s].map(c => (c.charCodeAt(0) - AEOFF) + '+' + AEOFF).join(',') + ')';
+  let th = (seed ^ 0x9e3779b9) >>> 0;
+  const trnd = () => { th = (th * 1664525 + 1013904223) >>> 0; return th; };
+  const usedToks = new Set(['_NX','_x','_S0','_S','_blob','_pos','_u8','_uv','_sv','_str','_de','_k','_P','_proto','_pack','_unpack','_band','_bor','_bxor','_shl','_shr','_run','_cf','_ver','_pass','_j1','_j2','_i','_exp','_v','b32']);
+  const newTok = () => { let t; do { t = '_' + (trnd() % 2176782336).toString(36); } while (usedToks.has(t)); usedToks.add(t); return t; };
+  const T = {};
+  for (const b of ['st','mk','pc','gp','ck','ex','gv']) T[b] = newTok();
+  const VX = 2 + (seed % 5), VY = -3 - (seed % 7), VZ = 4 + (seed % 3);
+  const WX = -1 - (seed % 4), WY = 5, WZ = 2 + (seed % 5);
+  const SX = VX + WX, DZ = VZ - WZ, DOT = VX * WX + VY * WY + VZ * WZ;
+  const ROT = seed % 6;
+  const TWDUR = (0.1 + (seed % 40) / 100).toFixed(2);
+  const CHN = 'ae' + (seed % 46657).toString(36) + 'z';
+  const KICKS = ["Obfuscated script, don't deobfuscate", 'Nice try lol', 'Not for you', 'Stay out'];
+  const KICK = KICKS[seed % KICKS.length];
+  const AE = `do
+  local ${T.st} = false
+  local function ${T.mk}() ${T.st} = true end
+  local ${T.pc}
+  local function ${T.gp}()
+    if ${T.pc} == nil then
+      local o, v = pcall(Instance[${E('new')}], ${E('Part')})
+      ${T.pc} = (o and v) or false
+    end
+    if ${T.pc} then return ${T.pc} end
+  end
+  local ${T.ck} = {
+    function()
+      local o, s = pcall(game[${E('GetService')}], game, ${E('Players')})
+      if o and s and s[${E('GetPlayerFromCharacter')}](s, workspace) ~= nil then ${T.mk}() end
+    end,
+    function()
+      local o, s = pcall(game[${E('GetService')}], game, ${E('GuiService')})
+      if o and s then
+        local p = ${T.gp}()
+        if p then
+          local pr = s[${E('SelectedObject')}]
+          local a = pcall(function() s[${E('SelectedObject')}] = p end)
+          if a then
+            ${T.mk}()
+            pcall(function() s[${E('SelectedObject')}] = pr end)
+          end
+        end
+      end
+    end,
+    function()
+      local o, s = pcall(game[${E('GetService')}], game, ${E('TweenService')})
+      if o and s then
+        local p = ${T.gp}()
+        if p then
+          local o2, i = pcall(TweenInfo[${E('new')}], ${TWDUR})
+          if o2 and i then
+            local o3, g = pcall(function() return s[${E('Create')}](s, p, i, { [${E('Transparency')}] = 1 }) end)
+            if o3 and g then
+              pcall(function() g[${E('Destroy')}](g) end)
+              local bl = { [${E('Position')}] = ${E('not a Vector3')}, [${E('CFrame')}] = true, [${E('Transparency')}] = ${E('not a number')} }
+              for k, v in pairs(bl) do
+                local o4, bt = pcall(function() return s[${E('Create')}](s, p, i, { [k] = v }) end)
+                if o4 then
+                  ${T.mk}()
+                  if bt then pcall(function() bt[${E('Destroy')}](bt) end) end
+                end
+              end
+            end
+          end
+        end
+      end
+    end,
+    function()
+      local o, f = pcall(Instance[${E('new')}], ${E('Folder')})
+      if o and f then
+        local o2, c = pcall(Instance[${E('new')}], ${E('Folder')})
+        if o2 and c then
+          local nm = ${E(CHN)}
+          c[${E('Name')}] = nm
+          c[${E('Parent')}] = f
+          if f[${E('FindFirstChild')}](f, nm) ~= c or c[${E('Parent')}] ~= f or c[${E('IsA')}](c, ${E('Folder')}) ~= true then ${T.mk}() end
+          local o3, cl = pcall(function() return f[${E('Clone')}](f) end)
+          if o3 then
+            if not cl then ${T.mk}() else
+              local cc = cl[${E('FindFirstChild')}](cl, nm)
+              if cl == f or not cc or cc == c or cc[${E('Parent')}] ~= cl then ${T.mk}() end
+            end
+            pcall(function() cl[${E('Destroy')}](cl) end)
+          end
+          pcall(function() c[${E('Destroy')}](c) end)
+        end
+        pcall(function() f[${E('Destroy')}](f) end)
+      end
+    end,
+    function()
+      local a = Vector3[${E('new')}](${VX}, ${VY}, ${VZ})
+      local b = Vector3[${E('new')}](${WX}, ${WY}, ${WZ})
+      if (a + b)[${E('X')}] ~= ${SX} or (a - b)[${E('Z')}] ~= ${DZ} or a[${E('Dot')}](a, b) ~= ${DOT} then ${T.mk}() end
+    end,
+    function()
+      if typeof(Vector3[${E('new')}](1, 1, 1)) ~= ${E('Vector3')} then ${T.mk}() end
+      local p = ${T.gp}()
+      if p and (p[${E('ClassName')}] ~= ${E('Part')} or p[${E('IsA')}](p, ${E('BasePart')}) ~= true) then ${T.mk}() end
+    end,
+  }
+  for i = 1, #${T.ck} do
+    pcall(${T.ck}[((i - 1 + ${ROT}) % #${T.ck}) + 1])
+  end
+  if ${T.st} then
+    return
+  end
+end`;
+  const GD = `do
+  local ${T.ex} = ${E(opts.guard || '')}
+  local ${T.gv}
+  pcall(function() if type(getgenv) == ${E('function')} then ${T.gv} = rawget(getgenv(), ${E('VANTA')} .. ${E('RMOR_RUN')}) end end)
+  if ${T.gv} ~= ${T.ex} then pcall(function() ${T.gv} = rawget(_G, ${E('VANTA')} .. ${E('RMOR_RUN')}) end) end
+  if ${T.gv} ~= ${T.ex} then
+    pcall(function()
+      local s = game[${E('GetService')}](game, ${E('Players')})
+      local lp = s[${E('LocalPlayer')}]
+      if not lp and s[${E('GetPlayers')}] then local l = s[${E('GetPlayers')}](s); lp = l[1] end
+      if lp and lp[${E('Kick')}] then lp[${E('Kick')}](lp, ${E(KICK)}) end
+    end)
+    return
+  end
+end`;
   const lua = `
 local _NX = {${nibbleTableLiteral()}}
 local function _x(a, b)
@@ -1267,120 +1392,16 @@ local function _run(pi, ups, ...)
     elseif o == ${O.SHL} then R[a] = _shl(R[b], R[c])
     elseif o == ${O.SHR} then R[a] = _shr(R[b], R[c])
     else
-      error("vantobf: opcode desconocido " .. tostring(o), 0)
+      error(${E('vantobf: opcode desconocido ')} .. tostring(o), 0)
     end  end
 end
-${opts.antiEnv !== false ? `do
-  local _ae_stop = false
-  local function _ae() _ae_stop = true end
-  -- Checks de consistencia del entorno de Roblox (Luau). Senales ligeras:
-  -- una API faltante o restringida se salta, no cuenta como fallo.
-  pcall(function()
-    local _ok, _pl = pcall(function() return game:GetService("Players") end)
-    if _ok and _pl and _pl.GetPlayerFromCharacter and _pl.GetPlayerFromCharacter(_pl, workspace) ~= nil then _ae() end
-  end)
-  pcall(function()
-    local _ok, _gs = pcall(function() return game:GetService("GuiService") end)
-    if _ok and _gs then
-      local _prev = _gs.SelectedObject
-      local _ok2, _part = pcall(function() return Instance.new("Part") end)
-      if _ok2 and _part then
-        local _acc = pcall(function() _gs.SelectedObject = _part end)
-        if _acc then
-          _ae()
-          pcall(function() _gs.SelectedObject = _prev end)
-        end
-        pcall(function() _part:Destroy() end)
-      end
-    end
-  end)
-  pcall(function()
-    local _ok, _ts = pcall(function() return game:GetService("TweenService") end)
-    if _ok and _ts then
-      local _ok2, _part = pcall(function() return Instance.new("Part") end)
-      if _ok2 and _part then
-        local _ok3, _inf = pcall(function() return TweenInfo.new(0.1) end)
-        if _ok3 and _inf then
-          local _ok4, _gt = pcall(function() return _ts:Create(_part, _inf, { Transparency = 1 }) end)
-          if _ok4 and _gt then
-            pcall(function() _gt:Destroy() end)
-            local _bad = { Position = "not a Vector3", CFrame = true, Transparency = "not a number" }
-            for _bk, _bv in pairs(_bad) do
-              local _ok5, _bt = pcall(function() return _ts:Create(_part, _inf, { [_bk] = _bv }) end)
-              if _ok5 then
-                _ae()
-                if _bt then pcall(function() _bt:Destroy() end) end
-              end
-            end
-          end
-        end
-        pcall(function() _part:Destroy() end)
-      end
-    end
-  end)
-  pcall(function()
-    local _ok, _f = pcall(function() return Instance.new("Folder") end)
-    if _ok and _f then
-      local _ok2, _c = pcall(function() return Instance.new("Folder") end)
-      if _ok2 and _c then
-        _c.Name = "AEPC"
-        _c.Parent = _f
-        if _f:FindFirstChild("AEPC") ~= _c or _c.Parent ~= _f or _c:IsA("Folder") ~= true then _ae() end
-        local _ok3, _cl = pcall(function() return _f:Clone() end)
-        if _ok3 then
-          if not _cl then _ae() else
-            local _cc = _cl:FindFirstChild("AEPC")
-            if _cl == _f or not _cc or _cc == _c or _cc.Parent ~= _cl then _ae() end
-          end
-          pcall(function() _cl:Destroy() end)
-        end
-        pcall(function() _c:Destroy() end)
-      end
-      pcall(function() _f:Destroy() end)
-    end
-  end)
-  pcall(function()
-    local _a = Vector3.new(2, -3, 4)
-    local _b = Vector3.new(-1, 5, 2)
-    if (_a + _b).X ~= 1 or (_a - _b).Z ~= 2 or _a:Dot(_b) ~= -9 then _ae() end
-  end)
-  pcall(function()
-    if typeof(Vector3.new(1, 1, 1)) ~= "Vector3" then _ae() end
-  end)
-  pcall(function()
-    local _ok, _p2 = pcall(function() return Instance.new("Part") end)
-    if _ok and _p2 then
-      if _p2.ClassName ~= "Part" or _p2:IsA("BasePart") ~= true then _ae() end
-      pcall(function() _p2:Destroy() end)
-    end
-  end)
-  if _ae_stop then
-    return
-  end
-end
-` : ''}
-${opts.guard ? `do
-  local _exp = string.char(${[...(opts.guard)].map(c => (c.charCodeAt(0) - 41) + '+41').join(',')})
-  local _v
-  pcall(function() if type(getgenv) == "function" then _v = rawget(getgenv(), "VANTA" .. "RMOR_RUN") end end)
-  if _v ~= _exp then pcall(function() _v = rawget(_G, "VANTA" .. "RMOR_RUN") end) end
-  if _v ~= _exp then
-    pcall(function()
-      local Players = game:GetService("Players")
-      local lp = Players.LocalPlayer
-      if not lp and Players.GetPlayers then local _l = Players:GetPlayers(); lp = _l[1] end
-      if lp and lp.Kick then lp:Kick("Obfuscated script, don't deobfuscate") end
-    end)
-    return
-  end
-end
-` : ''}return _run(1, {}, ...)
+${opts.antiEnv !== false ? AE + '\n' : ''}${opts.guard ? GD + '\n' : ''}return _run(1, {}, ...)
 `;
-  if (opts.mangle) {
-    const sfx = String(seed % 9973);
-    const names = ['_NX','_x','_S0','_S','_blob','_pos','_u8','_uv','_sv','_str','_de','_k','_P','_proto','_pack','_unpack','_band','_bor','_bxor','_shl','_shr','_run','_cf','_ver','_pass','_j1','_j2','_i','_exp','_v','b32'];
+  if (opts.mangle !== false) {
     let out = lua;
-    for (const n of names) out = out.replace(new RegExp('\\b' + n + '\\b', 'g'), n + sfx);
+    for (const n of ['_NX','_x','_S0','_S','_blob','_pos','_u8','_uv','_sv','_str','_de','_k','_P','_proto','_pack','_unpack','_band','_bor','_bxor','_shl','_shr','_run','_cf','_ver','_pass','_j1','_j2','_i','_exp','_v','b32']) {
+      out = out.replace(new RegExp('\\b' + n + '\\b', 'g'), newTok());
+    }
     return out;
   }
   return lua;

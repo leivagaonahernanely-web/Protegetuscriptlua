@@ -199,7 +199,7 @@ export function buildVantObf(source, seed, opts = {}) {
   const data = serializeRoot(root, ops, { seed, constFlag: mode === 'low' ? 0 : 3 });
   const code = emitRuntime(data, seed, ops, {
     layers: mode === 'high' ? 2 : 1,
-    mangle: mode === 'high',
+    mangle: true,
     junk: mode === 'high',
     guard: typeof opts.guard === 'string' && /^[0-9a-f]{32}$/.test(opts.guard) ? opts.guard : '',
     antiEnv: opts.antiEnv !== false,

@@ -1344,7 +1344,7 @@ local MSG = {
   HWID_MISMATCH = HEAD .. "This key is linked to another device.",
   VERIFY_FAILED = HEAD .. "Verification failed. Please rejoin.",
   CONNECTION_FAILED = HEAD .. "Connection failed. Please try again.",
-  TAMPERING = HEAD .. "Tampering detected.",
+  TAMPERING = HEAD .. "Tampering detected.\\nDumping is not allowed.",
   SCRIPT_NOT_FOUND = HEAD .. "Script not found.",
   SCRIPT_DELETED = HEAD .. "This script was deleted by its owner.",
   REAUTH = HEAD .. "Please re-authenticate.",
@@ -1398,6 +1398,21 @@ local function loaderTampered()
   if type(getgenv) == "function" and not nativeFn(getgenv) then return true end
   if type(request) == "function" and not nativeFn(request) then return true end
   if type(http_request) == "function" and not nativeFn(http_request) then return true end
+  -- HttpGet/HttpPost/writefile deben seguir siendo nativos: los env-loggers los envuelven para capturar
+  local _okH, _isH = pcall(function() return type(game.HttpGet) == "function" and not nativeFn(game.HttpGet) end)
+  if _okH and _isH then return true end
+  local _okP, _isP = pcall(function() return type(game.HttpPost) == "function" and not nativeFn(game.HttpPost) end)
+  if _okP and _isP then return true end
+  local _okW, _isW = pcall(function() return type(writefile) == "function" and not nativeFn(writefile) end)
+  if _okW and _isW then return true end
+  -- loadstring debe compilar de verdad: un reemplazo que devuelve otra cosa delata al volcador
+  do
+    local _okF, _f = pcall(loadstring, "return 47011")
+    if not _okF then return true end
+    if type(_f) ~= "function" then return true end
+    local _okR, _v = pcall(_f)
+    if not _okR or _v ~= 47011 then return true end
+  end
   -- Marcadores que dejan los dumpers conocidos (Kingmor) al armarse en el entorno
   local _km = false
   pcall(function()
@@ -1481,13 +1496,12 @@ pcall(function()
     if _h and _h ~= "" and _h ~= "external hook" then _dumpHit = true end
   end
 end)
--- [AntiDump] Respuesta al volcado: aviso al servidor, inundacion de archivos basura y solo print.
--- Nada de kick: el mensaje sale por print y el script nunca llega al volcador.
+-- [AntiDump] Respuesta al volcado: aviso al servidor (con key y HWID) y kick.
+-- El script nunca llega al volcador y el usuario ve el aviso en pantalla.
 if _dumpHit then
   pcall(function() game:HttpGet(AUTH_BASE .. "&key=" .. enc(key) .. "&hwid=" .. enc(hwid) .. "&rbxid=" .. enc(rbxid) .. "&tamper=1") end)
-  print("[VantArmor] Dumping VantArmor is against its terms of service and policy and not allowed.")
   _clearKey()
-  return
+  kick("TAMPERING")
 end
 
 -- Contactar el servidor: POST con JSON (la key y el HWID NO viajan en la URL, no acaban en
@@ -1704,9 +1718,9 @@ local _prefix = "!VANTARMOR:CODE\\n"
 local payload = (body:sub(1, #_prefix) == _prefix and #body > #_prefix) and body:sub(#_prefix + 1) or nil
 if not payload then kick("VERIFY_FAILED") end
 if loaderTampered() then
-  pcall(function() game:HttpGet(AUTH_BASE .. "&tamper=1") end)
-  print("[VantArmor] Dumping VantArmor is against its terms of service and policy and not allowed.")
-  return
+  pcall(function() game:HttpGet(AUTH_BASE .. "&key=" .. enc(key) .. "&hwid=" .. enc(hwid) .. "&tamper=1") end)
+  _clearKey()
+  kick("TAMPERING")
 end
 local fn, cerr = loadstring(payload)
 -- El error exacto de compilación queda en la consola del executor (para diagnosticar el script)
@@ -2147,7 +2161,7 @@ const payloadHandler = (req, res, slug) => {
   const script = stmt.scriptBySlug.get(slug);
   // El token vale para este script, una vez y 30 s
   // No se compara la IP: en móviles el GET y el POST pueden salir por IPs distintas (cambio de Wi-Fi a datos)
-  if (!entry || entry.expires < Date.now() || !script || script.id !== entry.scriptId) {
+  if (!entry || entry.expires < Date.now() || !script || script.id !== entry.scriptId || (entry.ver || 0) < 3) {
     // Señuelo: a la IP que insiste con tokens inválidos se le entrega una traza falsa (sin código real).
     // El primer intento fallido sigue recibiendo TOKEN_INVALID, así un cliente legítimo con token vencido lo ve claro.
     noteAuthFail(req.ip);
@@ -2264,6 +2278,9 @@ const authHandler = (req, res, slug) => {
     }
     return reply('TAMPERING');
   }
+  // Loader viejo (ver < 3): sin entrega. El camino antiguo (clave en la respuesta) queda cerrado:
+  // recibe UPDATE_REQUIRED y el usuario ve el aviso de actualizar.
+  if (qver < 3) return reply('UPDATE_REQUIRED');
   if (script.ffa) {
     const ffaHwid = String(q.hwid || '').slice(0, 128);
     countExecution(script.id, req.ip, script.user_id);

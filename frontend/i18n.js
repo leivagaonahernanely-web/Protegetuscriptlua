@@ -21,6 +21,25 @@
     document.cookie = `googtrans=${value}; path=/; domain=${location.hostname}; ${age}`;
   };
 
+  // Primera visita (sin idioma guardado ni cookie): se detecta el idioma del navegador
+  // (región del visitante) y queda guardado como si lo hubiera elegido. Después manda su elección.
+  if (!saved() && document.cookie.indexOf('googtrans') === -1) {
+    const mapLang = c => {
+      const l = String(c || '').toLowerCase();
+      const t = l.indexOf('-') > -1 ? l.slice(0, l.indexOf('-')) : l;
+      if (t === 'zh') return 'zh-CN';
+      const set = { es: 'es', en: 'en', pt: 'pt', fr: 'fr', de: 'de', it: 'it', ru: 'ru', ja: 'ja' };
+      return set[t] || '';
+    };
+    const cand = (navigator.languages && navigator.languages.length ? navigator.languages : [navigator.language || '']).filter(Boolean);
+    let pick = '';
+    for (let i = 0; i < cand.length && !pick; i++) pick = mapLang(cand[i]);
+    if (pick) {
+      try { localStorage.setItem(LS_KEY, pick); } catch (e) { /* sin localStorage: queda la cookie */ }
+      saveCookie(pick);
+    }
+  }
+
   // Idioma deseado: lo que el usuario eligió antes, o el de la cookie.
   const want = saved() || current();
   if (want && want !== current()) saveCookie(want); // sincroniza la cookie para la próxima carga

@@ -13,6 +13,7 @@
     obscura:    'Ofuscador 2',
     luau:       'Ofuscador 3 · Premium Plus · 2 compilaciones por día',
     next:       'Ofuscador 4 · NextOfuscator',
+    vantobf:    'Ofuscador 5 · VantVM',
     none:       'Sin ofuscar (solo key)',
   };
   const NAV = {

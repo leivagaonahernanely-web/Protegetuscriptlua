@@ -1028,9 +1028,9 @@ const NEXT_ENGINE_VERSION = (() => {
   return h.digest('hex').slice(0, 16);
 })();
 // Ofuscador 5 (VantVM): motor nativo propio, VM interna con opcodes aleatorizados por script
-function obfuscateVant(source, mode) {
+function obfuscateVant(source, mode, guard) {
   try {
-    return buildVantObf(source, crypto.randomInt(1, 2 ** 31), { mode }).code;
+    return buildVantObf(source, crypto.randomInt(1, 2 ** 31), { mode, guard }).code;
   } catch (err) {
     if (err instanceof VantBuildError) throw Object.assign(new Error(err.message), { status: 400 });
     throw err;
@@ -1048,7 +1048,7 @@ function obfuscateNext(source) {
 async function obfuscateUncached(source, obfuscator, opts = {}) {
   if (obfuscator === 'luau') return obfuscateLuau(source);
   if (obfuscator === 'next') return obfuscateNext(source);
-  if (obfuscator === 'vantobf') return obfuscateVant(source, opts.mode);
+  if (obfuscator === 'vantobf') return obfuscateVant(source, opts.mode, opts.guard);
   const cfg = OBF_CONFIG[obfuscator];
   if (!cfg) throw Object.assign(new Error('Elige un ofuscador válido'), { status: 400 });
   if (!cfg.dir) {

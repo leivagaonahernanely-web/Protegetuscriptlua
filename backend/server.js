@@ -1971,7 +1971,10 @@ function issueRemoteToken(script, ip, key) {
 
 // Código que se entrega al ejecutor. Los bloques --@remote nunca van en el código: se piden aparte.
 function servedCode(script, { ip, key } = {}) {
-  const base = script.serve_protected && script.content
+  // La ruta del loader SIEMPRE sirve la copia protegida (ofuscada): el toggle
+  // serve_protected solo controla la vista previa del panel, nunca lo que
+  // llega al ejecutor. Si no hay copia ofuscada cae a la fuente original.
+  const base = script.content
     ? script.content
     : (script.source ? stripRemoteBlocks(script.source) : script.content);
   if (!hasRemoteBlocks(script.source || '')) return base;

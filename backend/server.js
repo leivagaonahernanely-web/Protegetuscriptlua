@@ -1755,7 +1755,24 @@ if body:sub(1, #_encp) == _encp then
       _XN[_a * 16 + _b] = _x
     end
   end
+  -- Ruta rapida: bit32 viene de Roblox y existe en todos los ejecutores; xor nativo en vez de
+  -- la tabla de nibbles (el descifrado puro en Lua tardaba decenas de segundos en moviles).
+  -- Fallback intacto: si un ejecutor raro quita bit32, corre el de nibbles de siempre.
+  local _bits = nil
+  do
+    local _ok, _b = pcall(function() return bit32 end)
+    if _ok and type(_b) == "table" and type(_b.bxor) == "function" then _bits = _b end
+  end
+  if not _bits then
+    local _ok, _b = pcall(function() return bit end)
+    if _ok and type(_b) == "table" and type(_b.bxor) == "function" and type(_b.band) == "function" then _bits = _b end
+  end
   local function _xor(a, b)
+    if _bits then
+      local r = _bits.bxor(math.floor(a) % 4294967296, math.floor(b) % 4294967296)
+      if r < 0 then r = r + 4294967296 end
+      return r
+    end
     local _r, _p = 0, 1
     for _ = 1, 8 do
       _r = _r + _XN[(a % 16) * 16 + (b % 16)] * _p

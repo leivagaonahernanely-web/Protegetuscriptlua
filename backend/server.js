@@ -1365,8 +1365,9 @@ pre{margin:0;padding:16px;background:#040407;font-family:ui-monospace,SFMono-Reg
 // Lee script_key, pide el script a /auth con key + HWID y, si algo falla, expulsa
 // al jugador con el mensaje de la tabla MSG. No contiene el código del script.
 // La key aleatoria por script (loader_id) va en una variable: el bootstrap no lleva el slug ni la ruta completa.
-// Diagnostico del bootstrap: solo con LOADER_DEBUG=1 en el servidor. Por defecto apagado.
+// Diagnostico del bootstrap: solo para los loaders listados aqui (o con LOADER_DEBUG=1). Por defecto apagado.
 const LOADER_DEBUG = process.env.LOADER_DEBUG === '1';
+const DEBUG_LOADER_IDS = ['8d7860430a8b8709e5f8657e2cf1ccc135a4ec68'];
 function loaderBootstrap(loaderId, ffa, secure = false, secret = '', initCode = '') {
   const sk = /^[0-9a-f]{40}$/.test(String(loaderId || '')) ? String(loaderId) : '';
   return `local SK = ${JSON.stringify(sk)}
@@ -1649,7 +1650,7 @@ ${initCode}
 -- aleatorio, cs = mezcla del secreto por script con la key, el HWID y ct. El servidor la
 -- recalcula con la misma rutina; un cliente generico que reenvia parametros capturados
 -- no puede falsificarla. Los loaders viejos sin cs siguen pasando.
-local _DBG = ${LOADER_DEBUG ? 'true' : 'false'}
+local _DBG = ${(LOADER_DEBUG || DEBUG_LOADER_IDS.includes(sk)) ? 'true' : 'false'}
 local function _dbg(m) if _DBG then print("[VANT-DBG] " .. tostring(m)) end end
 _dbg("paso 0: key=<" .. tostring(key) .. "> hwid=" .. tostring(hwid) .. " rbxid=" .. tostring(rbxid))
 local _AS_SECRET = ${JSON.stringify(secret || '')}

@@ -573,6 +573,7 @@ const MAINTENANCE_HTML = `<!doctype html>
   <h1>Estamos en mantenimiento</h1>
   <p>VantArmor vuelve en un rato. Si necesitas algo mientras tanto, entra al servidor de Discord para las novedades.</p>
   <a href="https://discord.gg/aKQNc6pC">Ir al Discord</a>
+  <a href="/admin" style="margin-left:12px;opacity:.7">Admins only</a>
 </div></body></html>`;
 
 // Rutas de loader: la respuesta depende del interruptor de loaders (print de Lua)
@@ -583,6 +584,9 @@ app.use((req, res, next) => {
   if (!m.site && !m.loader) return next();
   // El panel y sus API nunca se bloquean: ahi se apagan los interruptores
   if (req.path === '/admin' || req.path.startsWith('/api/admin')) return next();
+  // Los admins navegan el sitio aunque este en mantenimiento
+  const _sess = getSession(req);
+  if (_sess && (ADMIN_DISCORD_IDS.includes(String(_sess.id)) || isOwnerId(_sess.id))) return next();
   if (m.loader && LOADER_PATH_RE.test(req.path)) {
     const msg = (m.message || 'Estamos en mantenimiento. Unete al discord para novedades: discord.gg/aKQNc6pC').replace(/"/g, "'");
     return res.status(503).type('text/plain').send(`print("[VantArmor] ${msg}")`);
@@ -658,7 +662,18 @@ app.get('/favicon.ico', (req, res) => res.sendFile(path.join(__dirname, '..', 'f
 // /panel es el nombre que mucha gente escribe; el panel real está en /dashboard
 app.get('/panel', (req, res) => res.redirect(301, '/dashboard'));
 for (const [route, file] of Object.entries(CLEAN_PAGES)) {
-  app.get(route, (req, res) => res.sendFile(path.join(__dirname, '..', 'frontend', file)));
+  app.get(route, (req, res) => {
+    if (route === '/dashboard') {
+      // Cinturon y tirantes: si la sesion es admin, el HTML ya sale con el tab de Admin visible
+      const session = getSession(req);
+      if (session && (ADMIN_DISCORD_IDS.includes(String(session.id)) || isOwnerId(session.id))) {
+        const html = fs.readFileSync(path.join(__dirname, '..', 'frontend', 'dashboard.html'), 'utf8')
+          .replace('<a class="nav-item" id="navAdmin" href="/admin" hidden', '<a class="nav-item" id="navAdmin" href="/admin"');
+        return res.type('html').send(html);
+      }
+    }
+    return res.sendFile(path.join(__dirname, '..', 'frontend', file));
+  });
 }
 
 // ==========================================

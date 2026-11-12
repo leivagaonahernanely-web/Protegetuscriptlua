@@ -2265,8 +2265,9 @@ function authSig(secret, nonce, key, hwid, bucket) {
   return parts.map(b => b.toString(16).padStart(2, '0')).join('');
 }
 function issuePayloadToken(script, ip, key, v, hwid, rawHwid, ver) {
-  // Un solo token vivo por (script, key): pedir otro revoca el anterior
-  for (const [t, e] of payloadTokens) if (e.scriptId === script.id && (e.key || null) === (key || null)) payloadTokens.delete(t);
+  // Varios tokens vivos por (script, key): revocar el anterior rompia la re-ejecucion rapida
+  // (la segunda /auth mataba el token que la primera /v1/p todavia iba a usar). Cada token ya es
+  // de un solo uso, con TTL y atado al HWID, asi que no hace falta revocar nada.
   const token = crypto.randomBytes(24).toString('hex');
   // seedHwid: el HWID crudo tal como lo mando el loader (la semilla debe ser reproducible por el cliente)
   payloadTokens.set(token, { scriptId: script.id, key: key || null, hwid: hwid || null, ip: ip || null, expires: Date.now() + PAYLOAD_TTL_MS, v: v === '2', seedHwid: rawHwid || null, ver: ver || 0 });
@@ -2477,6 +2478,8 @@ const payloadHandler = (req, res, slug) => {
   if (!entry || entry.expires < Date.now() || !script || script.id !== entry.scriptId || (entry.ver || 0) < 3) {
     // Señuelo: a la IP que insiste con tokens inválidos se le entrega una traza falsa (sin código real).
     // El primer intento fallido sigue recibiendo TOKEN_INVALID, así un cliente legítimo con token vencido lo ve claro.
+    const _motivo = !entry ? 'token desconocido (revocado, consumido o de otro deploy)' : entry.expires < Date.now() ? 'token vencido' : !script ? 'script no encontrado' : script.id !== entry.scriptId ? 'token de otro script' : 'ver<3';
+    console.warn('[payload fail] slug=%s ip=%s motivo=%s ua=%s', slug, req.ip, _motivo, String(req.get('user-agent') || '').slice(0, 80));
     noteAuthFail(req.ip);
     if ((authFails.get(req.ip)?.count || 0) >= 3) {
       console.warn('[Señuelo] slug=%s ip=%s ua=%s', slug, req.ip, String(req.get('user-agent') || '').slice(0, 80));

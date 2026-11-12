@@ -2238,7 +2238,7 @@ function logWithRoblox(scriptId, lines, userId, rbxid) {
 }
 
 const payloadTokens = new Map(); // token -> { scriptId, expires }
-const PAYLOAD_TTL_MS = 30_000;
+const PAYLOAD_TTL_MS = 120_000; // 2 min: en móviles la descarga y descifrado de un payload grande tarda más de 30 s y el token vencía antes de usarse
 setInterval(() => {
   const now = Date.now();
   for (const [t, v] of payloadTokens) if (v.expires < now) payloadTokens.delete(t);
@@ -2486,6 +2486,9 @@ const payloadHandler = (req, res, slug) => {
   }
   // El token queda atado al HWID que lo pidió: usado desde otro equipo no vale
   if (entry.hwid && _p_hwid && _p_hwid !== entry.hwid) return res.status(403).type('text/plain').send('!VANTARMOR:TOKEN_INVALID');
+  // Token válido: se limpia el contador de fallos de esta IP, así una ejecución lenta que
+  // llegó con el token vencido no acumula hacia el señuelo y al usuario real no lo come el señuelo
+  authFails.delete(req.ip);
   // El loader espera el mismo prefijo que en la entrega de un paso
   const _seed = entry.ver >= 3 ? `${entry.key || ''}|${entry.seedHwid || ''}|${token}|v2` : null;
   return sendExecutorCode(req, res, script, { ip: req.ip, key: entry.key }, entry.v === true, _seed);

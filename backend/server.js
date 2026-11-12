@@ -1922,6 +1922,7 @@ if errCode then kick(errCode) end
 local _prefix = "!VANTARMOR:CODE\\n"
 local payload = (body:sub(1, #_prefix) == _prefix and #body > #_prefix) and body:sub(#_prefix + 1) or nil
 if not payload then kick("VERIFY_FAILED") end
+_dbg("paso 5: payload descifrado largo=" .. tostring(#payload) .. " inicio=<<" .. payload:sub(1, 400) .. ">>")
 -- Ultima puerta antes de compilar el script descifrado: si el entorno es un volcador (sonda
 -- sandbox), se congela aqui tambien. El codigo descifrado nunca llega a ejecutarse ahi.
 if _sandboxProbeHit() then

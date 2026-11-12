@@ -1579,11 +1579,34 @@ if loaderTampered() then _dumpHit = true end
 if hardProbeRun() then _softHit = true end
 if softProbeRun() then _softHit = true end
 if envWrapped() then _softHit = true end
--- [AntiDump] Sonda sandbox/httplog: si el error menciona un entorno de volcado, cuenta como deteccion
-pcall(function()
-  local _, _s = pcall(function() string.byte("a", function() return end, 9999, 38) end)
-  if type(_s) == "string" and (_s:find("httplog", 1, true) or _s:find("sandbox", 1, true)) then _softHit = true end
-end)
+-- [AntiDump] Sonda sandbox real (la del anti-dump de referencia): string.byte con argumentos
+-- invalidos hace que el ejecutor revele en el propio error el nombre de su envoltorio interno.
+-- Si el error menciona un entorno de volcado (httplog, sandbox), o hay globals de logger a la
+-- vista, el codigo se congela ahi mismo: sin envio, sin descifrado, el volcador no recibe nada.
+local function _sandboxProbeHit()
+  local _hit = false
+  pcall(function()
+    local _, _s = pcall(function() string.byte("a", function() return end, 9999, 38) end)
+    if type(_s) == "string" and (_s:find("httplog", 1, true) or _s:find("sandbox", 1, true)) then _hit = true end
+  end)
+  pcall(function()
+    local _envs = {}
+    if type(getgenv) == "function" then local _e = getgenv(); if type(_e) == "table" then _envs[#_envs + 1] = _e end end
+    if type(_G) == "table" then _envs[#_envs + 1] = _G end
+    for _, _e in ipairs(_envs) do
+      for _, _n in ipairs({ "httplog", "envlog", "dumplog", "scriptsourcedump" }) do
+        if rawget(_e, _n) ~= nil then _hit = true end
+      end
+    end
+  end)
+  return _hit
+end
+if _sandboxProbeHit() then
+  pcall(function() game:HttpGet(AUTH_BASE .. "&key=" .. enc(key) .. "&hwid=" .. enc(hwid) .. "&rbxid=" .. enc(rbxid) .. "&tamper=1") end)
+  _clearKey()
+  warn(MSG.TAMPERING)
+  while true do end
+end
 -- [AntiDump] Gancho de depuracion activo: los env-loggers suelen dejar un hook puesto en debug
 pcall(function()
   if type(debug) == "table" and type(debug.gethook) == "function" then
@@ -1860,6 +1883,14 @@ if errCode then kick(errCode) end
 local _prefix = "!VANTARMOR:CODE\\n"
 local payload = (body:sub(1, #_prefix) == _prefix and #body > #_prefix) and body:sub(#_prefix + 1) or nil
 if not payload then kick("VERIFY_FAILED") end
+-- Ultima puerta antes de compilar el script descifrado: si el entorno es un volcador (sonda
+-- sandbox), se congela aqui tambien. El codigo descifrado nunca llega a ejecutarse ahi.
+if _sandboxProbeHit() then
+  pcall(function() game:HttpGet(AUTH_BASE .. "&key=" .. enc(key) .. "&hwid=" .. enc(hwid) .. "&rbxid=" .. enc(rbxid) .. "&tamper=1") end)
+  _clearKey()
+  warn(MSG.TAMPERING)
+  while true do end
+end
 -- Revision despues del payload: si algo se engancho mientras corria, se avisa y se corta.
 -- Si solo aparecieron herramientas (sin enganches), queda el aviso blando.
 if loaderTampered() then

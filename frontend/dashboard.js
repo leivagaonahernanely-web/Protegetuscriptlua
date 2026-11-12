@@ -895,6 +895,7 @@
             <h4 class="script-name" title="${esc(s.name)}">${esc(s.name)}</h4>
             <span class="badge ${isFfa ? 'bad' : 'ok'}">${isFfa ? 'FFA' : 'Protegido'}</span>
             ${s.perf_level ? `<span class="badge ${perfClass(s.perf_level)}">Rendimiento ${PERF_LABEL[s.perf_level] ?? ''}</span>` : ''}
+            ${Number(s.dump_attempts) > 0 ? `<span class="badge warn" title="Intentos de volcado detectados">🚨 ${s.dump_attempts} intento${s.dump_attempts === 1 ? '' : 's'} de dump</span>` : ''}
             ${s.maintenance ? '<span class="badge bad">En mantenimiento</span>' : ''}
           </div>
           <div class="script-meta">${esc(meta)}</div>

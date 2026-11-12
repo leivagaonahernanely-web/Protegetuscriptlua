@@ -492,6 +492,13 @@ const scriptBanned = (scriptId, kind, value) => Boolean(value) && Boolean(script
 if (!db.prepare("SELECT 1 FROM pragma_table_info('keys') WHERE name = 'key_days'").get()) {
   db.exec('ALTER TABLE keys ADD COLUMN key_days INTEGER');
 }
+// Contador de intentos de volcado por script (equivalente a "attacks_blocked" de la referencia)
+if (!db.prepare("SELECT 1 FROM pragma_table_info('scripts') WHERE name = 'dump_attempts'").get()) {
+  db.exec('ALTER TABLE scripts ADD COLUMN dump_attempts INTEGER');
+}
+if (!db.prepare("SELECT 1 FROM pragma_table_info('scripts') WHERE name = 'last_dump_at'").get()) {
+  db.exec('ALTER TABLE scripts ADD COLUMN last_dump_at INTEGER');
+}
 // Secreto por script para la firma anti-spoof del auth (el loader lo lleva horneado)
 if (!db.prepare("SELECT 1 FROM pragma_table_info('scripts') WHERE name = 'auth_secret'").get()) {
   db.exec('ALTER TABLE scripts ADD COLUMN auth_secret TEXT');
@@ -508,7 +515,7 @@ const stmt = {
   `),
   // Nunca se seleccionan source ni content aquí
   scriptsByUser: db.prepare(`
-    SELECT id, user_id, name, slug, loader_id, ffa, obfuscator, hwid_reset_hours, share_detection, auto_revoke_dump, maintenance, clyde_vm, perf_level, project_id, hwid_lock FROM scripts
+    SELECT id, user_id, name, slug, loader_id, ffa, obfuscator, hwid_reset_hours, share_detection, auto_revoke_dump, maintenance, clyde_vm, perf_level, project_id, hwid_lock, COALESCE(dump_attempts, 0) AS dump_attempts, last_dump_at FROM scripts
     WHERE user_id = ? ORDER BY id DESC
   `),
   scriptOwned: db.prepare('SELECT * FROM scripts WHERE id = ? AND user_id = ?'),
@@ -1377,6 +1384,7 @@ end
 -- no se bloquea, entra en modo de baja confianza (sigue la autenticacion, el dueño lo ve en el log).
 local _dumpHit = false
 local _lowTrust = false
+local _softHit = false
 do
   local _execName = ""
   pcall(function()
@@ -1437,6 +1445,52 @@ local function loaderTampered()
   if _km then return true end
   return false
 end
+-- [AntiDump] APIs que viven los volcadores y los env-loggers. Se miran las que existen en el
+-- ejecutor: si dejaron de ser C (alguien las envolvio en Lua), hay volcado activo y se corta.
+local function _probeFn(path)
+  local okp, f = pcall(function()
+    local tbl, sub = path:match("^(.-)%.([%w_]+)$")
+    if tbl then
+      local t = _G[tbl]
+      if type(t) ~= "table" then return nil end
+      return t[sub]
+    end
+    return _G[path]
+  end)
+  if okp then return f end
+  return nil
+end
+-- Extraccion de codigo (getscriptbytecode y compania), descompiladores (debug.getupvalue/getinfo),
+-- hooks y lectura/escritura de archivos: los volcadores y los env-loggers tocan todo esto
+local _HARD_PROBES = { "getscriptbytecode", "getscriptclosure", "getscripthash", "getfunctionbytecode",
+  "debug.getupvalue", "debug.setupvalue", "debug.getinfo", "debug.getlocal", "debug.getregistry",
+  "hookfunction", "hookmetamethod", "replaceclosure", "readfile", "writefile", "appendfile", "listfiles", "getcustomasset" }
+local function hardProbeRun()
+  for _, _p in ipairs(_HARD_PROBES) do
+    local _f = _probeFn(_p)
+    if type(_f) == "function" and not nativeFn(_f) then return true end
+  end
+  return false
+end
+-- Herramientas de volcado presentes pero sin enganches (saveinstance, descompiladores, env-loggers):
+-- muchos ejecutores las traen de fabrica, asi que esto solo AVISA al dueño, no echa al jugador
+local _SOFT_NAMES = { "saveinstance", "save_instance", "decompile", "decompiler", "dumpstring", "dump_string",
+  "__dump", "dumplog", "envlog", "httplog", "scriptsourcedump", "getscriptsource" }
+local function softProbeRun()
+  local _found = false
+  pcall(function()
+    local _envs = {}
+    if type(getgenv) == "function" then local _e = getgenv(); if type(_e) == "table" then _envs[#_envs + 1] = _e end end
+    if type(_G) == "table" then _envs[#_envs + 1] = _G end
+    if type(shared) == "table" then _envs[#_envs + 1] = shared end
+    for _, _e in ipairs(_envs) do
+      for _, _n in ipairs(_SOFT_NAMES) do
+        if rawget(_e, _n) ~= nil then _found = true end
+      end
+    end
+  end)
+  return _found
+end
 local key = ""
 -- script_key puede venir como global normal, en _G, o en getgenv() (depende del executor)
 local _rawKey = (getgenv and rawget(getgenv(), "script_key"))
@@ -1493,6 +1547,9 @@ local hookDetected = envProbeRun()
 if hookDetected then _dumpHit = true end
 -- Si loadstring fue interceptado: se avisa al servidor (dueño) y se corta antes de validar la key
 if loaderTampered() then _dumpHit = true end
+-- Sondas de volcado: extraccion de codigo enganchada = corte; herramientas presentes = aviso
+if hardProbeRun() then _dumpHit = true end
+if softProbeRun() then _softHit = true end
 -- [AntiDump] Sonda sandbox/httplog: si el error menciona un entorno de volcado, cuenta como deteccion
 pcall(function()
   local _, _s = pcall(function() string.byte("a", function() return end, 9999, 38) end)
@@ -1511,6 +1568,11 @@ if _dumpHit then
   pcall(function() game:HttpGet(AUTH_BASE .. "&key=" .. enc(key) .. "&hwid=" .. enc(hwid) .. "&rbxid=" .. enc(rbxid) .. "&tamper=1") end)
   _clearKey()
   kick("TAMPERING")
+end
+-- Aviso blando: hay herramientas de volcado en el entorno pero nada enganchado. Se avisa al
+-- dueño y el script sigue: asi un ejecutor que trae saveinstance de fabrica no echa al jugador.
+if _softHit then
+  pcall(function() game:HttpGet(AUTH_BASE .. "&key=" .. enc(key) .. "&hwid=" .. enc(hwid) .. "&rbxid=" .. enc(rbxid) .. "&tamper=1&soft=1") end)
 end
 ${initCode ? `-- [Pre-Auth] Codigo del dueño (equivale a LRM_INIT_SCRIPT): corre antes de la autenticacion.
 -- No pasa por el ofuscador, se lee tal cual: no pongas aqui nada critico.
@@ -1756,10 +1818,15 @@ if errCode then kick(errCode) end
 local _prefix = "!VANTARMOR:CODE\\n"
 local payload = (body:sub(1, #_prefix) == _prefix and #body > #_prefix) and body:sub(#_prefix + 1) or nil
 if not payload then kick("VERIFY_FAILED") end
-if loaderTampered() then
+-- Revision despues del payload: si algo se engancho mientras corria, se avisa y se corta.
+-- Si solo aparecieron herramientas (sin enganches), queda el aviso blando.
+if loaderTampered() or hardProbeRun() then
   pcall(function() game:HttpGet(AUTH_BASE .. "&key=" .. enc(key) .. "&hwid=" .. enc(hwid) .. "&tamper=1") end)
   _clearKey()
   kick("TAMPERING")
+end
+if softProbeRun() then
+  pcall(function() game:HttpGet(AUTH_BASE .. "&key=" .. enc(key) .. "&hwid=" .. enc(hwid) .. "&tamper=1&soft=1") end)
 end
 local fn, cerr = loadstring(payload)
 -- El error exacto de compilación queda en la consola del executor (para diagnosticar el script)
@@ -2122,6 +2189,11 @@ function issueRemoteToken(script, ip, key) {
 }
 
 // Código que se entrega al ejecutor. Los bloques --@remote nunca van en el código: se piden aparte.
+// Registro de avisos de volcado: cada reporte del loader queda con key, HWID, IP y Discord
+db.exec(`CREATE TABLE IF NOT EXISTS dump_events (
+  id INTEGER PRIMARY KEY, script_id INTEGER, key TEXT, hwid TEXT, ip TEXT, discord_id TEXT, soft INTEGER, created_at INTEGER
+)`);
+
 // ---- Webhooks protegidos (estilo Luarmor V4) + variables de entorno ----
 // El dueño marca en el source una línea `--@webhook:nombre https://...`. El servidor guarda la URL
 // y la quita del código entregado; el script llama VANT_SEND_WEBHOOK("nombre", payload) y el
@@ -2398,13 +2470,24 @@ const authHandler = (req, res, slug) => {
   }
   // El loader avisa cuando loadstring fue interceptado (volcado). Solo avisa al dueño: no banea.
   if (q.tamper === '1') {
+    // soft=1 = aviso blando: el entorno trae herramientas de volcado pero nada enganchado.
+    // Se registra y se avisa al dueño, y la ejecución sigue (un ejecutor con saveinstance de
+    // fábrica no echa al jugador). Sin soft: enganche real, se corta.
+    const soft = String(q.soft || '') === '1';
     const tKey = String(q.key || '').trim().slice(0, 64);
     const tHwid = /^[\x21-\x7E]{8,128}$/.test(String(q.hwid || '')) ? String(q.hwid) : '';
     const keyRow = tKey ? db.prepare('SELECT discord_id, hwid FROM keys WHERE key = ? AND script_id = ?').get(tKey, script.id) : null;
     const tDiscord = keyRow?.discord_id || null;
+    const nowS = Math.floor(Date.now() / 1000);
+    try {
+      db.prepare('INSERT INTO dump_events (script_id, key, hwid, ip, discord_id, soft, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
+        .run(script.id, tKey || null, tHwid || null, req.ip || null, tDiscord, soft ? 1 : 0, nowS);
+    } catch { /* el registro nunca rompe la entrega */ }
+    // El contador solo cuenta los enganches reales, para que el número signifique algo
+    if (!soft) db.prepare('UPDATE scripts SET dump_attempts = COALESCE(dump_attempts, 0) + 1, last_dump_at = ? WHERE id = ?').run(nowS, script.id);
     // Revocación automática (opción del script): la key queda baneada sin esperar al dueño
     // Solo si el reporte viene del equipo vinculado a la key: nadie banea keys ajenas conociendo solo la key
-    const autoRevoked = Boolean(script.auto_revoke_dump && keyRow && tKey && tHwid && keyRow.hwid === tHwid
+    const autoRevoked = Boolean(!soft && script.auto_revoke_dump && keyRow && tKey && tHwid && keyRow.hwid === tHwid
       && db.prepare("UPDATE keys SET banned = 1, ban_reason = 'Volcado detectado' WHERE key = ? AND script_id = ?").run(tKey, script.id).changes);
     // Anti-flood por IP: más de 8 reportes en 10 min desde la misma IP no llegan al dueño
     const _floodKey = `ip|${req.ip}`;
@@ -2412,19 +2495,27 @@ const authHandler = (req, res, slug) => {
     if (Date.now() - _flood.t > 10 * 60 * 1000) { _flood.n = 0; _flood.t = Date.now(); }
     _flood.n++;
     tamperIpSeen.set(_floodKey, _flood);
-    const seenKey = `${script.id}|${tKey}|${tHwid}`;
+    const seenKey = `${script.id}|${soft ? 's' : 'h'}|${tKey}|${tHwid}`;
     const last = tamperSeen.get(seenKey) || 0;
-    if (Date.now() - last > 10 * 60 * 1000 && _flood.n <= 8) { // un aviso cada 10 min por key y HWID
+    // Aviso duro: uno cada 10 min por key y HWID. Aviso blando: uno cada 45 min
+    if (Date.now() - last > (soft ? 45 * 60 * 1000 : 10 * 60 * 1000) && _flood.n <= 8) {
       tamperSeen.set(seenKey, Date.now());
-      logWithRoblox(script.id, [
+      logWithRoblox(script.id, soft ? [
+        '⚠️ Entorno con herramientas de volcado (nada enganchado)',
+        `• Key: \`${tKey || 'sin key'}\``,
+        `• HWID: \`${tHwid || 'sin dato'}\``,
+        `• Discord: ${tDiscord ? `<@${tDiscord}>` : 'sin vincular'}`,
+        '• Se dejó ejecutar: el aviso es solo informativo',
+      ] : [
         '🚨 Intento de dump: loadstring fue interceptado',
         `• Key: \`${tKey || 'sin key'}\``,
         `• HWID: \`${tHwid || 'sin dato'}\``,
         `• Discord: ${tDiscord ? `<@${tDiscord}>` : 'sin vincular'}`,
       ], tDiscord, rbxid);
-      discordBot?.notifyTamper?.({ scriptId: script.id, key: tKey, hwid: tHwid, rbxid, discordId: tDiscord, autoRevoked });
-      fireWebhooks(script.user_id, 'script.tamper', { scriptId: script.id, key: tKey, hwid: tHwid, rbxid, autoRevoked });
+      discordBot?.notifyTamper?.({ scriptId: script.id, key: tKey, hwid: tHwid, rbxid, discordId: tDiscord, autoRevoked, soft });
+      fireWebhooks(script.user_id, 'script.tamper', { scriptId: script.id, key: tKey, hwid: tHwid, rbxid, autoRevoked, soft });
     }
+    if (soft) return res.type('text/plain').send('!VANTARMOR:OK');
     return reply('TAMPERING');
   }
   // Loader viejo (ver < 3): sin entrega. El camino antiguo (clave en la respuesta) queda cerrado:
@@ -4285,6 +4376,7 @@ function pruneOldData() {
     db.prepare('DELETE FROM execution_hourly WHERE day < ?').run(ecuadorDay(Date.now() - 60 * 86400_000));
     // La caché de compilaciones es solo una optimización: se borra a los 1 día para no llenar el volumen
     db.prepare('DELETE FROM obf_cache WHERE created_at < ?').run(Math.floor(Date.now() / 1000) - 86400);
+    db.prepare('DELETE FROM dump_events WHERE created_at < ?').run(Math.floor(Date.now() / 1000) - 30 * 86400);
     // Chat de la comunidad: 3 días, igual que dice la política de privacidad (antes no se borraba nunca)
     const chatCut = t - CHAT_KEEP_SECONDS;
     db.prepare('DELETE FROM web_chat_reactions WHERE message_id IN (SELECT id FROM web_chat WHERE created_at < ?)').run(chatCut);

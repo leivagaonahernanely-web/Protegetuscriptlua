@@ -647,6 +647,11 @@ app.get(['/', '/login'], (req, res, next) => {
   }
   next();
 });
+// Sin cache para el HTML/JS del panel: cada refresco trae la version nueva (nada se queda viejo)
+app.use((req, res, next) => {
+  if (/\.(html|js|css)(\?|$)/.test(req.path)) res.setHeader('Cache-Control', 'no-cache');
+  next();
+});
 app.use(express.static(path.join(__dirname, '..', 'frontend'), { index: false }));
 // Icono de la pestaña: el navegador pide /favicon.ico si la página no define uno
 app.get('/favicon.ico', (req, res) => res.sendFile(path.join(__dirname, '..', 'frontend', 'favicon-64.png')));
@@ -1359,6 +1364,24 @@ local function loaderTampered()
   -- loadstring es la vía del payload; load también puede usarse para volcar, así que se revisan los dos
   if not nativeFn(loadstring) then return true end
   if type(load) == "function" and not nativeFn(load) then return true end
+  -- getgenv, request y http_request deben ser funciones nativas: los env-loggers los envuelven
+  -- en funciones de Lua para registrar peticiones y contenido, así que si dejaron de ser "C" hay hook
+  if type(getgenv) == "function" and not nativeFn(getgenv) then return true end
+  if type(request) == "function" and not nativeFn(request) then return true end
+  if type(http_request) == "function" and not nativeFn(http_request) then return true end
+  -- Marcadores que dejan los dumpers conocidos (Kingmor) al armarse en el entorno
+  local _km = false
+  pcall(function()
+    local _envs = {}
+    if type(getgenv) == "function" then local _e = getgenv(); if type(_e) == "table" then _envs[#_envs + 1] = _e end end
+    if type(_G) == "table" then _envs[#_envs + 1] = _G end
+    for _, _e in ipairs(_envs) do
+      for _, _m in ipairs({ "__km_ls_hooked", "__km_wf_raw", "__km_ls_ref", "_KM_DUMP", "_KM_DUMP_LEN", "_LAST_DUMP", "_LAST_DUMP_NAME" }) do
+        if rawget(_e, _m) ~= nil then _km = true end
+      end
+    end
+  end)
+  if _km then return true end
   return false
 end
 local key = ""
@@ -2228,7 +2251,7 @@ app.get('/api/me', requireAuth, (req, res) => {
     res.clearCookie(SESSION_COOKIE);
     return res.status(401).json({ error: 'Usuario no encontrado' });
   }
-  res.json({ ...user, owner: isOwnerId(req.userId), admin: ADMIN_DISCORD_IDS.includes(String(req.userId)) });
+  res.json({ ...user, owner: isOwnerId(req.userId), admin: ADMIN_DISCORD_IDS.includes(String(req.userId)) || isOwnerId(req.userId) });
 });
 
 // ---------- Chat de la comunidad ----------
@@ -2787,7 +2810,7 @@ function requireAdminUser(req, res, next) {
   if (expected && token && token.length === expected.length
       && crypto.timingSafeEqual(Buffer.from(token), Buffer.from(expected))) return next();
   return requireAuth(req, res, () => {
-    if (!ADMIN_DISCORD_IDS.includes(String(req.userId))) return res.status(403).json({ error: 'No tienes acceso al panel de admin' });
+    if (!ADMIN_DISCORD_IDS.includes(String(req.userId)) || isOwnerId(req.userId)) return res.status(403).json({ error: 'No tienes acceso al panel de admin' });
     next();
   });
 }

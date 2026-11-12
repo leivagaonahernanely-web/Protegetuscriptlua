@@ -492,6 +492,17 @@ const scriptBanned = (scriptId, kind, value) => Boolean(value) && Boolean(script
 if (!db.prepare("SELECT 1 FROM pragma_table_info('keys') WHERE name = 'key_days'").get()) {
   db.exec('ALTER TABLE keys ADD COLUMN key_days INTEGER');
 }
+// Limites de key (estilo de la referencia): reinicios de HWID por key y limite de ejecuciones
+if (!db.prepare("SELECT 1 FROM pragma_table_info('keys') WHERE name = 'hwid_resets'").get()) {
+  db.exec('ALTER TABLE keys ADD COLUMN hwid_resets INTEGER');
+}
+if (!db.prepare("SELECT 1 FROM pragma_table_info('keys') WHERE name = 'exec_limit'").get()) {
+  db.exec('ALTER TABLE keys ADD COLUMN exec_limit INTEGER');
+}
+if (!db.prepare("SELECT 1 FROM pragma_table_info('scripts') WHERE name = 'hwid_reset_limit'").get()) {
+  db.exec('ALTER TABLE scripts ADD COLUMN hwid_reset_limit INTEGER DEFAULT 3');
+}
+
 // Contador de intentos de volcado por script (equivalente a "attacks_blocked" de la referencia)
 if (!db.prepare("SELECT 1 FROM pragma_table_info('scripts') WHERE name = 'dump_attempts'").get()) {
   db.exec('ALTER TABLE scripts ADD COLUMN dump_attempts INTEGER');
@@ -528,7 +539,12 @@ const stmt = {
     WHERE id = ? AND user_id = ?
   `),
   keysByUser: db.prepare(`
-    SELECT k.key, k.script_id, k.expires_at, k.banned, k.hwid, k.discord_id, k.last_ip FROM keys k
+    SELECT k.key, k.script_id, k.expires_at, k.banned, k.hwid, k.discord_id, k.last_ip,
+           k.key_days, k.exec_count, k.exec_limit, k.hwid_resets, k.hwid_reset_at,
+           CASE WHEN k.banned = 1 THEN 'banned'
+                WHEN k.hwid IS NULL OR k.hwid = '' THEN 'reset'
+                ELSE 'active' END AS status
+    FROM keys k
     JOIN scripts s ON s.id = k.script_id
     WHERE s.user_id = ?
   `),
@@ -1372,6 +1388,7 @@ local MSG = {
   TOKEN_INVALID = HEAD .. "Your session expired. Please rejoin.",
   UPDATE_REQUIRED = HEAD .. "Your loader is outdated.\\nPlease copy the loader URL again from the panel.",
   FORBIDDEN = HEAD .. "Access denied.",
+  EXEC_LIMIT = HEAD .. "This key reached its execution limit.",
 }
 local Players = game:GetService("Players")
 local function kick(code)
@@ -1605,6 +1622,9 @@ do
   _b4 = _as_h % 256
   _cs = string.format("%02x%02x%02x%02x", _b1, _b2, _b3, _b4)
 end
+-- Pide el codigo al servidor. Va en una funcion para poder reintentar cuando el token de sesion
+-- caduca entre la autenticacion y la entrega (el servidor contesta TOKEN_INVALID).
+local function _getCode()
 -- Contactar el servidor: POST con JSON (la key y el HWID NO viajan en la URL, no acaban en
 -- logs de proxy) con GET de respaldo para ejecutores sin request. Hasta 3 reintentos con
 -- espera con jitter (Railway puede tardar al arrancar).
@@ -1658,6 +1678,16 @@ if body:sub(1, #_tp) == _tp then
   end)
   if not _okp or type(_resp) ~= "table" or type(_resp.Body) ~= "string" then kick("SERVER_UNREACHABLE") end
   body = _resp.Body
+end
+  return body
+end
+local ok, body = pcall(_getCode)
+body = (ok and type(body) == "string") and body or nil
+if type(body) ~= "string" then kick("SERVER_UNREACHABLE") end
+-- Token de sesion caducado: una re-autenticacion y un reintento (el REAUTH de la referencia)
+if body:find("!VANTARMOR:TOKEN_INVALID", 1, true) == 1 then
+  local _ok2, _fresh = pcall(_getCode)
+  if _ok2 and type(_fresh) == "string" and _fresh:find("!VANTARMOR:TOKEN_INVALID", 1, true) ~= 1 then body = _fresh end
 end
 -- Entrega cifrada (v2): prefijo !VANTARMOR:ENC, luego key de 32 hex y ciphertext base64
 -- Descifrado en Lua puro SIN operadores de bits (no compilan en algunos executors moviles):
@@ -2399,6 +2429,52 @@ app.post('/v1/p', express.text({ type: () => true, limit: '1kb' }), (req, res) =
   return payloadHandler(req, res, row ? row.slug : '');
 });
 
+// Libreria de comprobacion de keys (equivalente a library.lua de la referencia): un script puede
+// validar la key y mostrar su propio mensaje antes de cargar, sin esperar al kick del loader.
+app.get('/v1/library.lua', (req, res) => {
+  res.type('text/plain').send(`-- VantArmor | libreria de keys
+-- Uso:
+--   local lib = loadstring(game:HttpGet("${APP_URL}/v1/library.lua"))()
+--   lib.script_id = "<ID del loader>"
+--   local st = lib.check_key(script_key)
+--   if st.code == "KEY_VALID" then lib.load_script() else print(st.code) end
+local LIB = { script_id = "", script_key = "", hwid = "" }
+local BASE = ${JSON.stringify(APP_URL)}
+pcall(function()
+  local _id = game:GetService("RbxAnalyticsService"):GetClientId()
+  if type(_id) == "string" then LIB.hwid = _id end
+end)
+local function _get(url) return game:HttpGet(url) end
+function LIB.check_key(key)
+  local st = { code = "UNKNOWN_ERROR", message = "Sin respuesta del servidor", data = {} }
+  local ok, body = pcall(function()
+    return _get(BASE .. "/v1/k?s=" .. tostring(LIB.script_id) .. "&key=" .. tostring(key or LIB.script_key or "") .. "&hwid=" .. tostring(LIB.hwid))
+  end)
+  if not ok or type(body) ~= "string" then return st end
+  local first = body:match("^[^\n]*") or ""
+  if first:sub(1, 11) ~= "!VANTARMOR:" then return st end
+  st.code = first:sub(12)
+  for k, v in body:gmatch("\n([%w_]+)=([^\n]*)") do st.data[k] = v end
+  st.data.auth_expire = tonumber(st.data.expires) or 0
+  st.data.total_executions = tonumber(st.data.execs) or 0
+  st.message = st.code
+  return st
+end
+-- Carga el script del panel con la key ya lista (equivale a load_script de la referencia)
+function LIB.load_script()
+  local key = LIB.script_key
+  if key == "" then key = tostring(script_key or "") end
+  script_key = key
+  local body = _get(BASE .. "/v1/l?s=" .. tostring(LIB.script_id) .. "&f=0&c=1")
+  if type(body) ~= "string" or body:sub(1, 12) ~= "-- VANTARMOR" then error("[VantArmor] loader no disponible", 0) end
+  local fn = loadstring(body)
+  if not fn then error("[VantArmor] loader invalido", 0) end
+  return fn()
+end
+return LIB
+`);
+});
+
 // Endpoint de verificación: lo llama el bootstrap. Responde el código del script o "!VANTARMOR:CODIGO".
 // Key usada desde otro equipo. Cada aviso cuenta como máximo una vez cada 10 minutos (un reintento del loader no suma).
 // 1.er aviso: privado al dueño de la key. 2.º: aviso fuerte. 3.er: la key se elimina y el usuario queda bloqueado en ese script.
@@ -2566,6 +2642,8 @@ const authHandler = (req, res, slug) => {
     }
   } else if (k.hwid !== hwid) return reportKeyShare(script, k, hwid, reply);
   }
+  // Limite de ejecuciones por key (opcional): al alcanzarlo la key deja de servir
+  if (k.exec_limit && (k.exec_count || 0) >= k.exec_limit) return reply('EXEC_LIMIT');
   // key_days (estilo de la referencia): key en stock sin fecha; el reloj arranca con la primera ejecucion valida
   if (!k.expires_at && k.key_days) {
     const _exp = Math.floor(Date.now() / 1000) + k.key_days * 86400;
@@ -2628,12 +2706,21 @@ app.get('/v1/k', (req, res) => {
   }
   if (k.banned) return replyK('KEY_BANNED');
   if (k.expires_at && k.expires_at * 1000 < Date.now()) return replyK('KEY_EXPIRED');
+  if (k.exec_limit && (k.exec_count || 0) >= k.exec_limit) return replyK('KEY_EXEC_LIMIT');
   if (script.hwid_lock !== 0) {
     const hwid = /^[\x21-\x7E]{8,128}$/.test(String(req.query.hwid || '')) ? String(req.query.hwid) : '';
     if (k.hwid && hwid && k.hwid !== hwid) return replyK('KEY_HWID_LOCKED');
     if (!k.hwid && k.last_hwid && hwid && k.last_hwid !== hwid && script.share_detection !== 0) return replyK('KEY_HWID_LOCKED');
   }
-  return replyK('KEY_VALID');
+  // Datos extra (estilo de la referencia): el script los lee sin pedir nada más
+  return res.type('text/plain').send([
+    '!VANTARMOR:KEY_VALID',
+    `expires=${k.expires_at || 0}`,
+    `execs=${k.exec_count || 0}`,
+    `limit=${k.exec_limit || 0}`,
+    `discord=${k.discord_id || ''}`,
+    'status=' + (k.hwid ? 'active' : 'reset'),
+  ].join('\n'));
 });
 
 app.get('/auth/logout', (req, res) => {
@@ -4124,6 +4211,32 @@ function banRoute(on) {
     res.json({ ok: true });
   };
 }
+// Reinicio de HWID (equivale a /resethwid de la referencia): limite por key y espera por script
+function resetKeyHwid(k, script, { force = false } = {}) {
+  const nowS = Math.floor(Date.now() / 1000);
+  const hours = Number(script?.hwid_reset_hours ?? 24) || 0;   // 0 = sin espera
+  const limit = Number(script?.hwid_reset_limit ?? 3) || 0;    // 0 = sin limite
+  if (!force && limit > 0 && (k.hwid_resets || 0) >= limit) {
+    return { error: `Esta key ya usó sus ${limit} reinicios de HWID. Súbelo en los ajustes del script o usa "forzar".`, status: 403 };
+  }
+  if (!force && hours > 0 && k.hwid_reset_at && nowS - k.hwid_reset_at < hours * 3600) {
+    const mins = Math.max(1, Math.ceil((hours * 3600 - (nowS - k.hwid_reset_at)) / 60));
+    return { error: `Todavía no: esta key puede reiniciar su HWID en ${mins} min.`, status: 429 };
+  }
+  db.prepare(`UPDATE keys SET hwid = NULL, last_hwid = COALESCE(hwid, last_hwid), pending_hwid = NULL,
+    hwid_reset_at = ?, hwid_resets = COALESCE(hwid_resets, 0) + 1 WHERE key = ?`).run(nowS, k.key);
+  return { ok: true, resets: (k.hwid_resets || 0) + 1 };
+}
+app.post('/api/keys/:key/reset-hwid', requireAuth, (req, res) => {
+  if (maintenanceBlock(req, res)) return;
+  const k = ownedKey.get(req.params.key, req.userId);
+  if (!k) return res.status(404).json({ error: 'Key no encontrada' });
+  const script = db.prepare('SELECT hwid_reset_hours, hwid_reset_limit FROM scripts WHERE id = ?').get(k.script_id);
+  const out = resetKeyHwid(k, script, { force: req.body?.force === true });
+  if (out.error) return res.status(out.status).json({ error: out.error });
+  fireWebhooks(ownerOfScript(k.script_id), 'key.hwid_reset', { key: k.key, scriptId: k.script_id, resets: out.resets });
+  res.json({ ok: true, resets: out.resets });
+});
 app.post('/api/keys/:key/ban', requireAuth, banRoute(true));
 app.post('/api/keys/:key/unban', requireAuth, banRoute(false));
 

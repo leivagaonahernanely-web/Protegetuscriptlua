@@ -187,6 +187,10 @@ function openCompactedDb() {
     const dir = path.dirname(DATABASE_PATH);
     const baseName = path.basename(DATABASE_PATH);
     for (const f of fs.readdirSync(dir)) {
+      // La copia "replaced" de una restauración se crea en ESTE mismo arranque (antes de esta limpieza):
+      // se conserva 2 días para poder volver atrás. Borrarla aquí perdía los datos de antes de restaurar.
+      const replacedStamp = /\.replaced-(\d+)/.exec(f);
+      if (replacedStamp && Date.now() - Number(replacedStamp[1]) < 2 * 86400_000) continue;
       if (f === baseName + '.import' || f.startsWith(baseName + '.replaced-') || f.startsWith(baseName + '.precompact')) {
         const p = path.join(dir, f);
         const s = fs.statSync(p).size;

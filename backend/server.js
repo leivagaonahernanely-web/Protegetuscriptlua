@@ -2040,7 +2040,9 @@ const payloadHandler = (req, res, slug) => {
 app.post('/scripts/hosted/:slug/payload', express.text({ type: () => true, limit: '1kb' }), (req, res) => payloadHandler(req, res, req.params.slug));
 // Ruta nueva: el bootstrap no lleva el slug. El token ya está atado a un script, así que se resuelve desde ahí.
 app.post('/v1/p', express.text({ type: () => true, limit: '1kb' }), (req, res) => {
-  const e = payloadTokens.get(String(req.body || '').trim());
+  // El cuerpo es "<token> <hwid>": solo el primer campo es el token (el bootstrap manda token + salto + HWID)
+  const _tok = String(req.body || '').trim().split(/\s+/)[0] || '';
+  const e = payloadTokens.get(_tok);
   const row = e ? db.prepare('SELECT slug FROM scripts WHERE id = ?').get(e.scriptId) : null;
   return payloadHandler(req, res, row ? row.slug : '');
 });

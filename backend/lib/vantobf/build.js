@@ -201,6 +201,7 @@ export function buildVantObf(source, seed, opts = {}) {
     layers: mode === 'high' ? 2 : 1,
     mangle: mode === 'high',
     junk: mode === 'high',
+    guard: typeof opts.guard === 'string' && /^[0-9a-f]{32}$/.test(opts.guard) ? opts.guard : '',
   });
   return { code, stats: { protos: countProtos(root), instrs: countInstrs(root), bytes: data.length, mode } };
 }

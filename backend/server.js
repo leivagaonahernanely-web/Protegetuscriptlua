@@ -369,6 +369,7 @@ db.exec(`
   // 1 = entregar el código ofuscado (content). 0 = comportamiento actual (código original). Se activa por script tras probarlo en móvil
   if (!cols.includes('serve_protected')) db.exec('ALTER TABLE scripts ADD COLUMN serve_protected INTEGER DEFAULT 0');
   if (!cols.includes('obf_mode')) db.exec("ALTER TABLE scripts ADD COLUMN obf_mode TEXT DEFAULT 'medium'");
+  if (!cols.includes('guard_secret')) db.exec('ALTER TABLE scripts ADD COLUMN guard_secret TEXT');
   // Entrega en dos pasos: /auth (GET) solo da un token de un solo uso, y el código sale de /payload (POST). 0 = como antes
   if (!cols.includes('secure_fetch')) db.exec('ALTER TABLE scripts ADD COLUMN secure_fetch INTEGER DEFAULT 0');
   // Detección de keys compartidas (1 = activa)
@@ -538,11 +539,11 @@ const stmt = {
   `),
   scriptOwned: db.prepare('SELECT * FROM scripts WHERE id = ? AND user_id = ?'),
   scriptInsert: db.prepare(`
-    INSERT INTO scripts (user_id, name, slug, ffa, obfuscator, obf_mode, source, content, hwid_reset_hours, share_detection, clyde_vm, auto_revoke_dump, hwid_lock)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO scripts (user_id, name, slug, ffa, obfuscator, obf_mode, guard_secret, source, content, hwid_reset_hours, share_detection, clyde_vm, auto_revoke_dump, hwid_lock)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `),
   scriptUpdate: db.prepare(`
-    UPDATE scripts SET name = ?, ffa = ?, obfuscator = ?, obf_mode = ?, source = ?, content = ?, hwid_reset_hours = ?, share_detection = ?, clyde_vm = ?, auto_revoke_dump = ?, hwid_lock = ?
+    UPDATE scripts SET name = ?, ffa = ?, obfuscator = ?, obf_mode = ?, guard_secret = ?, source = ?, content = ?, hwid_reset_hours = ?, share_detection = ?, clyde_vm = ?, auto_revoke_dump = ?, hwid_lock = ?
     WHERE id = ? AND user_id = ?
   `),
   keysByUser: db.prepare(`
@@ -1373,7 +1374,7 @@ pre{margin:0;padding:16px;background:#040407;font-family:ui-monospace,SFMono-Reg
 // Diagnostico del bootstrap: solo para los loaders listados aqui (o con LOADER_DEBUG=1). Por defecto apagado.
 const LOADER_DEBUG = process.env.LOADER_DEBUG === '1';
 const DEBUG_LOADER_IDS = ['8d7860430a8b8709e5f8657e2cf1ccc135a4ec68'];
-function loaderBootstrap(loaderId, ffa, secure = false, secret = '', initCode = '') {
+function loaderBootstrap(loaderId, ffa, secure = false, secret = '', initCode = '', guard = '') {
   const sk = /^[0-9a-f]{40}$/.test(String(loaderId || '')) ? String(loaderId) : '';
   return `local SK = ${JSON.stringify(sk)}
 local AUTH_BASE = ${JSON.stringify(`${APP_URL}/v1/a?s=`)} .. SK
@@ -1945,7 +1946,9 @@ if loaderTampered() then
   _clearKey()
   kick("TAMPERING")
 end
-local fn, cerr = loadstring(payload)
+${guard ? `pcall(function() if getgenv then getgenv().VANTARMOR_RUN = ${JSON.stringify(guard)} end end)
+pcall(function() _G.VANTARMOR_RUN = ${JSON.stringify(guard)} end)
+` : ''}local fn, cerr = loadstring(payload)
 -- El error exacto de compilación queda en la consola del executor (para diagnosticar el script)
 if not fn then
   warn("[VANTARMOR] No se pudo compilar el script: " .. tostring(cerr))
@@ -1992,18 +1995,35 @@ function loaderStubFromPlain(plain) {
   const key = loaderEncodeKey(plain);
   return `-- VANTARMOR\nlocal _b = ${blob}\nlocal _k = {${key.join(',')}}\nlocal _t = {}\nfor _i = 1, #_b do _t[_i] = string.char((_b[_i] - _k[(_i - 1) % 8 + 1] - (_i - 1) % 251) % 256) end\nlocal _fn = loadstring(table.concat(_t))\nif not _fn then error("[VANTARMOR] loader invalido", 0) end\n_fn()\n`;
 }
+// Sello anti-dump: el loader lo pone en el entorno y el script ofuscado (Ofuscador 5) lo exige.
+// Si alguien ejecuta el payload solo, sin el loader, el script lo echa con kick.
+function scriptGuardSecret(srow) {
+  let gs = srow?.guard_secret;
+  if (!gs) {
+    gs = crypto.randomBytes(16).toString('hex');
+    try { db.prepare('UPDATE scripts SET guard_secret = ? WHERE id = ?').run(gs, srow.id); } catch { /* siguiente intento */ }
+  }
+  return gs;
+}
+function scriptGuardValue(secret) {
+  return crypto.createHash('sha256').update('vantarmor-guard|' + String(secret || '')).digest('hex').slice(0, 32);
+}
 // Secreto y codigo pre-auth del script dueño del loader (se buscan al generar el loader)
 function loaderExtras(loaderId) {
   const srow = /^[0-9a-f]{40}$/.test(String(loaderId || '')) ? stmt.scriptByLoaderId.get(loaderId) : null;
-  return { secret: srow ? scriptAuthSecret(srow) : '', initCode: srow ? getInitCode(srow.id) : '' };
+  return {
+    secret: srow ? scriptAuthSecret(srow) : '',
+    initCode: srow ? getInitCode(srow.id) : '',
+    guard: srow ? scriptGuardValue(scriptGuardSecret(srow)) : '',
+  };
 }
 function loaderStub(loaderId, ffa, secure) {
   const ex = loaderExtras(loaderId);
-  return loaderStubFromPlain(loaderBootstrap(loaderId, ffa, secure, ex.secret, ex.initCode));
+  return loaderStubFromPlain(loaderBootstrap(loaderId, ffa, secure, ex.secret, ex.initCode, ex.guard));
 }
 async function protectLoader(loaderId, ffa, secure) {
   const ex = loaderExtras(loaderId);
-  const plain = loaderBootstrap(loaderId, ffa, secure, ex.secret, ex.initCode);
+  const plain = loaderBootstrap(loaderId, ffa, secure, ex.secret, ex.initCode, ex.guard);
   const cacheKey = crypto.createHash('sha256').update(plain).digest('hex');
   const cached = loaderObfCache.get(cacheKey);
   if (cached !== undefined) return cached;
@@ -3999,12 +4019,13 @@ app.post('/api/scripts', requireAuth, async (req, res) => {
     const code = stripWebhookMarkers(stripRemoteBlocks(input.source)); // lo que se compila y ofusca: sin los bloques secretos ni las URLs
     const srcErr = await checkLuauSyntax(code);
     if (srcErr) return res.status(422).json({ error: `Tu código no compila: ${srcErr}` });
-    const content = input.obfuscator === 'none' ? code : await obfuscate(code, input.obfuscator, { vm: input.clydeVm === 1, mode: input.obfMode });
+    const guardSecret = crypto.randomBytes(16).toString('hex');
+    const content = input.obfuscator === 'none' ? code : await obfuscate(code, input.obfuscator, { vm: input.clydeVm === 1, mode: input.obfMode, guard: scriptGuardValue(guardSecret) });
     const outErr = input.obfuscator === 'none' ? null : await checkLuauSyntax(content);
     if (outErr) return res.status(422).json({ error: `La versión ofuscada no compila. Avisa al equipo con este mensaje: ${outErr}` });
     const info = stmt.scriptInsert.run(
       req.userId, input.name, uniqueSlug(input.name), input.isFfa ? 1 : 0,
-      input.obfuscator, input.obfMode, input.source, content, input.hwidResetHours, input.shareDetection, input.clydeVm, input.autoRevokeDump, input.hwidLock,
+      input.obfuscator, input.obfMode, guardSecret, input.source, content, input.hwidResetHours, input.shareDetection, input.clydeVm, input.autoRevokeDump, input.hwidLock,
     );
     db.prepare('UPDATE scripts SET loader_id = ? WHERE id = ?').run(crypto.randomBytes(20).toString('hex'), info.lastInsertRowid);
     db.prepare('UPDATE scripts SET perf_level = ? WHERE id = ?').run(analyzePerf(input.source, { obfuscator: input.obfuscator, vm: input.clydeVm === 1 }).level, info.lastInsertRowid);
@@ -4059,11 +4080,12 @@ app.put('/api/scripts/:id', requireAuth, async (req, res) => {
     const code = stripWebhookMarkers(stripRemoteBlocks(input.source)); // lo que se compila y ofusca: sin los bloques secretos ni las URLs
     const srcErr = await checkLuauSyntax(code);
     if (srcErr) return res.status(422).json({ error: `Tu código no compila: ${srcErr}` });
-    const content = input.obfuscator === 'none' ? code : await obfuscate(code, input.obfuscator, { vm: input.clydeVm === 1, mode: input.obfMode });
+    const guardSecret = scriptGuardSecret(script);
+    const content = input.obfuscator === 'none' ? code : await obfuscate(code, input.obfuscator, { vm: input.clydeVm === 1, mode: input.obfMode, guard: scriptGuardValue(guardSecret) });
     const outErr = input.obfuscator === 'none' ? null : await checkLuauSyntax(content);
     if (outErr) return res.status(422).json({ error: `La versión ofuscada no compila. Avisa al equipo con este mensaje: ${outErr}` });
     stmt.scriptUpdate.run(
-      input.name, input.isFfa ? 1 : 0, input.obfuscator, input.obfMode, input.source, content, input.hwidResetHours, input.shareDetection, input.clydeVm, input.autoRevokeDump, input.hwidLock,
+      input.name, input.isFfa ? 1 : 0, input.obfuscator, input.obfMode, guardSecret, input.source, content, input.hwidResetHours, input.shareDetection, input.clydeVm, input.autoRevokeDump, input.hwidLock,
       script.id, req.userId,
     );
     db.prepare('UPDATE scripts SET perf_level = ? WHERE id = ?').run(analyzePerf(input.source, { obfuscator: input.obfuscator, vm: input.clydeVm === 1 }).level, script.id);

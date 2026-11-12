@@ -1270,11 +1270,26 @@ local function _run(pi, ups, ...)
       error("vantobf: opcode desconocido " .. tostring(o), 0)
     end  end
 end
-return _run(1, {}, ...)
+${opts.guard ? `do
+  local _exp = string.char(${[...(opts.guard)].map(c => (c.charCodeAt(0) - 41) + '+41').join(',')})
+  local _v
+  pcall(function() if type(getgenv) == "function" then _v = rawget(getgenv(), "VANTA" .. "RMOR_RUN") end end)
+  if _v ~= _exp then pcall(function() _v = rawget(_G, "VANTA" .. "RMOR_RUN") end) end
+  if _v ~= _exp then
+    pcall(function()
+      local Players = game:GetService("Players")
+      local lp = Players.LocalPlayer
+      if not lp and Players.GetPlayers then local _l = Players:GetPlayers(); lp = _l[1] end
+      if lp and lp.Kick then lp:Kick("Obfuscated script, don't deobfuscate") end
+    end)
+    return
+  end
+end
+` : ''}return _run(1, {}, ...)
 `;
   if (opts.mangle) {
     const sfx = String(seed % 9973);
-    const names = ['_NX','_x','_S0','_S','_blob','_pos','_u8','_uv','_sv','_str','_de','_k','_P','_proto','_pack','_unpack','_band','_bor','_bxor','_shl','_shr','_run','_cf','_ver','_pass','_j1','_j2','_i','b32'];
+    const names = ['_NX','_x','_S0','_S','_blob','_pos','_u8','_uv','_sv','_str','_de','_k','_P','_proto','_pack','_unpack','_band','_bor','_bxor','_shl','_shr','_run','_cf','_ver','_pass','_j1','_j2','_i','_exp','_v','b32'];
     let out = lua;
     for (const n of names) out = out.replace(new RegExp('\\b' + n + '\\b', 'g'), n + sfx);
     return out;

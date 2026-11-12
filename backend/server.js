@@ -2476,12 +2476,12 @@ const payloadHandler = (req, res, slug) => {
   // El token vale para este script, una vez y 30 s
   // No se compara la IP: en móviles el GET y el POST pueden salir por IPs distintas (cambio de Wi-Fi a datos)
   if (!entry || entry.expires < Date.now() || !script || script.id !== entry.scriptId || (entry.ver || 0) < 3) {
-    // Señuelo: a la IP que insiste con tokens inválidos se le entrega una traza falsa (sin código real).
-    // El primer intento fallido sigue recibiendo TOKEN_INVALID, así un cliente legítimo con token vencido lo ve claro.
+    // Señuelo: solo para herramientas claras (curl, python, etc.). Un ejecutor legítimo nunca recibe la
+    // traza falsa: si su token vence o falla, ve TOKEN_INVALID ("Verification failed. Please rejoin.").
     const _motivo = !entry ? 'token desconocido (revocado, consumido o de otro deploy)' : entry.expires < Date.now() ? 'token vencido' : !script ? 'script no encontrado' : script.id !== entry.scriptId ? 'token de otro script' : 'ver<3';
     console.warn('[payload fail] slug=%s ip=%s motivo=%s ua=%s', slug, req.ip, _motivo, String(req.get('user-agent') || '').slice(0, 80));
     noteAuthFail(req.ip);
-    if ((authFails.get(req.ip)?.count || 0) >= 3) {
+    if (isLoaderProbe(req) && (authFails.get(req.ip)?.count || 0) >= 3) {
       console.warn('[Señuelo] slug=%s ip=%s ua=%s', slug, req.ip, String(req.get('user-agent') || '').slice(0, 80));
       return res.type('text/plain').send('!VANTARMOR:CODE\n' + makeDecoyTrace());
     }

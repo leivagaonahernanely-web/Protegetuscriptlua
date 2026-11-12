@@ -475,6 +475,8 @@ db.exec(`CREATE TABLE IF NOT EXISTS support_messages (
   id INTEGER PRIMARY KEY AUTOINCREMENT, ticket_id INTEGER NOT NULL, author_id TEXT, is_staff INTEGER DEFAULT 0, body TEXT NOT NULL, created_at INTEGER)`);
 db.exec('CREATE INDEX IF NOT EXISTS support_messages_by_ticket ON support_messages(ticket_id)');
 db.exec('CREATE TABLE IF NOT EXISTS admin_audit (id INTEGER PRIMARY KEY AUTOINCREMENT, actor_id TEXT, action TEXT, target TEXT, detail TEXT, created_at INTEGER)');
+// Cada arranque del servicio deja una fila: el panel admin ve el historial de deploys
+ db.exec(`CREATE TABLE IF NOT EXISTS app_deploys (id INTEGER PRIMARY KEY AUTOINCREMENT, deployment_id TEXT, commit_sha TEXT, started_at INTEGER NOT NULL)`);
 const appGet = (name, def = '') => db.prepare('SELECT value FROM app_settings WHERE name = ?').get(name)?.value ?? def;
 const appSet = (name, value) => db.prepare('INSERT INTO app_settings (name, value) VALUES (?, ?) ON CONFLICT(name) DO UPDATE SET value = excluded.value').run(name, String(value));
 const auditLog = (actorId, action, target = '', detail = '') => db.prepare('INSERT INTO admin_audit (actor_id, action, target, detail, created_at) VALUES (?, ?, ?, ?, ?)')
@@ -529,6 +531,79 @@ const stmt = {
 };
 
 // ==========================================
+// 1b. MANTENIMIENTO GLOBAL + PANEL DE ADMIN
+// ==========================================
+// Dos interruptores independientes guardados en app_settings:
+//   maintenance        -> el SITIO (paginas web y /api) responde 404 con una pantalla bonita
+//   maintenance_loader -> los LOADERS (/scripts/hosted, /files/v1/loaders, /v1/l, /v1/a, /auth)
+//                         responden con un print() de Lua para que loadstring lo muestre.
+// El panel /admin solo entra con una sesion de Discord cuyo ID este en ADMIN_DISCORD_IDS.
+const BOOT_AT = Date.now();
+const ADMIN_DISCORD_IDS = ['1501316920975036611', '1521690277436198983'];
+
+function maintenanceState() {
+  return {
+    site: appGet('maintenance') === '1',
+    loader: appGet('maintenance_loader') === '1',
+    message: appGet('maintenance_msg') || '',
+  };
+}
+
+const MAINTENANCE_HTML = `<!doctype html>
+<html lang="es"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>404 · En mantenimiento</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body {
+    font-family: 'Inter', system-ui, sans-serif; color: #fff; background: #000;
+    display: flex; align-items: center; justify-content: center; min-height: 100vh; padding: 24px;
+    background-image: radial-gradient(circle at 15% 50%, rgba(255,255,255,.04) 0%, transparent 50%),
+                      radial-gradient(circle at 85% 30%, rgba(255,255,255,.03) 0%, transparent 50%);
+  }
+  .card {
+    max-width: 460px; width: 100%; text-align: center; padding: 48px 36px;
+    background: linear-gradient(145deg, rgba(28,28,33,.55), rgba(10,10,12,.85));
+    border: 1px solid rgba(255,255,255,.08); border-radius: 20px;
+  }
+  .code { font-family: 'JetBrains Mono', monospace; font-size: 13px; color: #8a8a94; letter-spacing: .3em; }
+  h1 { font-size: 28px; margin: 14px 0 10px; font-weight: 700; }
+  p { color: #bcbcc4; line-height: 1.6; font-size: 15px; }
+  a { display: inline-block; margin-top: 24px; padding: 10px 22px; border-radius: 10px;
+      background: #fff; color: #000; text-decoration: none; font-weight: 600; font-size: 14px; }
+  .glow { width: 46px; height: 46px; margin: 0 auto 18px; border-radius: 50%;
+          background: radial-gradient(circle at 35% 30%, #fff, #5b5b66 70%);
+          box-shadow: 0 0 34px rgba(255,255,255,.35); }
+</style></head>
+<body><div class="card">
+  <div class="glow"></div>
+  <div class="code">404</div>
+  <h1>Estamos en mantenimiento</h1>
+  <p>VantArmor vuelve en un rato. Si necesitas algo mientras tanto, entra al servidor de Discord para las novedades.</p>
+  <a href="https://discord.gg/aKQNc6pC">Ir al Discord</a>
+</div></body></html>`;
+
+// Rutas de loader: la respuesta depende del interruptor de loaders (print de Lua)
+const LOADER_PATH_RE = /^\/(v1\/l|v1\/a|scripts\/hosted\/[^/]+(\/auth|\/remote)?|files\/v1\/loaders\/[^/]+)\/?$/;
+
+app.use((req, res, next) => {
+  const m = maintenanceState();
+  if (!m.site && !m.loader) return next();
+  // El panel y sus API nunca se bloquean: ahi se apagan los interruptores
+  if (req.path === '/admin' || req.path.startsWith('/api/admin')) return next();
+  if (m.loader && LOADER_PATH_RE.test(req.path)) {
+    const msg = (m.message || 'Estamos en mantenimiento. Unete al discord para novedades: discord.gg/aKQNc6pC').replace(/"/g, "'");
+    return res.status(503).type('text/plain').send(`print("[VantArmor] ${msg}")`);
+  }
+  if (m.site) {
+    if (req.path.startsWith('/api/')) return res.status(404).json({ status: 'error', code: 404, message: 'Not found' });
+    return res.status(404).type('html').send(MAINTENANCE_HTML);
+  }
+  next();
+});
+
+// ==========================================
 // 2. FRONTEND (carpeta 'frontend')
 // ==========================================
 // Páginas con URL limpia (sin .html). Las direcciones antiguas con .html redirigen a la limpia.
@@ -541,6 +616,7 @@ const CLEAN_PAGES = {
   '/privacidad': 'privacidad.html',
   '/soporte': 'soporte.html',
   '/errores': 'errores.html',
+  '/admin': 'admin.html',
 };
 const LEGACY_HTML = /^\/(index|login|dashboard|terminos|privacidad|soporte|errores)\.html$/;
 app.use((req, res, next) => {
@@ -1672,7 +1748,9 @@ app.get('/v1/l', async (req, res) => {
   if (isLoaderProbe(req)) return sendLoaderDecoy(req, res);
   const loaderId = String(req.query.s || '');
   if (!/^[0-9a-f]{40}$/.test(loaderId)) return res.status(404).type('text/plain').send('-- script no encontrado');
-  return serveLoaderFile(res, loaderId, req.query.f === '1', req.query.c === '1');
+  // Aqui va el bootstrap REAL (proteger y entregar). NUNCA serveLoaderFile: con la entrega en dos
+  // pasos activa, ese devolveria otro stub y el loader se quedaria dando vueltas sin ejecutar.
+  return res.type('text/plain').send(await protectLoader(loaderId, req.query.f === '1', req.query.c === '1'));
 });
 
 // Tokens de un solo uso para entregar el código: /auth los emite, /payload los consume.
@@ -2652,6 +2730,59 @@ function requireOwner(req, res, next) {
   if (!isOwnerId(req.userId)) return res.status(403).json({ error: 'Solo el dueño puede ver esto' });
   next();
 }
+
+// ---- Panel de admin global (/admin): solo los Discord IDs de ADMIN_DISCORD_IDS ----
+function requireAdminUser(req, res, next) {
+  const token = (req.get('authorization') || '').replace(/^Bearer /, '');
+  const expected = process.env.ADMIN_API_TOKEN || '';
+  if (expected && token && token.length === expected.length
+      && crypto.timingSafeEqual(Buffer.from(token), Buffer.from(expected))) return next();
+  return requireAuth(req, res, () => {
+    if (!ADMIN_DISCORD_IDS.includes(String(req.userId))) return res.status(403).json({ error: 'No tienes acceso al panel de admin' });
+    next();
+  });
+}
+
+function adminAudit(actorId, action, detail) {
+  try { db.prepare('INSERT INTO admin_audit (actor_id, action, target, detail, created_at) VALUES (?, ?, ?, ?, ?)').run(String(actorId), action, String(detail || ''), Date.now()); } catch { /* el log nunca rompe la peticion */ }
+}
+
+app.get('/api/admin/overview', requireAdminUser, (req, res) => {
+  const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/Guayaquil' });
+  const one = q => db.prepare(q).get().n;
+  res.json({
+    me: req.userId,
+    maintenance: maintenanceState(),
+    deploy: {
+      deployment_id: process.env.RAILWAY_DEPLOYMENT_ID || null,
+      commit: process.env.RAILWAY_GIT_COMMIT_SHA || null,
+      environment: process.env.RAILWAY_ENVIRONMENT_NAME || null,
+      started_at: BOOT_AT,
+      uptime_s: Math.floor(process.uptime()),
+      node: process.version,
+    },
+    deploys: db.prepare('SELECT id, deployment_id, commit_sha, started_at FROM app_deploys ORDER BY started_at DESC LIMIT 10').all(),
+    stats: {
+      users: one('SELECT COUNT(*) n FROM users'),
+      scripts: one('SELECT COUNT(*) n FROM scripts'),
+      keys_active: one('SELECT COUNT(*) n FROM keys WHERE banned = 0'),
+      exec_today: one(`SELECT COALESCE(SUM(n), 0) n FROM execution_daily WHERE day = '${today}'`),
+      loader_downloads_24h: one(`SELECT COUNT(*) n FROM loader_downloads WHERE created_at >= ${Date.now() - 24 * 3600 * 1000}`),
+      tickets_open: one(`SELECT COUNT(*) n FROM support_tickets WHERE status = 'open'`),
+      custom_pending: one(`SELECT COUNT(*) n FROM custom_plan_requests WHERE status = 'pending'`),
+    },
+    audit: db.prepare('SELECT actor_id, action, detail, created_at FROM admin_audit ORDER BY id DESC LIMIT 15').all(),
+  });
+});
+
+app.post('/api/admin/maintenance', requireAdminUser, (req, res) => {
+  const b = req.body || {};
+  if (typeof b.site === 'boolean') appSet('maintenance', b.site ? '1' : '0');
+  if (typeof b.loader === 'boolean') appSet('maintenance_loader', b.loader ? '1' : '0');
+  if (typeof b.message === 'string') appSet('maintenance_msg', b.message.slice(0, 200));
+  adminAudit(req.userId, 'maintenance', `site=${maintenanceState().site ? 'on' : 'off'} loader=${maintenanceState().loader ? 'on' : 'off'}`);
+  res.json({ ok: true, maintenance: maintenanceState() });
+});
 // ---- Solicitudes Custom (solo dueño) ----
 app.get('/api/owner/custom-requests', requireOwnerApi, (req, res) => {
   res.json(db.prepare(`SELECT r.id, r.user_id, u.username, r.scripts, r.obfuscations, r.panels, r.payment_method, r.contact, r.status, r.created_at, r.decided_at
@@ -3774,6 +3905,11 @@ app.use((err, req, res, next) => {
     error: err?.status && err.expose ? err.message : 'Error del servidor. Inténtalo de nuevo.',
   });
 });
+
+try {
+  db.prepare('INSERT INTO app_deploys (deployment_id, commit_sha, started_at) VALUES (?, ?, ?)')
+    .run(process.env.RAILWAY_DEPLOYMENT_ID || null, process.env.RAILWAY_GIT_COMMIT_SHA || null, BOOT_AT);
+} catch (err) { console.error('[Deploys] No se pudo registrar el arranque:', err.message); }
 
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`✅ Servidor Vantarmor corriendo en el puerto ${PORT}`);

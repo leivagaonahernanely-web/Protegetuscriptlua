@@ -1,0 +1,185 @@
+<!doctype html>
+<html lang="es"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VantArmor · Admin</title>
+<link rel="icon" href="/favicon-64.png">
+<style>
+  :root {
+    --panel: #0b0b0e; --border: rgba(255,255,255,.08); --text-dim: #8a8a94; --text-soft: #bcbcc4;
+    --ok: #4ade80; --bad: #f87171; --warn: #fbbf24;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { min-height: 100%; }
+  body {
+    font-family: 'Inter', system-ui, sans-serif; background: #000; color: #fff;
+    -webkit-font-smoothing: antialiased; padding: 32px 20px 60px;
+    background-image: radial-gradient(circle at 15% 50%, rgba(255,255,255,.03) 0%, transparent 50%),
+                      radial-gradient(circle at 85% 30%, rgba(255,255,255,.02) 0%, transparent 50%);
+  }
+  .wrap { max-width: 880px; margin: 0 auto; }
+  header { display: flex; align-items: center; gap: 12px; margin-bottom: 28px; }
+  .brand-icon { width: 38px; height: 38px; border-radius: 10px; background: linear-gradient(145deg, rgba(28,28,33,.55), rgba(10,10,12,.85)); border: 1px solid var(--border); display: flex; align-items: center; justify-content: center; font-weight: 800; }
+  h1 { font-size: 20px; font-weight: 700; }
+  h1 span { color: var(--text-dim); font-weight: 500; }
+  .card { background: linear-gradient(145deg, rgba(28,28,33,.55), rgba(10,10,12,.85)); border: 1px solid var(--border); border-radius: 16px; padding: 20px; margin-bottom: 16px; }
+  .card h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .12em; color: var(--text-dim); margin-bottom: 14px; font-weight: 600; }
+  .row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 0; border-top: 1px solid var(--border); }
+  .row:first-of-type { border-top: none; }
+  .row .label { font-size: 14px; }
+  .row .label small { display: block; color: var(--text-dim); font-size: 12px; margin-top: 2px; }
+  .pill { font-size: 12px; font-weight: 700; padding: 4px 10px; border-radius: 999px; }
+  .pill.on { background: rgba(239,68,68,.14); color: var(--bad); }
+  .pill.off { background: rgba(34,197,94,.14); color: var(--ok); }
+  .switch { position: relative; width: 44px; height: 24px; border-radius: 999px; background: rgba(255,255,255,.12); transition: background .2s; flex: none; }
+  .switch::after { content: ''; position: absolute; top: 3px; left: 3px; width: 18px; height: 18px; border-radius: 50%; background: #fff; transition: transform .2s; }
+  .switch.on { background: rgba(239,68,68,.5); }
+  .switch.on::after { transform: translateX(20px); }
+  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
+  .stat { background: rgba(255,255,255,.03); border: 1px solid var(--border); border-radius: 12px; padding: 14px; }
+  .stat b { display: block; font-size: 22px; font-weight: 700; }
+  .stat span { font-size: 12px; color: var(--text-dim); }
+  .kv { display: grid; grid-template-columns: max-content 1fr; gap: 6px 16px; font-size: 13.5px; }
+  .kv dt { color: var(--text-dim); }
+  .kv dd { word-break: break-all; }
+  ul.list { list-style: none; }
+  ul.list li { display: flex; gap: 10px; align-items: baseline; padding: 7px 0; border-top: 1px solid var(--border); font-size: 13px; flex-wrap: wrap; }
+  ul.list li:first-child { border-top: none; }
+  .mono { font-family: 'JetBrains Mono', monospace; font-size: 12px; }
+  .dim { color: var(--text-dim); }
+  .msg { width: 100%; margin-top: 12px; background: rgba(255,255,255,.04); border: 1px solid var(--border); border-radius: 10px; color: #fff; padding: 10px 12px; font-size: 13px; resize: vertical; min-height: 40px; }
+  .btn { display: inline-block; margin-top: 12px; padding: 9px 20px; border-radius: 10px; background: #fff; color: #000; font-weight: 600; font-size: 13px; border: none; cursor: pointer; }
+  .gate { text-align: center; padding: 70px 24px; }
+  .gate h1 { font-size: 24px; margin-bottom: 10px; }
+  .gate p { color: var(--text-soft); margin-bottom: 22px; }
+  .gate a { display: inline-block; padding: 11px 24px; border-radius: 10px; background: #fff; color: #000; text-decoration: none; font-weight: 600; }
+  [hidden] { display: none !important; }
+</style></head>
+<body>
+<div class="wrap">
+  <div id="gate401" class="card gate" hidden>
+    <h1>Admin</h1>
+    <p>Inicia sesion con Discord para entrar al panel.</p>
+    <a href="/login">Iniciar sesion</a>
+  </div>
+  <div id="gate403" class="card gate" hidden>
+    <h1>Acceso restringido</h1>
+    <p>Solo los administradores pueden entrar aqui.</p>
+    <a href="/">Volver al inicio</a>
+  </div>
+
+  <div id="panel" hidden>
+    <header>
+      <div class="brand-icon">V</div>
+      <h1>VantArmor <span>· Admin</span></h1>
+    </header>
+
+    <div class="card">
+      <h2>Mantenimiento</h2>
+      <div class="row">
+        <div class="label">Sitio web<small>Todas las paginas y /api responden 404 con pantalla de mantenimiento</small></div>
+        <div style="display:flex; align-items:center; gap:10px;">
+          <span id="sitePill" class="pill off">OFF</span>
+          <div id="siteSw" class="switch" onclick="toggleMaint('site')"></div>
+        </div>
+      </div>
+      <div class="row">
+        <div class="label">Loaders / loadstring<small>Los loaders responden con print() y dejan de entregar codigo</small></div>
+        <div style="display:flex; align-items:center; gap:10px;">
+          <span id="loaderPill" class="pill off">OFF</span>
+          <div id="loaderSw" class="switch" onclick="toggleMaint('loader')"></div>
+        </div>
+      </div>
+      <textarea id="maintMsg" class="msg" placeholder="Mensaje personalizado (opcional). Se usa en el print del loader y en el sitio."></textarea>
+      <button class="btn" onclick="saveMaint()">Guardar mensaje</button>
+    </div>
+
+    <div class="card">
+      <h2>Deploy actual</h2>
+      <dl class="kv">
+        <dt>Commit</dt><dd id="dCommit" class="mono">-</dd>
+        <dt>Deployment</dt><dd id="dDeploy" class="mono">-</dd>
+        <dt>Entorno</dt><dd id="dEnv">-</dd>
+        <dt>Arrancado</dt><dd id="dStart">-</dd>
+        <dt>Uptime</dt><dd id="dUp">-</dd>
+        <dt>Node</dt><dd id="dNode" class="mono">-</dd>
+      </dl>
+    </div>
+
+    <div class="card">
+      <h2>Deploys recientes</h2>
+      <ul class="list" id="deploys"></ul>
+    </div>
+
+    <div class="card">
+      <h2>Resumen</h2>
+      <div class="stats" id="stats"></div>
+    </div>
+
+    <div class="card">
+      <h2>Ultimas acciones de admin</h2>
+      <ul class="list" id="audit"></ul>
+    </div>
+  </div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const fmt = ts => ts ? new Date(Number(ts)).toLocaleString('es-EC', { hour12: true }) : '-';
+function up(s) { const h = Math.floor(s/3600), m = Math.floor((s%3600)/60); return (h ? h + 'h ' : '') + m + 'm'; }
+
+let state = { site: false, loader: false, message: '' };
+function paintMaint() {
+  for (const k of ['site', 'loader']) {
+    $(k + 'Sw').classList.toggle('on', state[k]);
+    $(k + 'Pill').textContent = state[k] ? 'ON' : 'OFF';
+    $(k + 'Pill').className = 'pill ' + (state[k] ? 'on' : 'off');
+  }
+  if (!$('maintMsg').value) $('maintMsg').value = state.message || '';
+}
+async function toggleMaint(kind) {
+  const body = {}; body[kind] = !state[kind];
+  const r = await fetch('/api/admin/maintenance', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  if (r.ok) { const j = await r.json(); state = { ...state, ...j.maintenance }; paintMaint(); }
+}
+async function saveMaint() {
+  const r = await fetch('/api/admin/maintenance', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ message: $('maintMsg').value }) });
+  if (r.ok) { const j = await r.json(); state = { ...state, ...j.maintenance }; paintMaint(); $('maintMsg').value = state.message || ''; }
+}
+
+(async () => {
+  const r = await fetch('/api/admin/overview');
+  if (r.status === 401) { $('gate401').hidden = false; return; }
+  if (r.status === 403) { $('gate403').hidden = false; return; }
+  if (!r.ok) { $('gate403').hidden = false; return; }
+  const j = await r.json();
+  $('panel').hidden = false;
+
+  state = { ...state, ...j.maintenance };
+  $('maintMsg').value = state.message || '';
+  paintMaint();
+
+  $('dCommit').textContent = j.deploy.commit ? j.deploy.commit.slice(0, 7) : 'no disponible';
+  $('dDeploy').textContent = j.deploy.deployment_id || 'no disponible';
+  $('dEnv').textContent = j.deploy.environment || 'no disponible';
+  $('dStart').textContent = fmt(j.deploy.started_at);
+  $('dUp').textContent = up(j.deploy.uptime_s);
+  $('dNode').textContent = j.deploy.node;
+
+  $('deploys').innerHTML = j.deploys.length ? j.deploys.map(d =>
+    `<li><span class="mono">${d.commit_sha ? d.commit_sha.slice(0, 7) : 'sin commit'}</span><span class="dim">${fmt(d.started_at)}</span><span class="dim mono">${d.deployment_id || ''}</span></li>`).join('')
+    : '<li class="dim">Aun no hay deploys registrados</li>';
+
+  const S = j.stats;
+  $('stats').innerHTML = [
+    ['Usuarios', S.users], ['Scripts', S.scripts], ['Keys activas', S.keys_active],
+    ['Ejecuciones hoy', S.exec_today], ['Descargas loader 24h', S.loader_downloads_24h],
+    ['Tickets abiertos', S.tickets_open], ['Custom pendientes', S.custom_pending],
+  ].map(([l, v]) => `<div class="stat"><b>${v}</b><span>${l}</span></div>`).join('');
+
+  $('audit').innerHTML = j.audit.length ? j.audit.map(a =>
+    `<li><span class="mono">${a.actor_id}</span><span>${a.action}</span><span class="dim">${a.detail}</span><span class="dim">${fmt(a.created_at)}</span></li>`).join('')
+    : '<li class="dim">Sin acciones registradas</li>';
+})();
+</script>
+</body></html>

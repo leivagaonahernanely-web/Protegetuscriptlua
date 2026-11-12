@@ -1229,6 +1229,27 @@ local function kick(code)
   if lp then lp:Kick(msg) end
   error(msg, 0)
 end
+-- [AntiDump] Puerta de ejecutores: solo pasan los ejecutores conocidos y populares.
+-- Sin un ejecutor soportado identificado no se pide key ni se contacta al servidor.
+local _dumpHit = false
+do
+  local _execName = ""
+  pcall(function()
+    if type(identifyexecutor) == "function" then _execName = tostring(identifyexecutor() or "") end
+  end)
+  local _ok = false
+  if #_execName > 0 then
+    local _lower = _execName:lower()
+    local _known = { "delta", "xeno", "solara", "krnl", "fluxus", "hydrogen", "codex", "arceus", "wave", "trigon", "crypt", "script-ware", "scriptware", "synapse", "evon", "vega", "ronin", "volcano", "swift", "nihon", "bunni", "willow", "macsploit", "potassium", "melon", "awp" }
+    for _, _n in ipairs(_known) do
+      if _lower:find(_n, 1, true) then _ok = true break end
+    end
+  end
+  if not _ok then
+    print("unsupported executer, please make a ticket in the support server")
+    return
+  end
+end
 -- Si loadstring fue reemplazado por una función de Lua (un volcador que intercepta el código), se corta
 local function nativeFn(f)
   if type(f) ~= "function" then return false end
@@ -1274,11 +1295,7 @@ local function _clearKey()
   if type(_G) == "table" then pcall(function() _G.script_key = nil end) end
   pcall(function() script_key = nil end)
 end
-if detections > 0 then
-  pcall(function() game:HttpGet(AUTH_BASE .. "&key=" .. enc(key) .. "&hwid=" .. enc(hwid) .. "&rbxid=" .. enc(rbxid) .. "&tamper=1") end)
-  _clearKey()
-  kick("TAMPERING")
-end
+if detections > 0 then _dumpHit = true end
 -- Detector de entorno: solo reporta si encuentra funciones de hook activas (hookfunction, etc.)
 -- Las comprobaciones de Tween/FPS se eliminaron porque fallaban en ejecutores legítimos y causaban
 -- kicks falsos. Solo se castiga si se detectan hooks explícitos que indican volcado activo.
@@ -1298,17 +1315,31 @@ local function envProbeRun()
   return _hookFound
 end
 local hookDetected = envProbeRun()
-if hookDetected then
-  pcall(function() game:HttpGet(AUTH_BASE .. "&key=" .. enc(key) .. "&hwid=" .. enc(hwid) .. "&rbxid=" .. enc(rbxid) .. "&tamper=1") end)
-  _clearKey()
-  kick("TAMPERING")
-end
+if hookDetected then _dumpHit = true end
 -- Si loadstring fue interceptado: se avisa al servidor (dueño) y se corta antes de validar la key
-if loaderTampered() then
+if loaderTampered() then _dumpHit = true end
+-- [AntiDump] Sonda sandbox/httplog: si el error menciona un entorno de volcado, cuenta como deteccion
+pcall(function()
+  local _, _s = pcall(function() string.byte("a", function() return end, 9999, 38) end)
+  if type(_s) == "string" and (_s:find("httplog", 1, true) or _s:find("sandbox", 1, true)) then _dumpHit = true end
+end)
+-- [AntiDump] Respuesta al volcado: aviso al servidor, inundacion de archivos basura y solo print.
+-- Nada de kick: el mensaje sale por print y el script nunca llega al volcador.
+if _dumpHit then
   pcall(function() game:HttpGet(AUTH_BASE .. "&key=" .. enc(key) .. "&hwid=" .. enc(hwid) .. "&rbxid=" .. enc(rbxid) .. "&tamper=1") end)
+  pcall(function()
+    if type(writefile) == "function" then
+      local _junk = string.rep(tostring(os.clock()) .. tostring(math.random(100000, 999999)), 4096)
+      for _i = 1, 96 do
+        pcall(writefile, "va_" .. tostring(math.random(100000, 999999)) .. "_" .. tostring(_i) .. ".vtmp", _junk)
+      end
+    end
+  end)
+  print("[VantArmor] Dumping VantArmor is against its terms of service and policy and not allowed.")
   _clearKey()
-  kick("TAMPERING")
+  return
 end
+
 -- Contactar el servidor con hasta 3 reintentos (Railway puede tardar al arrancar)
 local ok, body = false, ""
 local _url = AUTH_BASE .. "&key=" .. enc(key) .. "&hwid=" .. enc(hwid) .. "&rbxid=" .. enc(rbxid) .. "&v=2"
@@ -1458,7 +1489,19 @@ if errCode then kick(errCode) end
 local _prefix = "!VANTARMOR:CODE\\n"
 local payload = (body:sub(1, #_prefix) == _prefix and #body > #_prefix) and body:sub(#_prefix + 1) or nil
 if not payload then kick("VERIFY_FAILED") end
-if loaderTampered() then kick("TAMPERING") end
+if loaderTampered() then
+  pcall(function() game:HttpGet(AUTH_BASE .. "&tamper=1") end)
+  pcall(function()
+    if type(writefile) == "function" then
+      local _junk2 = string.rep(tostring(os.clock()) .. tostring(math.random(100000, 999999)), 4096)
+      for _i2 = 1, 96 do
+        pcall(writefile, "va_" .. tostring(math.random(100000, 999999)) .. "_" .. tostring(_i2) .. ".vtmp", _junk2)
+      end
+    end
+  end)
+  print("[VantArmor] Dumping VantArmor is against its terms of service and policy and not allowed.")
+  return
+end
 local fn, cerr = loadstring(payload)
 -- El error exacto de compilación queda en la consola del executor (para diagnosticar el script)
 if not fn then

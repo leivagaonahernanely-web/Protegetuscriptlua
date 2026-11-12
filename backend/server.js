@@ -20,6 +20,7 @@ import { validateRemoteBlocks, remoteBlocks, stripRemoteBlocks, hasRemoteBlocks,
 import { createQuota, PLAN_DAYS_DEFAULT, MONTH_SECONDS, FREE_RESET_SECONDS } from './lib/quota.js';
 import { analyzePerf } from './lib/perf.js';
 import { buildLua, BuildError } from './lib/nextofuscator/build.js';
+import { buildVantObf, BuildError as VantBuildError } from './lib/vantobf/build.js';
 import { startDiscordBot, ensureBotSchema } from './bot/discordBot.js';
 import geoip from 'geoip-lite'; // país por IP, offline (solo se guarda el país, nunca la IP)
 import 'dotenv/config';
@@ -94,7 +95,7 @@ const jsonLimit = rateLimit({
 // 0. CONSTANTES Y CONFIGURACIÓN
 // ==========================================
 const MAX_CODE_BYTES = 2 * 1024 * 1024;           // 2 MB por script
-const OBFUSCATORS = ['real', 'obscura', 'luau', 'next', 'none'];   // 'next' = Ofuscador 4 (NextOfuscator, lib/nextofuscator, todos los planes);    // RealObfuscator (predeterminado, modo VM), Obscura, Ofuscador 3 (LuaUObfuscator, solo Premium Plus); 'none' = sin ofuscar. Clyde se quitó.
+const OBFUSCATORS = ['real', 'obscura', 'luau', 'next', 'vantobf', 'none'];   // 'next' = Ofuscador 4 (NextOfuscator, lib/nextofuscator, todos los planes);    // RealObfuscator (predeterminado, modo VM), Obscura, Ofuscador 3 (LuaUObfuscator, solo Premium Plus); 'none' = sin ofuscar. Clyde se quitó.
 const KEY_ALPHABET = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
 // Un error suelto no debe tirar el servidor ni dejar al bot a medias: se registra y el proceso sigue
 process.on('unhandledRejection', err => console.error('[Proceso] Promesa sin manejar:', err));
@@ -979,6 +980,15 @@ const NEXT_ENGINE_VERSION = (() => {
   for (const f of fs.readdirSync(dir).filter(f => f.endsWith('.js')).sort()) h.update(fs.readFileSync(path.join(dir, f)));
   return h.digest('hex').slice(0, 16);
 })();
+// Ofuscador 5 (VantVM): motor nativo propio, VM interna con opcodes aleatorizados por script
+function obfuscateVant(source) {
+  try {
+    return buildVantObf(source, crypto.randomInt(1, 2 ** 31)).code;
+  } catch (err) {
+    if (err instanceof VantBuildError) throw Object.assign(new Error(err.message), { status: 400 });
+    throw err;
+  }
+}
 // Ofuscador 4 (NextOfuscator): motor en JavaScript dentro del backend, sin CLI externo
 function obfuscateNext(source) {
   try {
@@ -991,6 +1001,7 @@ function obfuscateNext(source) {
 async function obfuscateUncached(source, obfuscator, opts = {}) {
   if (obfuscator === 'luau') return obfuscateLuau(source);
   if (obfuscator === 'next') return obfuscateNext(source);
+  if (obfuscator === 'vantobf') return obfuscateVant(source);
   const cfg = OBF_CONFIG[obfuscator];
   if (!cfg) throw Object.assign(new Error('Elige un ofuscador válido'), { status: 400 });
   if (!cfg.dir) {

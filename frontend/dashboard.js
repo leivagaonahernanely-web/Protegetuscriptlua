@@ -385,11 +385,17 @@
         <span class="perf-stats">${plural(r.loops, 'bucle', 'bucles')} · ${plural(r.hot, 'callback por frame', 'callbacks por frame')}</span>
       </div>`;
     if (!r.findings.length) return `${head}<p class="perf-ok">Sin problemas detectados en el código.</p>`;
+    const linesTxt = f => {
+      if (f.count === 1) return `línea ${f.line}`;
+      const shown = f.lines.slice(0, 6).join(', ');
+      const extra = f.lines.length > 6 ? ` y ${f.lines.length - 6} más` : '';
+      return `líneas ${shown}${extra}`;
+    };
     const items = r.findings.map(f => `
       <li>
         <span class="perf-sev ${f.severity}">${SEV_LABEL[f.severity]}</span>
         <div>
-          <div class="perf-title">${esc(f.title)} <span class="perf-line">línea ${f.line}</span></div>
+          <div class="perf-title">${esc(f.title)}${f.count > 1 ? ` ×${f.count}` : ''} <span class="perf-line">${linesTxt(f)}</span></div>
           <div class="perf-tip">${esc(f.tip)}</div>
         </div>
       </li>`).join('');

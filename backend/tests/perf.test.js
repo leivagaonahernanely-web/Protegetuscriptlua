@@ -39,3 +39,15 @@ test('crear instancias dentro de un bucle es medio', () => {
   const r = analyzePerf(src, { obfuscator: 'luau' });
   assert.equal(r.level, 'medio');
 });
+
+test('avisos repetidos se agrupan en un solo hallazgo con la lista de líneas', () => {
+  const lines = ['local parts = {}'];
+  for (let i = 0; i < 10; i++) lines.push(`for j = 1, 3 do workspace:FindFirstChild("p${i}") end`);
+  lines.push('for j = 1, 3 do end');
+  const r = analyzePerf(lines.join('\n'), { obfuscator: 'none' });
+  const busca = r.findings.filter(f => f.title.startsWith('Busca objetos'));
+  assert.equal(busca.length, 1);
+  assert.equal(busca[0].count, 10);
+  assert.equal(busca[0].lines.length, 10);
+  assert.equal(r.total, 10);
+});

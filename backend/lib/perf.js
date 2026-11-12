@@ -75,7 +75,20 @@ export function analyzePerf(source, { obfuscator = 'clyde', vm = false } = {}) {
     }
   });
 
-  const level = findings.some(f => f.severity === 'high') ? 'alto'
-    : findings.some(f => f.severity === 'medium') ? 'medio' : 'bajo';
-  return { level, loops: loops.length, hot: hot.length, findings };
+  // Agrupa avisos idénticos (mismo severidad, título y consejo) para no inundar el panel:
+  // "Busca objetos cada vuelta del bucle" en 25 líneas queda como un solo aviso con la lista de líneas.
+  const groups = new Map();
+  for (const f of findings) {
+    const key = `${f.severity}|${f.title}|${f.tip}`;
+    const g = groups.get(key);
+    if (g) { g.count++; g.lines.push(f.line); }
+    else groups.set(key, { severity: f.severity, title: f.title, tip: f.tip, count: 1, lines: [f.line] });
+  }
+  const grouped = [...groups.values()];
+  for (const g of grouped) { g.lines.sort((a, b) => a - b); g.line = g.lines[0]; }
+  grouped.sort((a, b) => b.lines.length - a.lines.length);
+
+  const level = grouped.some(f => f.severity === 'high') ? 'alto'
+    : grouped.some(f => f.severity === 'medium') ? 'medio' : 'bajo';
+  return { level, loops: loops.length, hot: hot.length, findings: grouped, total: findings.length };
 }

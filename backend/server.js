@@ -593,6 +593,26 @@ app.use((req, res, next) => {
   }
   next();
 });
+// Límite por IP en todas las rutas del loader: frena fuerza bruta de keys, spam de reportes y
+// tormentas de peticiones (cada intento cuenta; la respuesta es uniforme, no revela qué falló).
+const loaderRateHit = new Map();
+setInterval(() => {
+  const now = Date.now();
+  for (const [ip, e] of loaderRateHit) if (now > e.resetMin && now > e.resetHour) loaderRateHit.delete(ip);
+}, 120_000).unref();
+const LOADER_RATE_MIN = 30, LOADER_RATE_HOUR = 240;
+app.use((req, res, next) => {
+  if (!LOADER_PATH_RE.test(req.path)) return next();
+  const ip = req.ip || 'unknown';
+  const now = Date.now();
+  let e = loaderRateHit.get(ip);
+  if (!e) { e = { min: 0, resetMin: now + 60_000, hour: 0, resetHour: now + 3_600_000 }; loaderRateHit.set(ip, e); }
+  if (now > e.resetMin) { e.min = 0; e.resetMin = now + 60_000; }
+  if (now > e.resetHour) { e.hour = 0; e.resetHour = now + 3_600_000; }
+  e.min++; e.hour++;
+  if (e.min > LOADER_RATE_MIN || e.hour > LOADER_RATE_HOUR) return res.status(429).type('text/plain').send('!VANTARMOR:RATE_LIMITED');
+  next();
+});
 
 // ==========================================
 // 2. FRONTEND (carpeta 'frontend')
@@ -1277,6 +1297,7 @@ function loaderBootstrap(loaderId, ffa, secure = false) {
   const sk = /^[0-9a-f]{40}$/.test(String(loaderId || '')) ? String(loaderId) : '';
   return `local SK = ${JSON.stringify(sk)}
 local AUTH_BASE = ${JSON.stringify(`${APP_URL}/v1/a?s=`)} .. SK
+local AUTH_URL = ${JSON.stringify(`${APP_URL}/v1/a`)}
 local PAYLOAD_URL = ${JSON.stringify(`${APP_URL}/v1/p`)}
 local FFA = ${ffa ? 'true' : 'false'}
 local SECURE = ${secure ? 'true' : 'false'}
@@ -1299,6 +1320,7 @@ local MSG = {
   SERVER_UNREACHABLE = HEAD .. "Server unreachable. Please try later.",
   PAYLOAD_LOAD_FAILED = HEAD .. "The script could not be loaded by your executor.\\nPlease contact the script owner.",
   TOKEN_INVALID = HEAD .. "Your session expired. Please rejoin.",
+  UPDATE_REQUIRED = HEAD .. "Your loader is outdated.\nPlease copy the loader URL again from the panel.",
   FORBIDDEN = HEAD .. "Access denied.",
 }
 local Players = game:GetService("Players")
@@ -1308,9 +1330,10 @@ local function kick(code)
   if lp then lp:Kick(msg) end
   error(msg, 0)
 end
--- [AntiDump] Puerta de ejecutores: solo pasan los ejecutores conocidos y populares.
--- Sin un ejecutor soportado identificado no se pide key ni se contacta al servidor.
+-- [AntiDump] Puerta de ejecutores: los ejecutores conocidos pasan limpios; uno desconocido
+-- no se bloquea, entra en modo de baja confianza (sigue la autenticacion, el dueño lo ve en el log).
 local _dumpHit = false
+local _lowTrust = false
 do
   local _execName = ""
   pcall(function()
@@ -1324,10 +1347,7 @@ do
       if _lower:find(_n, 1, true) then _ok = true break end
     end
   end
-  if not _ok then
-    print("unsupported executer, please make a ticket in the support server")
-    return
-  end
+  if not _ok then _lowTrust = true end
 end
 -- Si loadstring fue reemplazado por una función de Lua (un volcador que intercepta el código), se corta
 local function nativeFn(f)
@@ -1413,26 +1433,41 @@ end)
 -- Nada de kick: el mensaje sale por print y el script nunca llega al volcador.
 if _dumpHit then
   pcall(function() game:HttpGet(AUTH_BASE .. "&key=" .. enc(key) .. "&hwid=" .. enc(hwid) .. "&rbxid=" .. enc(rbxid) .. "&tamper=1") end)
-  pcall(function()
-    if type(writefile) == "function" then
-      local _junk = string.rep(tostring(os.clock()) .. tostring(math.random(100000, 999999)), 4096)
-      for _i = 1, 96 do
-        pcall(writefile, "va_" .. tostring(math.random(100000, 999999)) .. "_" .. tostring(_i) .. ".vtmp", _junk)
-      end
-    end
-  end)
   print("[VantArmor] Dumping VantArmor is against its terms of service and policy and not allowed.")
   _clearKey()
   return
 end
 
--- Contactar el servidor con hasta 3 reintentos (Railway puede tardar al arrancar)
+-- Contactar el servidor: POST con JSON (la key y el HWID NO viajan en la URL, no acaban en
+-- logs de proxy) con GET de respaldo para ejecutores sin request. Hasta 3 reintentos con
+-- espera con jitter (Railway puede tardar al arrancar).
 local ok, body = false, ""
-local _url = AUTH_BASE .. "&key=" .. enc(key) .. "&hwid=" .. enc(hwid) .. "&rbxid=" .. enc(rbxid) .. "&v=2"
-for _attempt = 1, 3 do
-  ok, body = pcall(function() return game:HttpGet(_url) end)
-  if ok and type(body) == "string" then break end
-  if _attempt < 3 then task.wait(1) end
+local _postFn = (type(request) == "function" and request)
+  or (type(http_request) == "function" and http_request)
+  or (type(syn) == "table" and type(syn.request) == "function" and syn.request)
+  or nil
+local _authJson = nil
+pcall(function()
+  _authJson = game:GetService("HttpService"):JSONEncode({ s = SK, key = key, hwid = hwid, rbxid = rbxid, v = "2", ver = 2, lt = _lowTrust and 1 or 0 })
+end)
+if _postFn and _authJson then
+  for _attempt = 1, 3 do
+    ok, body = pcall(function()
+      local _r = _postFn({ Url = AUTH_URL, Method = "POST", Headers = { ["Content-Type"] = "application/json" }, Body = _authJson })
+      if type(_r) == "table" then return _r.Body end
+      return _r
+    end)
+    if ok and type(body) == "string" and #body > 0 then break end
+    if _attempt < 3 then task.wait(1 + math.random() * 2) end
+  end
+end
+if not (ok and type(body) == "string" and #body > 0) then
+  local _url = AUTH_BASE .. "&key=" .. enc(key) .. "&hwid=" .. enc(hwid) .. "&rbxid=" .. enc(rbxid) .. "&v=2&ver=2" .. (_lowTrust and "&lt=1" or "")
+  for _attempt = 1, 3 do
+    ok, body = pcall(function() return game:HttpGet(_url) end)
+    if ok and type(body) == "string" then break end
+    if _attempt < 3 then task.wait(1 + math.random() * 2) end
+  end
 end
 script_key = nil
 -- Limpiar script_key de todos los entornos para que el payload no la lea (ya fue consumida)
@@ -1451,7 +1486,7 @@ if body:sub(1, #_tp) == _tp then
     or nil
   if not _post then kick("EXECUTOR_NO_POST") end
   local _okp, _resp = pcall(function()
-    return _post({ Url = PAYLOAD_URL, Method = "POST", Headers = { ["Content-Type"] = "text/plain" }, Body = _token })
+    return _post({ Url = PAYLOAD_URL, Method = "POST", Headers = { ["Content-Type"] = "text/plain" }, Body = _token .. "\\n" .. hwid })
   end)
   if not _okp or type(_resp) ~= "table" or type(_resp.Body) ~= "string" then kick("SERVER_UNREACHABLE") end
   body = _resp.Body
@@ -1577,14 +1612,6 @@ local payload = (body:sub(1, #_prefix) == _prefix and #body > #_prefix) and body
 if not payload then kick("VERIFY_FAILED") end
 if loaderTampered() then
   pcall(function() game:HttpGet(AUTH_BASE .. "&tamper=1") end)
-  pcall(function()
-    if type(writefile) == "function" then
-      local _junk2 = string.rep(tostring(os.clock()) .. tostring(math.random(100000, 999999)), 4096)
-      for _i2 = 1, 96 do
-        pcall(writefile, "va_" .. tostring(math.random(100000, 999999)) .. "_" .. tostring(_i2) .. ".vtmp", _junk2)
-      end
-    end
-  end)
   print("[VantArmor] Dumping VantArmor is against its terms of service and policy and not allowed.")
   return
 end
@@ -1894,9 +1921,11 @@ setInterval(() => {
   const now = Date.now();
   for (const [t, v] of payloadTokens) if (v.expires < now) payloadTokens.delete(t);
 }, 60_000).unref();
-function issuePayloadToken(script, ip, key, v) {
+function issuePayloadToken(script, ip, key, v, hwid) {
+  // Un solo token vivo por (script, key): pedir otro revoca el anterior
+  for (const [t, e] of payloadTokens) if (e.scriptId === script.id && (e.key || null) === (key || null)) payloadTokens.delete(t);
   const token = crypto.randomBytes(24).toString('hex');
-  payloadTokens.set(token, { scriptId: script.id, key: key || null, ip: ip || null, expires: Date.now() + PAYLOAD_TTL_MS, v: v === '2' });
+  payloadTokens.set(token, { scriptId: script.id, key: key || null, hwid: hwid || null, ip: ip || null, expires: Date.now() + PAYLOAD_TTL_MS, v: v === '2' });
   return token;
 }
 
@@ -1983,7 +2012,10 @@ function sendExecutorCode(req, res, script, opts, enc) {
 const payloadHandler = (req, res, slug) => {
   if (/text\/html/.test(req.get('accept') || '')) return res.status(403).type('text/plain').send('!VANTARMOR:FORBIDDEN');
   if (isLoaderProbe(req)) return sendAuthDecoy(req, res);
-  const token = String(req.body || '').trim();
+  // Cuerpo: "<token>" (loaders viejos) o "<token> <hwid>" (nuevos: el token queda atado al equipo)
+  const _parts = String(req.body || '').trim().split(/\s+/);
+  const token = _parts[0] || '';
+  const _p_hwid = _parts[1] || '';
   const entry = payloadTokens.get(token);
   payloadTokens.delete(token);
   const script = stmt.scriptBySlug.get(slug);
@@ -1999,6 +2031,8 @@ const payloadHandler = (req, res, slug) => {
     }
     return res.status(403).type('text/plain').send('!VANTARMOR:TOKEN_INVALID');
   }
+  // El token queda atado al HWID que lo pidió: usado desde otro equipo no vale
+  if (entry.hwid && _p_hwid && _p_hwid !== entry.hwid) return res.status(403).type('text/plain').send('!VANTARMOR:TOKEN_INVALID');
   // El loader espera el mismo prefijo que en la entrega de un paso
   return sendExecutorCode(req, res, script, { ip: req.ip, key: entry.key }, entry.v === true);
 };
@@ -2039,11 +2073,14 @@ function reportKeyShare(script, k, hwid, reply) {
 }
 
 const tamperSeen = new Map(); // antispam de avisos de volcado
+const tamperIpSeen = new Map(); // anti-flood de reportes de volcado por IP
 const authHandler = (req, res, slug) => {
   // Los navegadores no reciben nunca el código
   if (/text\/html/.test(req.get('accept') || '')) return res.status(403).type('text/plain').send('!VANTARMOR:FORBIDDEN');
   // Herramientas de descarga identificadas (curl, Python, etc.) reciben señuelo
   if (isLoaderProbe(req)) return sendAuthDecoy(req, res);
+  // Los parámetros llegan por GET (loaders viejos) o por POST JSON (nuevos): se mezclan aquí
+  const q = { ...req.query, ...((req.body && typeof req.body === 'object' && !Buffer.isBuffer(req.body)) ? req.body : {}) };
   const FAIL_CODES = new Set(['KEY_INVALID', 'KEY_REQUIRED', 'SCRIPT_NOT_FOUND']);
   const reply = code => {
     // Solo los fallos pasan por el contador: una key válida nunca se bloquea aunque su IP tenga fallos previos
@@ -2061,21 +2098,30 @@ const authHandler = (req, res, slug) => {
   }
   if (maintenanceAllOn() && !isOwnerId(script.user_id)) return reply('MAINTENANCE_ALL');
   if (script.maintenance) return reply('MAINTENANCE');
+  // Kill switch de versión: si se define LOADER_MIN_VERSION, un loader más viejo recibe UPDATE_REQUIRED
+  const _minVer = Number(process.env.LOADER_MIN_VERSION || 0) || 0;
+  if (_minVer > 0 && (Number(String(q.ver || '0')) || 0) < _minVer) return reply('UPDATE_REQUIRED');
   // ID de Roblox de quien ejecuta (lo manda el loader desde el juego; vacío si no llegó)
-  const rbxid = /^\d{1,20}$/.test(String(req.query.rbxid || '')) ? String(req.query.rbxid) : '';
+  const rbxid = /^\d{1,20}$/.test(String(q.rbxid || '')) ? String(q.rbxid) : '';
   // El loader avisa cuando loadstring fue interceptado (volcado). Solo avisa al dueño: no banea.
-  if (req.query.tamper === '1') {
-    const tKey = String(req.query.key || '').trim().slice(0, 64);
-    const tHwid = /^[\x21-\x7E]{8,128}$/.test(String(req.query.hwid || '')) ? String(req.query.hwid) : '';
+  if (q.tamper === '1') {
+    const tKey = String(q.key || '').trim().slice(0, 64);
+    const tHwid = /^[\x21-\x7E]{8,128}$/.test(String(q.hwid || '')) ? String(q.hwid) : '';
     const keyRow = tKey ? db.prepare('SELECT discord_id, hwid FROM keys WHERE key = ? AND script_id = ?').get(tKey, script.id) : null;
     const tDiscord = keyRow?.discord_id || null;
     // Revocación automática (opción del script): la key queda baneada sin esperar al dueño
     // Solo si el reporte viene del equipo vinculado a la key: nadie banea keys ajenas conociendo solo la key
     const autoRevoked = Boolean(script.auto_revoke_dump && keyRow && tKey && tHwid && keyRow.hwid === tHwid
       && db.prepare("UPDATE keys SET banned = 1, ban_reason = 'Volcado detectado' WHERE key = ? AND script_id = ?").run(tKey, script.id).changes);
+    // Anti-flood por IP: más de 8 reportes en 10 min desde la misma IP no llegan al dueño
+    const _floodKey = `ip|${req.ip}`;
+    const _flood = tamperIpSeen.get(_floodKey) || { n: 0, t: Date.now() };
+    if (Date.now() - _flood.t > 10 * 60 * 1000) { _flood.n = 0; _flood.t = Date.now(); }
+    _flood.n++;
+    tamperIpSeen.set(_floodKey, _flood);
     const seenKey = `${script.id}|${tKey}|${tHwid}`;
     const last = tamperSeen.get(seenKey) || 0;
-    if (Date.now() - last > 10 * 60 * 1000) { // un aviso cada 10 min por key y HWID
+    if (Date.now() - last > 10 * 60 * 1000 && _flood.n <= 8) { // un aviso cada 10 min por key y HWID
       tamperSeen.set(seenKey, Date.now());
       logWithRoblox(script.id, [
         '🚨 Intento de dump: loadstring fue interceptado',
@@ -2089,19 +2135,20 @@ const authHandler = (req, res, slug) => {
     return reply('TAMPERING');
   }
   if (script.ffa) {
-    const ffaHwid = String(req.query.hwid || '').slice(0, 128);
+    const ffaHwid = String(q.hwid || '').slice(0, 128);
     countExecution(script.id, req.ip, script.user_id);
     logWithRoblox(script.id, [
       '🟢 Script ejecutado (FFA)',
+      ...(String(q.lt) === '1' ? ['• Ejecutor: desconocido (baja confianza)'] : []),
       `• HWID: \`${/^[\x21-\x7E]{8,128}$/.test(ffaHwid) ? ffaHwid : 'sin dato'}\``,
       `• ID del script: \`${script.loader_id || script.id}\``,
     ], null, rbxid);
-    if (script.secure_fetch) return res.type('text/plain').send('!VANTARMOR:TOKEN\n' + issuePayloadToken(script, req.ip, null, req.query.v));
-    return sendExecutorCode(req, res, script, { ip: req.ip }, req.query.v === '2');
+    if (script.secure_fetch) return res.type('text/plain').send('!VANTARMOR:TOKEN\n' + issuePayloadToken(script, req.ip, null, q.v, ffaHwid));
+    return sendExecutorCode(req, res, script, { ip: req.ip }, q.v === '2');
   }
 
-  const key = String(req.query.key || '').trim().slice(0, 64);
-  const rawHwid = String(req.query.hwid || '').slice(0, 128);
+  const key = String(q.key || '').trim().slice(0, 64);
+  const rawHwid = String(q.hwid || '').slice(0, 128);
   // Solo caracteres imprimibles (sin espacios ni control): evita basura y texto que rompa los logs
   let hwid = /^[\x21-\x7E]{8,128}$/.test(rawHwid) ? rawHwid : '';
   if (!key) return reply('KEY_REQUIRED');
@@ -2137,14 +2184,15 @@ const authHandler = (req, res, slug) => {
   countExecution(script.id, req.ip, script.user_id);
   logWithRoblox(script.id, [
     '🟢 Script ejecutado',
+    ...(String(q.lt) === '1' ? ['• Ejecutor: desconocido (baja confianza)'] : []),
     `• Key: \`${key}\``,
     `• HWID: \`${hwid}\``,
     `• Discord ID: ${k.discord_id ? `\`${k.discord_id}\`` : 'sin vincular'}`,
     `• ID del script: \`${script.loader_id || script.id}\``,
     `• Veces que esta key ejecutó este script: ${run?.exec_count ?? 1}`,
   ], k.discord_id, rbxid);
-  if (script.secure_fetch) return res.type('text/plain').send('!VANTARMOR:TOKEN\n' + issuePayloadToken(script, req.ip, key, req.query.v));
-  return sendExecutorCode(req, res, script, { ip: req.ip, key }, req.query.v === '2');
+  if (script.secure_fetch) return res.type('text/plain').send('!VANTARMOR:TOKEN\n' + issuePayloadToken(script, req.ip, key, q.v, hwid));
+  return sendExecutorCode(req, res, script, { ip: req.ip, key }, q.v === '2');
 };
 // Ruta antigua (por slug): se mantiene para bootstraps que ya estuvieran en ejecución
 app.get('/scripts/hosted/:slug/auth', (req, res) => authHandler(req, res, req.params.slug));
@@ -2155,6 +2203,14 @@ app.get('/v1/a', (req, res) => {
   const row = /^[0-9a-f]{40}$/.test(sk) ? stmt.scriptByLoaderId.get(sk) : null;
   return authHandler(req, res, row ? row.slug : '');
 });
+// Autenticación por POST (JSON): la key y el HWID viajan en el cuerpo, no en la URL,
+// así no acaban en logs de proxy ni de Railway. Content-Type flexible: algunos ejecutores fuerzan text/plain.
+app.post('/v1/a', express.json({ type: () => true, limit: '8kb' }), (req, res) => {
+  const b = (req.body && typeof req.body === 'object' && !Buffer.isBuffer(req.body)) ? req.body : {};
+  const row = /^[0-9a-f]{40}$/.test(String(b.s || '')) ? stmt.scriptByLoaderId.get(String(b.s)) : null;
+  return authHandler(req, res, row ? row.slug : '');
+});
+app.post('/scripts/hosted/:slug/auth', express.json({ type: () => true, limit: '8kb' }), (req, res) => authHandler(req, res, req.params.slug));
 
 app.get('/auth/logout', (req, res) => {
   res.clearCookie(SESSION_COOKIE);
@@ -2170,7 +2226,7 @@ app.get('/api/me', requireAuth, (req, res) => {
     res.clearCookie(SESSION_COOKIE);
     return res.status(401).json({ error: 'Usuario no encontrado' });
   }
-  res.json({ ...user, owner: isOwnerId(req.userId) });
+  res.json({ ...user, owner: isOwnerId(req.userId), admin: ADMIN_DISCORD_IDS.includes(String(req.userId)) });
 });
 
 // ---------- Chat de la comunidad ----------
@@ -3871,7 +3927,17 @@ try {
 } catch (err) { console.error('[Respaldo] No se pudo borrar la carpeta de respaldos:', err.message); }
 
 // Errores que no pasan por una ruta: respuesta JSON clara (en vez de HTML o "Error del servidor" sin detalle)
+// 404 final sin HTML por defecto: loaders con protocolo !VANTARMOR, API con JSON, web con su página
+app.use((req, res) => {
+  if (LOADER_PATH_RE.test(req.path) || req.path.startsWith('/v1/')) return res.status(404).type('text/plain').send('!VANTARMOR:FORBIDDEN');
+  if (req.path.startsWith('/api/')) return res.status(404).json({ status: 'error', code: 404, message: 'Not found' });
+  return res.status(404).sendFile(path.join(__dirname, '..', 'frontend', 'errores.html'));
+});
+
 app.use((err, req, res, next) => {
+  if (LOADER_PATH_RE.test(req.path) || req.path.startsWith('/v1/')) {
+    return res.status(err?.type === 'entity.too.large' ? 413 : 500).type('text/plain').send('!VANTARMOR:SERVER_ERROR');
+  }
   if (err?.type === 'entity.too.large') {
     return res.status(413).json({ error: 'El script es demasiado grande. El límite es de 2 MB de código.' });
   }

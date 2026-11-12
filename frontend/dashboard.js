@@ -1190,7 +1190,8 @@
   const hasPlusPlan = () => !!user && (user.plan === 'plus' || user.plan === 'custom');
   // Precios y Bienvenida se ven siempre; si no hay plan, aparecen con candado (sin redirigir)
   function applyLocks() {
-    const locked = { precios: !hasPerkPlan(), bienvenida: !hasPlusPlan(), profile: !hasPerkPlan() };
+    // Perfil es gratis para todos los planes; solo Precios y Bienvenida quedan con candado
+    const locked = { precios: !hasPerkPlan(), bienvenida: !hasPlusPlan() };
     document.querySelectorAll('[data-lockable]').forEach(b => {
       const on = !!locked[b.dataset.lockable];
       b.classList.toggle('locked', on);
@@ -1199,6 +1200,8 @@
     document.querySelectorAll('.view[data-view]').forEach(v => {
       if (v.dataset.view in locked) v.classList.toggle('locked', locked[v.dataset.view]);
     });
+    const _navAdmin = document.getElementById('navAdmin');
+    if (_navAdmin && typeof user !== 'undefined' && user && user.admin) _navAdmin.hidden = false;
   }
   function setPlusNav(allowed) {
     applyLocks();

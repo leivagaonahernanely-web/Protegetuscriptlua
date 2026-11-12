@@ -1320,7 +1320,7 @@ local MSG = {
   SERVER_UNREACHABLE = HEAD .. "Server unreachable. Please try later.",
   PAYLOAD_LOAD_FAILED = HEAD .. "The script could not be loaded by your executor.\\nPlease contact the script owner.",
   TOKEN_INVALID = HEAD .. "Your session expired. Please rejoin.",
-  UPDATE_REQUIRED = HEAD .. "Your loader is outdated.\nPlease copy the loader URL again from the panel.",
+  UPDATE_REQUIRED = HEAD .. "Your loader is outdated.\\nPlease copy the loader URL again from the panel.",
   FORBIDDEN = HEAD .. "Access denied.",
 }
 local Players = game:GetService("Players")

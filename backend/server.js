@@ -3329,7 +3329,8 @@ app.delete('/api/scripts/:id', requireAuth, (req, res) => {
   if (!script) return res.status(404).json({ error: 'Script no encontrado' });
   db.transaction(() => {
     db.prepare('DELETE FROM keys WHERE script_id = ?').run(script.id);
-    for (const table of ['bot_panels', 'bot_access_rules', 'bot_blacklist']) {
+    // script_versions: el código de cada versión pesa hasta 2 MB; antes quedaba huérfano al borrar el script
+    for (const table of ['bot_panels', 'bot_access_rules', 'bot_blacklist', 'script_versions']) {
       db.prepare(`DELETE FROM ${table} WHERE script_id = ?`).run(script.id);
     }
     db.prepare('DELETE FROM scripts WHERE id = ? AND user_id = ?').run(script.id, req.userId);
@@ -3866,6 +3867,8 @@ function pruneOldData() {
     db.prepare('DELETE FROM execution_hourly WHERE day < ?').run(ecuadorDay(Date.now() - 60 * 86400_000));
     // La caché de compilaciones es solo una optimización: se borra a los 1 día para no llenar el volumen
     db.prepare('DELETE FROM obf_cache WHERE created_at < ?').run(Math.floor(Date.now() / 1000) - 86400);
+    // Versiones de scripts que ya no existen (borrados antes de que se limpiaran al borrar)
+    db.prepare('DELETE FROM script_versions WHERE script_id NOT IN (SELECT id FROM scripts)').run();
     // Chat de la comunidad: 3 días, igual que dice la política de privacidad (antes no se borraba nunca)
     const chatCut = t - CHAT_KEEP_SECONDS;
     db.prepare('DELETE FROM web_chat_reactions WHERE message_id IN (SELECT id FROM web_chat WHERE created_at < ?)').run(chatCut);

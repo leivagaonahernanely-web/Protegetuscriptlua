@@ -1380,6 +1380,8 @@ function loaderBootstrap(loaderId, ffa, secure = false, secret = '', initCode = 
 local AUTH_BASE = ${JSON.stringify(`${APP_URL}/v1/a?s=`)} .. SK
 local AUTH_URL = ${JSON.stringify(`${APP_URL}/v1/a`)}
 local PAYLOAD_URL = ${JSON.stringify(`${APP_URL}/v1/p`)}
+local START_URL = ${JSON.stringify(`${APP_URL}/v1/a/start`)}
+local PGET_URL = ${JSON.stringify(`${APP_URL}/v1/p`)}
 local FFA = ${ffa ? 'true' : 'false'}
 local SECURE = ${secure ? 'true' : 'false'}
 local HEAD = "[ VANTARMOR ]\\n"
@@ -1660,89 +1662,111 @@ local _DBG = ${(LOADER_DEBUG || DEBUG_LOADER_IDS.includes(sk)) ? 'true' : 'false
 local function _dbg(m) if _DBG then print("[VANT-DBG] " .. tostring(m)) end end
 _dbg("paso 0: key=<" .. tostring(key) .. "> hwid=" .. tostring(hwid) .. " rbxid=" .. tostring(rbxid))
 local _AS_SECRET = ${JSON.stringify(secret || '')}
-local _ct = tostring(math.floor(os.time() / 10))
-local _cn = string.format("%08x%08x", math.floor((os.clock() * 1000000) % 4294967296), math.random(0, 2147483647))
-local _cs = ""
-do
-  local _as_h = 5381
-  local _seed = _AS_SECRET .. "|" .. _cn .. "|" .. tostring(key) .. "|" .. tostring(hwid) .. "|" .. _ct
-  for _i = 1, #_seed do
-    _as_h = (_as_h * 33 + _seed:byte(_i)) % 4294967296
+-- Firma por paso: cada peticion (sesion y canje) lleva su propio ct/cn/cs
+local _TABC = "OIlaE1JQTbC09734652"
+local function _sig()
+  local _ct = tostring(math.floor(os.time() / 10))
+  local _cn = string.format("%08x%08x", math.floor((os.clock() * 1000000) % 4294967296), math.random(0, 2147483647))
+  local _cs = ""
+  do
+    local _as_h = 5381
+    local _seed = _AS_SECRET .. "|" .. _cn .. "|" .. tostring(key) .. "|" .. tostring(hwid) .. "|" .. _ct
+    for _i = 1, #_seed do
+      _as_h = (_as_h * 33 + _seed:byte(_i)) % 4294967296
+      _as_h = (_as_h * 31 + 7) % 4294967296
+    end
+    local _b1, _b2, _b3, _b4
     _as_h = (_as_h * 31 + 7) % 4294967296
+    _b1 = _as_h % 256
+    _as_h = (_as_h * 31 + 7) % 4294967296
+    _b2 = _as_h % 256
+    _as_h = (_as_h * 31 + 7) % 4294967296
+    _b3 = _as_h % 256
+    _as_h = (_as_h * 31 + 7) % 4294967296
+    _b4 = _as_h % 256
+    _cs = string.format("%02x%02x%02x%02x", _b1, _b2, _b3, _b4)
   end
-  local _b1, _b2, _b3, _b4
-  _as_h = (_as_h * 31 + 7) % 4294967296
-  _b1 = _as_h % 256
-  _as_h = (_as_h * 31 + 7) % 4294967296
-  _b2 = _as_h % 256
-  _as_h = (_as_h * 31 + 7) % 4294967296
-  _b3 = _as_h % 256
-  _as_h = (_as_h * 31 + 7) % 4294967296
-  _b4 = _as_h % 256
-  _cs = string.format("%02x%02x%02x%02x", _b1, _b2, _b3, _b4)
+  return _ct, _cn, _cs
 end
-_dbg("paso 1: firma ct=" .. _ct .. " cs=" .. _cs)
--- Pide el codigo al servidor. Va en una funcion para poder reintentar cuando el token de sesion
--- caduca entre la autenticacion y la entrega (el servidor contesta TOKEN_INVALID).
-local function _getCode()
--- Contactar el servidor: POST con JSON (la key y el HWID NO viajan en la URL, no acaban en
--- logs de proxy) con GET de respaldo para ejecutores sin request. Hasta 3 reintentos con
--- espera con jitter (Railway puede tardar al arrancar).
-local ok, body = false, ""
-local _postFn = (type(request) == "function" and request)
-  or (type(http_request) == "function" and http_request)
-  or (type(syn) == "table" and type(syn.request) == "function" and syn.request)
-  or nil
-local _authJson = nil
-pcall(function()
-  _authJson = game:GetService("HttpService"):JSONEncode({ s = SK, key = key, hwid = hwid, rbxid = rbxid, v = "2", ver = 3, lt = _lowTrust and 1 or 0, ct = _ct, cn = _cn, cs = _cs })
-end)
-_dbg("paso 2: json=" .. tostring(_authJson ~= nil) .. " request=" .. tostring(_postFn ~= nil))
-if _postFn and _authJson then
-  for _attempt = 1, 3 do
-    ok, body = pcall(function()
-      local _r = _postFn({ Url = AUTH_URL, Method = "POST", Headers = { ["Content-Type"] = "application/json" }, Body = _authJson })
-      if type(_r) == "table" then return _r.Body end
-      return _r
-    end)
-    if ok and type(body) == "string" and #body > 0 then break end
-    if _attempt < 3 then task.wait(1 + math.random() * 2) end
+-- Blob t ofuscado (estilo de la referencia): key, hwid y firma van en el blob, cada nibble
+-- sustituido por un caracter de una tabla propia y separado por 'k'. La URL nunca muestra
+-- la key ni el HWID en claro y un log de proxy solo captura ruido.
+local function _tBuild()
+  local _ct, _cn, _cs = _sig()
+  local _sep = string.char(1)
+  local _pay = tostring(key) .. _sep .. tostring(hwid) .. _sep .. _ct .. _sep .. _cn .. _sep .. _cs
+  local _parts = {}
+  for _i = 1, #_pay do
+    local _b = _pay:byte(_i)
+    _parts[#_parts + 1] = _TABC:sub(math.floor(_b / 16) + 1, math.floor(_b / 16) + 1) .. "k" .. _TABC:sub(_b % 16 + 1, _b % 16 + 1)
   end
+  return _ct, "a3" .. table.concat(_parts, "k")
 end
-_dbg("paso 3: POST ok=" .. tostring(ok) .. " body=" .. tostring(body):sub(1, 160))
-if not (ok and type(body) == "string" and #body > 0) then
-  local _url = AUTH_BASE .. "&key=" .. enc(key) .. "&hwid=" .. enc(hwid) .. "&rbxid=" .. enc(rbxid) .. "&v=2&ver=3" .. (_lowTrust and "&lt=1" or "") .. "&ct=" .. _ct .. "&cn=" .. _cn .. "&cs=" .. _cs
-  for _attempt = 1, 3 do
-    ok, body = pcall(function() return game:HttpGet(_url) end)
-    if ok and type(body) == "string" then break end
-    if _attempt < 3 then task.wait(1 + math.random() * 2) end
-  end
-end
-script_key = nil
--- Limpiar script_key de todos los entornos para que el payload no la lea (ya fue consumida)
-pcall(function() if getgenv then rawset(getgenv(), "script_key", nil) end end)
-pcall(function() script_key = nil end)
-pcall(function() if _G then rawset(_G, "script_key", nil) end end)
-if not ok or type(body) ~= "string" then kick("TAMPERING") end
--- Entrega en dos pasos (solo scripts con secure_fetch): /auth dio un token; el código sale de /payload por POST
--- La respuesta del servidor decide el flujo (no la marca SECURE del bootstrap): así un loader viejo o cacheado no se rechaza
+-- Autenticacion por pasos (estilo de la referencia): nada corre directo. Paso 1 pide la
+-- sesion (el servidor valida key, HWID y firma y cuenta la ejecucion), paso 2 canjea la sesion
+-- por un token de descarga (el servidor revalida la firma y consume la sesion de un solo uso)
+-- y paso 3 baja el codigo cifrado en trozos con ese token. Ninguna respuesta lleva el codigo
+-- completo: un env-logger que capture los pasos solo ve una sesion, un token y trozos sueltos.
 local _tok = ""
-local _tp = "!VANTARMOR:TOKEN\\n"
-if body:sub(1, #_tp) == _tp then
-  _tok = (body:sub(#_tp + 1):gsub("%s+$", ""))
-  local _post = (type(request) == "function" and request)
-    or (type(http_request) == "function" and http_request)
-    or (type(syn) == "table" and type(syn.request) == "function" and syn.request)
-    or nil
-  if not _post then kick("EXECUTOR_NO_POST") end
-  local _okp, _resp = pcall(function()
-    return _post({ Url = PAYLOAD_URL, Method = "POST", Headers = { ["Content-Type"] = "text/plain" }, Body = _tok .. "\\n" .. hwid })
-  end)
-  if not _okp or type(_resp) ~= "table" or type(_resp.Body) ~= "string" then kick("SERVER_UNREACHABLE") end
-  body = _resp.Body
-  _dbg("paso 4: payload prefijo=<" .. tostring(body):sub(1, 40) .. "> largo=" .. tostring(#body))
-end
-  return body
+local function _getCode()
+  script_key = nil
+  pcall(function() if getgenv then rawset(getgenv(), "script_key", nil) end end)
+  pcall(function() if _G then rawset(_G, "script_key", nil) end end)
+  local function _bail(code)
+    kick(code)
+    error(code, 0)
+  end
+  -- Paso 1: sesion
+  local _ct1, _t1 = _tBuild()
+  local _ok1, _s1 = false, ""
+  for _attempt = 1, 3 do
+    _ok1, _s1 = pcall(function() return game:HttpGet(AUTH_BASE .. "&rbxid=" .. enc(rbxid) .. "&lt=" .. (_lowTrust and "1" or "0") .. "&v=2&ver=4&t=" .. _t1) end)
+    if _ok1 and type(_s1) == "string" and #_s1 > 0 then break end
+    if _attempt < 3 then task.wait(1 + math.random() * 2) end
+  end
+  _dbg("paso 1: sesion=" .. tostring(_s1):sub(1, 80))
+  if not (_ok1 and type(_s1) == "string") then _bail("TAMPERING") end
+  local _sessp = "!VANTARMOR:SESSION "
+  if _s1:sub(1, #_sessp) ~= _sessp then return _s1 end
+  local _sess = _s1:sub(#_sessp + 1):gsub("%s+$", "")
+  -- Paso 2: canje de la sesion por el token de descarga
+  local _ct2, _t2 = _tBuild()
+  local _ok2, _s2 = false, ""
+  for _attempt = 1, 3 do
+    _ok2, _s2 = pcall(function() return game:HttpGet(START_URL .. "/" .. _sess .. "?t=" .. _t2) end)
+    if _ok2 and type(_s2) == "string" and #_s2 > 0 then break end
+    if _attempt < 3 then task.wait(1 + math.random() * 2) end
+  end
+  _dbg("paso 2: canje=" .. tostring(_s2):sub(1, 80))
+  if not (_ok2 and type(_s2) == "string") then _bail("SERVER_UNREACHABLE") end
+  local _ptp = "!VANTARMOR:PTOKEN "
+  if _s2:sub(1, #_ptp) ~= _ptp then
+    if _s2:find("!VANTARMOR:TOKEN_INVALID", 1, true) == 1 then return _s2 end
+    _bail("TAMPERING")
+  end
+  local _pt = {}
+  for _w in (_s2:sub(#_ptp + 1):gsub("%s+$", "")):gmatch("%S+") do _pt[#_pt + 1] = _w end
+  _tok = _pt[1] or ""
+  local _nch = tonumber(_pt[2]) or 0
+  if _tok == "" or _nch < 1 or _nch > 4096 then _bail("TAMPERING") end
+  -- Paso 3: trozos del codigo cifrado (cada uno con su token, numero y HWID)
+  local _acc = {}
+  for _i = 0, _nch - 1 do
+    local _okc, _sc = false, ""
+    for _attempt = 1, 3 do
+      _okc, _sc = pcall(function() return game:HttpGet(PGET_URL .. "?t=" .. _tok .. "&n=" .. _i .. "&h=" .. enc(hwid)) end)
+      if _okc and type(_sc) == "string" and #_sc > 0 then break end
+      if _attempt < 3 then task.wait(0.5 + math.random()) end
+    end
+    if not (_okc and type(_sc) == "string") then _bail("SERVER_UNREACHABLE") end
+    local _chp = "!VANTARMOR:CHUNK\\n"
+    if _sc:sub(1, #_chp) ~= _chp then _bail("TAMPERING") end
+    _acc[#_acc + 1] = _sc:sub(#_chp + 1):gsub("%s+$", "")
+    _dbg("paso 3: trozo " .. _i .. "/" .. _nch .. " len=" .. tostring(#_acc[#_acc]))
+  end
+  local _b64all = table.concat(_acc)
+  if #_b64all == 0 or #_b64all % 4 ~= 0 then _bail("VERIFY_FAILED") end
+  return "!VANTARMOR:ENC\\n" .. _b64all
 end
 local ok, body = pcall(_getCode)
 body = (ok and type(body) == "string") and body or nil
@@ -2275,6 +2299,33 @@ function logWithRoblox(scriptId, lines, userId, rbxid) {
 
 const payloadTokens = new Map(); // token -> { scriptId, expires }
 const PAYLOAD_TTL_MS = 30_000;
+// Sesiones de autenticacion por pasos (v4, estilo de la referencia): /auth valida todo y crea la
+// sesion, /v1/a/start/<sesion> la canjea por un token de descarga y /v1/p?t=&n= baja el codigo
+// cifrado en trozos. La sesion es de un solo uso, vive 60 s y queda atada al HWID: una URL
+// capturada no se puede reusar y ninguna respuesta lleva el codigo completo.
+const authSessions = new Map();
+const AUTH_SESSION_TTL_MS = 60_000;
+const CHUNK_TTL_MS = 120_000;
+const CHUNK_SIZE = 48000; // multiplo de 4: cortar el base64 en otro punto rompe el decodificado
+setInterval(() => { const now = Date.now(); for (const [k, v] of authSessions) if (v.expires < now) authSessions.delete(k); }, 30_000).unref();
+// Blob ofuscado del parametro t (estilo de la referencia): los datos van en bytes y cada nibble
+// se sustituye por un caracter de una tabla propia, separado por 'k'. No es cifrado: evita que la
+// URL capturada (logs de proxy) muestre la key y el HWID en claro.
+const T_ABC = 'OIlaE1JQTbC09734652';
+function decodeTblob(t) {
+  try {
+    let s = String(t || '');
+    if (s.slice(0, 2) === 'a3') s = s.slice(2);
+    s = s.split('k').join('');
+    if (!s.length || s.length % 2) return null;
+    let hex = '';
+    for (const ch of s) { const i = T_ABC.indexOf(ch); if (i < 0) return null; hex += i.toString(16); }
+    const payload = Buffer.from(hex, 'hex').toString('utf8');
+    const pp = payload.split('\u0001');
+    if (pp.length < 5) return null;
+    return { key: pp[0], hwid: pp[1], ct: pp[2], cn: pp[3], cs: pp[4] };
+  } catch { return null; }
+}
 setInterval(() => {
   const now = Date.now();
   for (const [t, v] of payloadTokens) if (v.expires < now) payloadTokens.delete(t);
@@ -2511,7 +2562,8 @@ const payloadHandler = (req, res, slug) => {
   const script = stmt.scriptBySlug.get(slug);
   // El token vale para este script, una vez y 30 s
   // No se compara la IP: en móviles el GET y el POST pueden salir por IPs distintas (cambio de Wi-Fi a datos)
-  if (!entry || entry.expires < Date.now() || !script || script.id !== entry.scriptId || (entry.ver || 0) < 3) {
+  // v4 (entrega por trozos): el POST de una sola respuesta queda cerrado, solo el GET por trozos
+  if (!entry || entry.expires < Date.now() || !script || script.id !== entry.scriptId || (entry.ver || 0) < 3 || (entry.ver || 0) >= 4) {
     // Señuelo: solo para herramientas claras (curl, python, etc.). Un ejecutor legítimo nunca recibe la
     // traza falsa: si su token vence o falla, ve TOKEN_INVALID ("Verification failed. Please rejoin.").
     const _motivo = !entry ? 'token desconocido (revocado, consumido o de otro deploy)' : entry.expires < Date.now() ? 'token vencido' : !script ? 'script no encontrado' : script.id !== entry.scriptId ? 'token de otro script' : 'ver<3';
@@ -2541,6 +2593,72 @@ app.post('/v1/p', express.text({ type: () => true, limit: '1kb' }), (req, res) =
   const e = payloadTokens.get(_tok);
   const row = e ? db.prepare('SELECT slug FROM scripts WHERE id = ?').get(e.scriptId) : null;
   return payloadHandler(req, res, row ? row.slug : '');
+});
+
+// ---- Autenticacion por pasos (v4, estilo de la referencia) ----
+// Paso 1 (/v1/a): valida key, HWID, firma y cuenta la ejecucion; crea una sesion de un solo uso.
+// Paso 2 (/v1/a/start/<sesion>): revalida la firma, consume la sesion y entrega un token de descarga.
+// Paso 3 (/v1/p?t=&n=&h=): devuelve los trozos del codigo cifrado. Ninguna respuesta lleva el
+// codigo completo y cada sesion/token es de un solo uso con caducidad y atado al HWID.
+function startAuthSession(res, script, { key, rawHwid, hwid, ip }) {
+  const uuid = crypto.randomUUID();
+  authSessions.set(uuid, { scriptId: script.id, key: key || null, hwid: hwid || null, rawHwid: rawHwid || '', ip: ip || null, expires: Date.now() + AUTH_SESSION_TTL_MS, used: false });
+  return res.type('text/plain').send('!VANTARMOR:SESSION ' + uuid);
+}
+app.get('/v1/a/start/:uuid', (req, res) => {
+  if (/text\/html/.test(req.get('accept') || '')) return res.status(403).type('text/plain').send('!VANTARMOR:FORBIDDEN');
+  if (isLoaderProbe(req)) return sendAuthDecoy(req, res);
+  const uuid = String(req.params.uuid || '');
+  const sess = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(uuid) ? authSessions.get(uuid) : null;
+  if (!sess) { noteAuthFail(req.ip); return res.status(403).type('text/plain').send('!VANTARMOR:TOKEN_INVALID'); }
+  if (sess.used || sess.expires < Date.now()) { authSessions.delete(uuid); return res.status(403).type('text/plain').send('!VANTARMOR:TOKEN_INVALID'); }
+  const t = decodeTblob(req.query.t);
+  const script = db.prepare('SELECT * FROM scripts WHERE id = ?').get(sess.scriptId);
+  if (!script || !t) { authSessions.delete(uuid); noteAuthFail(req.ip); return res.status(403).type('text/plain').send('!VANTARMOR:VERIFY_FAILED'); }
+  if (maintenanceAllOn() && !isOwnerId(script.user_id)) return res.status(503).type('text/plain').send('!VANTARMOR:MAINTENANCE_ALL');
+  if (script.maintenance) return res.status(503).type('text/plain').send('!VANTARMOR:MAINTENANCE');
+  const _ct = Number(t.ct);
+  const _now = Math.floor(Date.now() / 1000);
+  const sigOk = Number.isInteger(_ct) && _ct > 0 && Math.abs(_now - _ct * 10) <= 20
+    && authSig(scriptAuthSecret(script), String(t.cn || ''), String(t.key || ''), String(t.hwid || ''), String(_ct)) === String(t.cs || '').trim().toLowerCase();
+  // La key del blob debe ser la misma que abrio la sesion: un canje con otra key no vale
+  if (!sigOk || String(t.hwid || '') !== String(sess.rawHwid || '') || String(t.key || '') !== String(sess.key || '')) {
+    noteAuthFail(req.ip);
+    return res.status(403).type('text/plain').send('!VANTARMOR:VERIFY_FAILED');
+  }
+  // La sesion se gasta aunque algo falle despues: una URL de start capturada no vale dos veces
+  authSessions.delete(uuid);
+  const token = crypto.randomBytes(24).toString('hex');
+  const code = servedCode(script, { ip: req.ip, key: sess.key });
+  const key16 = deriveKey16(`${sess.key || ''}|${sess.rawHwid || ''}|${token}|v2`);
+  const enc = xxteaEncrypt(code, key16);
+  const b64 = enc.toString('base64');
+  const chunks = [];
+  for (let i = 0; i < b64.length; i += CHUNK_SIZE) chunks.push(b64.slice(i, i + CHUNK_SIZE));
+  payloadTokens.set(token, { scriptId: script.id, key: sess.key, hwid: sess.hwid, ip: sess.ip, expires: Date.now() + CHUNK_TTL_MS, v: true, seedHwid: sess.rawHwid, ver: 4, chunks, gets: 0 });
+  return res.type('text/plain').send(`!VANTARMOR:PTOKEN ${token} ${chunks.length} ${enc.length}`);
+});
+// Descarga por trozos (GET): cada peticion lleva el token, el numero de trozo y el HWID.
+// El token vive 120 s y aguanta n trozos + margen; no es de un solo uso por peticion porque el
+// bootstrap baja varios trozos con el mismo.
+app.get('/v1/p', (req, res) => {
+  if (/text\/html/.test(req.get('accept') || '')) return res.status(403).type('text/plain').send('!VANTARMOR:FORBIDDEN');
+  if (isLoaderProbe(req)) return sendAuthDecoy(req, res);
+  const token = String(req.query.t || '');
+  const entry = payloadTokens.get(token);
+  const script = entry ? db.prepare('SELECT 1 AS ok FROM scripts WHERE id = ?').get(entry.scriptId) : null;
+  if (!entry || !script || entry.expires < Date.now() || (entry.ver || 0) < 4 || !Array.isArray(entry.chunks)) {
+    noteAuthFail(req.ip);
+    return res.status(403).type('text/plain').send('!VANTARMOR:TOKEN_INVALID');
+  }
+  const h = String(req.query.h || '');
+  if (entry.hwid && h && h !== entry.hwid) return res.status(403).type('text/plain').send('!VANTARMOR:TOKEN_INVALID');
+  const n = Number(req.query.n);
+  if (!Number.isInteger(n) || n < 0 || n >= entry.chunks.length) return res.status(403).type('text/plain').send('!VANTARMOR:TOKEN_INVALID');
+  entry.gets = (entry.gets || 0) + 1;
+  if (entry.gets > entry.chunks.length + 8) { payloadTokens.delete(token); return res.status(403).type('text/plain').send('!VANTARMOR:TOKEN_INVALID'); }
+  authFails.delete(req.ip);
+  return res.type('text/plain').send('!VANTARMOR:CHUNK\n' + entry.chunks[n]);
 });
 
 // Libreria de comprobacion de keys (equivalente a library.lua de la referencia): un script puede
@@ -2625,6 +2743,12 @@ const authHandler = (req, res, slug) => {
   if (isLoaderProbe(req)) return sendAuthDecoy(req, res);
   // Los parámetros llegan por GET (loaders viejos) o por POST JSON (nuevos): se mezclan aquí
   const q = { ...req.query, ...((req.body && typeof req.body === 'object' && !Buffer.isBuffer(req.body)) ? req.body : {}) };
+  // Loader v4: la key, el HWID y la firma viajan dentro del blob t ofuscado, no en la URL
+  if (q.t) {
+    const _tb = decodeTblob(q.t);
+    if (_tb) Object.assign(q, _tb);
+    else if (Number(String(q.ver || '0')) >= 4) return res.status(403).type('text/plain').send('!VANTARMOR:VERIFY_FAILED');
+  }
   const qver = Number(String(q.ver || '0')) || 0;
   const FAIL_CODES = new Set(['KEY_INVALID', 'KEY_REQUIRED', 'SCRIPT_NOT_FOUND']);
   const reply = code => {
@@ -2708,9 +2832,10 @@ const authHandler = (req, res, slug) => {
     if (soft) return res.type('text/plain').send('!VANTARMOR:OK');
     return reply('TAMPERING');
   }
-  // Loader viejo (ver < 3): sin entrega. El camino antiguo (clave en la respuesta) queda cerrado:
-  // recibe UPDATE_REQUIRED y el usuario ve el aviso de actualizar.
-  if (qver < 3) return reply('UPDATE_REQUIRED');
+  // Loader viejo (ver < 4): sin entrega. Con la entrega por pasos tambien queda cerrado el camino
+  // de una sola respuesta (v3): todo loader que no sea el nuevo recibe UPDATE_REQUIRED y el
+  // usuario ve el aviso de actualizar.
+  if (qver < 4) return reply('UPDATE_REQUIRED');
   if (script.ffa) {
     const ffaHwid = String(q.hwid || '').slice(0, 128);
     countExecution(script.id, req.ip, script.user_id);
@@ -2720,8 +2845,7 @@ const authHandler = (req, res, slug) => {
       `• HWID: \`${/^[\x21-\x7E]{8,128}$/.test(ffaHwid) ? ffaHwid : 'sin dato'}\``,
       `• ID del script: \`${script.loader_id || script.id}\``,
     ], null, rbxid);
-    if (script.secure_fetch) return res.type('text/plain').send('!VANTARMOR:TOKEN\n' + issuePayloadToken(script, req.ip, null, q.v, ffaHwid, ffaHwid, qver));
-    return sendExecutorCode(req, res, script, { ip: req.ip }, q.v === '2', qver >= 3 ? `|${ffaHwid}||v2` : null);
+    return startAuthSession(res, script, { key: null, rawHwid: ffaHwid, hwid: ffaHwid, ip: req.ip });
   }
 
   const key = String(q.key || '').trim().slice(0, 64);
@@ -2777,8 +2901,7 @@ const authHandler = (req, res, slug) => {
     `• ID del script: \`${script.loader_id || script.id}\``,
     `• Veces que esta key ejecutó este script: ${run?.exec_count ?? 1}`,
   ], k.discord_id, rbxid);
-  if (script.secure_fetch) return res.type('text/plain').send('!VANTARMOR:TOKEN\n' + issuePayloadToken(script, req.ip, key, q.v, hwid, rawHwid, qver));
-  return sendExecutorCode(req, res, script, { ip: req.ip, key }, q.v === '2', qver >= 3 ? `${key}|${rawHwid}||v2` : null);
+  return startAuthSession(res, script, { key, rawHwid, hwid, ip: req.ip });
 };
 // Ruta antigua (por slug): se mantiene para bootstraps que ya estuvieran en ejecución
 app.get('/scripts/hosted/:slug/auth', (req, res) => authHandler(req, res, req.params.slug));

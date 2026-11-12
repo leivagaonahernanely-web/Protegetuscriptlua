@@ -512,7 +512,10 @@ if (!db.prepare("SELECT 1 FROM pragma_table_info('scripts') WHERE name = 'last_d
 }
 // Los avisos blandos ya no se envian (marcaban ejecuciones normales como intentos de volcado);
 // los eventos blandos viejos se eliminan para que el registro quede solo con cortes reales.
-db.prepare('DELETE FROM dump_events WHERE soft = 1').run();
+// En una base nueva dump_events todavia no existe aqui: solo se limpia si la tabla ya esta.
+if (db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'dump_events'").get()) {
+  db.prepare('DELETE FROM dump_events WHERE soft = 1').run();
+}
 // Secreto por script para la firma anti-spoof del auth (el loader lo lleva horneado)
 if (!db.prepare("SELECT 1 FROM pragma_table_info('scripts') WHERE name = 'auth_secret'").get()) {
   db.exec('ALTER TABLE scripts ADD COLUMN auth_secret TEXT');

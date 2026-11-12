@@ -1500,7 +1500,7 @@ local _postFn = (type(request) == "function" and request)
   or nil
 local _authJson = nil
 pcall(function()
-  _authJson = game:GetService("HttpService"):JSONEncode({ s = SK, key = key, hwid = hwid, rbxid = rbxid, v = "2", ver = 2, lt = _lowTrust and 1 or 0 })
+  _authJson = game:GetService("HttpService"):JSONEncode({ s = SK, key = key, hwid = hwid, rbxid = rbxid, v = "2", ver = 3, lt = _lowTrust and 1 or 0 })
 end)
 if _postFn and _authJson then
   for _attempt = 1, 3 do
@@ -1514,7 +1514,7 @@ if _postFn and _authJson then
   end
 end
 if not (ok and type(body) == "string" and #body > 0) then
-  local _url = AUTH_BASE .. "&key=" .. enc(key) .. "&hwid=" .. enc(hwid) .. "&rbxid=" .. enc(rbxid) .. "&v=2&ver=2" .. (_lowTrust and "&lt=1" or "")
+  local _url = AUTH_BASE .. "&key=" .. enc(key) .. "&hwid=" .. enc(hwid) .. "&rbxid=" .. enc(rbxid) .. "&v=2&ver=3" .. (_lowTrust and "&lt=1" or "")
   for _attempt = 1, 3 do
     ok, body = pcall(function() return game:HttpGet(_url) end)
     if ok and type(body) == "string" then break end
@@ -1529,16 +1529,17 @@ pcall(function() if _G then rawset(_G, "script_key", nil) end end)
 if not ok or type(body) ~= "string" then kick("SERVER_UNREACHABLE") end
 -- Entrega en dos pasos (solo scripts con secure_fetch): /auth dio un token; el código sale de /payload por POST
 -- La respuesta del servidor decide el flujo (no la marca SECURE del bootstrap): así un loader viejo o cacheado no se rechaza
+local _tok = ""
 local _tp = "!VANTARMOR:TOKEN\\n"
 if body:sub(1, #_tp) == _tp then
-  local _token = (body:sub(#_tp + 1):gsub("%s+$", ""))
+  _tok = (body:sub(#_tp + 1):gsub("%s+$", ""))
   local _post = (type(request) == "function" and request)
     or (type(http_request) == "function" and http_request)
     or (type(syn) == "table" and type(syn.request) == "function" and syn.request)
     or nil
   if not _post then kick("EXECUTOR_NO_POST") end
   local _okp, _resp = pcall(function()
-    return _post({ Url = PAYLOAD_URL, Method = "POST", Headers = { ["Content-Type"] = "text/plain" }, Body = _token .. "\\n" .. hwid })
+    return _post({ Url = PAYLOAD_URL, Method = "POST", Headers = { ["Content-Type"] = "text/plain" }, Body = _tok .. "\\n" .. hwid })
   end)
   if not _okp or type(_resp) ~= "table" or type(_resp.Body) ~= "string" then kick("SERVER_UNREACHABLE") end
   body = _resp.Body
@@ -1548,22 +1549,86 @@ end
 -- solo aritmetica, xor por nibbles. Corre en cualquier executor
 local _encp = "!VANTARMOR:ENC\\n"
 if body:sub(1, #_encp) == _encp then
+  local _M = 4294967296
+  local _XN = {}
+  for _a = 0, 15 do
+    for _b = 0, 15 do
+      local _x, _p, _aa, _bb = 0, 1, _a, _b
+      for _ = 1, 4 do
+        if _aa % 2 ~= _bb % 2 then _x = _x + _p end
+        _p = _p * 2
+        _aa = math.floor(_aa / 2)
+        _bb = math.floor(_bb / 2)
+      end
+      _XN[_a * 16 + _b] = _x
+    end
+  end
+  local function _xor(a, b)
+    local _r, _p = 0, 1
+    for _ = 1, 8 do
+      _r = _r + _XN[(a % 16) * 16 + (b % 16)] * _p
+      a = math.floor(a / 16)
+      b = math.floor(b / 16)
+      _p = _p * 16
+    end
+    return _r
+  end
+  -- Loader v3: la clave ya no viaja en la respuesta. Se deriva de key+hwid+token,
+  -- datos que el cliente ya envio: la respuesta capturada es ciphertext sin clave.
+  -- (Rutina identica corre en el servidor.)
+  local function _xs(h)
+    h = (h * 8192) % _M
+    h = _xor(h, math.floor(h / 131072))
+    h = (h * 32) % _M
+    return h
+  end
+  local function _mix(_seed)
+    local _h1, _h2 = 374761393, 668265263
+    for _i = 1, #_seed do
+      _h1 = (_h1 + _seed:byte(_i) * 31 + 7) % _M
+      _h1 = _xs(_h1)
+      _h2 = (_h2 + _h1) % _M
+      _h2 = _xs(_h2)
+    end
+    local _kb = {}
+    for _i = 1, 16 do
+      _h1 = _xs(_h1)
+      _h2 = _xs(_h2)
+      _kb[_i] = _xor(_h1, _h2) % 256
+    end
+    return _kb
+  end
   local _rest = body:sub(#_encp + 1)
   local _nl = _rest:find("\\n", 1, true)
-  if not _nl then kick("VERIFY_FAILED") end
-  local _khex = _rest:sub(1, _nl - 1)
-  local _b64 = _rest:sub(_nl + 1)
+  local _kb = nil
+  if _nl then
+    local _khex = _rest:sub(1, _nl - 1)
+    if #_khex == 32 then
+      _kb = {}
+      for _i = 1, 16 do
+        local _hi = tonumber(_khex:sub(_i * 2 - 1, _i * 2 - 1), 16)
+        local _lo = tonumber(_khex:sub(_i * 2, _i * 2), 16)
+        if not _hi or not _lo then _kb = nil break end
+        _kb[_i] = _hi * 16 + _lo
+      end
+      if _kb then _rest = _rest:sub(_nl + 1) end
+    end
+  end
+  if not _kb then
+    local _ks = (tostring(key or ""):gsub("^%s+", "")):gsub("%s+$", "")
+    local _seed = _ks:sub(1, 64) .. "|" .. tostring(hwid or ""):sub(1, 128) .. "|" .. tostring(_tok or "") .. "|v2"
+    _kb = _mix(_seed)
+  end
+  local _b64 = _rest
   _b64 = (_b64:gsub("^%s+", ""))
   _b64 = (_b64:gsub("%s+$", ""))
-  if #_khex ~= 32 or #_b64 == 0 then kick("VERIFY_FAILED") end
-  local _hx = {}
-  for _i = 1, 32 do _hx[_i] = tonumber(_khex:sub(_i, _i), 16) or 0 end
+  if #_b64 == 0 then kick("VERIFY_FAILED") end
   local _k = {}
   for _j = 0, 3 do
     local _w = 0
     for _i = 0, 3 do
       local _p = _j * 4 + _i
-      _w = _w + (_hx[_p * 2 + 1] * 16 + _hx[_p * 2 + 2]) * 256 ^ _i
+      _w = _w + _kb[_p + 1] * 256 ^ _i
     end
     _k[_j + 1] = _w
   end
@@ -1587,7 +1652,6 @@ if body:sub(1, #_encp) == _encp then
     end
   end
   if _bn == 0 or _bn % 4 ~= 0 then kick("VERIFY_FAILED") end
-  local _M = 4294967296
   local _DL = 2654435769
   local _m = _bn / 4
   if _m < 2 then kick("VERIFY_FAILED") end
@@ -1595,29 +1659,6 @@ if body:sub(1, #_encp) == _encp then
   for _i = 1, _m do
     local _o = (_i - 1) * 4
     _v[_i] = _bytes[_o + 1] + _bytes[_o + 2] * 256 + _bytes[_o + 3] * 65536 + _bytes[_o + 4] * 16777216
-  end
-  local _XN = {}
-  for _a = 0, 15 do
-    for _b = 0, 15 do
-      local _x, _p, _aa, _bb = 0, 1, _a, _b
-      for _ = 1, 4 do
-        if _aa % 2 ~= _bb % 2 then _x = _x + _p end
-        _p = _p * 2
-        _aa = math.floor(_aa / 2)
-        _bb = math.floor(_bb / 2)
-      end
-      _XN[_a * 16 + _b] = _x
-    end
-  end
-  local function _xor(a, b)
-    local _r, _p = 0, 1
-    for _ = 1, 8 do
-      _r = _r + _XN[(a % 16) * 16 + (b % 16)] * _p
-      a = math.floor(a / 16)
-      b = math.floor(b / 16)
-      _p = _p * 16
-    end
-    return _r
   end
   local function _mx(sum, y, z, p0, e, k)
     local _t1 = _xor(math.floor(z / 32), (y * 4) % _M)
@@ -1973,11 +2014,12 @@ setInterval(() => {
   const now = Date.now();
   for (const [t, v] of payloadTokens) if (v.expires < now) payloadTokens.delete(t);
 }, 60_000).unref();
-function issuePayloadToken(script, ip, key, v, hwid) {
+function issuePayloadToken(script, ip, key, v, hwid, rawHwid, ver) {
   // Un solo token vivo por (script, key): pedir otro revoca el anterior
   for (const [t, e] of payloadTokens) if (e.scriptId === script.id && (e.key || null) === (key || null)) payloadTokens.delete(t);
   const token = crypto.randomBytes(24).toString('hex');
-  payloadTokens.set(token, { scriptId: script.id, key: key || null, hwid: hwid || null, ip: ip || null, expires: Date.now() + PAYLOAD_TTL_MS, v: v === '2' });
+  // seedHwid: el HWID crudo tal como lo mando el loader (la semilla debe ser reproducible por el cliente)
+  payloadTokens.set(token, { scriptId: script.id, key: key || null, hwid: hwid || null, ip: ip || null, expires: Date.now() + PAYLOAD_TTL_MS, v: v === '2', seedHwid: rawHwid || null, ver: ver || 0 });
   return token;
 }
 
@@ -2026,6 +2068,32 @@ function xxteaWordsToBuf(w) {
   for (let i = 0; i < w.length; i++) out.writeUInt32LE(w[i] >>> 0, i * 4);
   return out;
 }
+// Clave de sesion derivada (loader v3): la clave ya no viaja en la respuesta.
+// Se deriva de datos que solo el cliente envio (key + hwid + token de un solo uso),
+// con la misma rutina aritmetica en el servidor y en el bootstrap (Lua puro, sin bit ops).
+function xs32(h) {
+  h = (h * 8192) % 4294967296; // shl 13
+  h = ((h ^ Math.floor(h / 131072)) >>> 0); // xor shr 17
+  h = (h * 32) % 4294967296; // shl 5
+  return h >>> 0;
+}
+function deriveKey16(seed) {
+  const s = Buffer.from(String(seed), 'utf8');
+  let h1 = 374761393 >>> 0, h2 = 668265263 >>> 0;
+  for (let i = 0; i < s.length; i++) {
+    h1 = (h1 + s[i] * 31 + 7) % 4294967296;
+    h1 = xs32(h1);
+    h2 = (h2 + h1) % 4294967296;
+    h2 = xs32(h2);
+  }
+  const out = Buffer.alloc(16);
+  for (let i = 0; i < 16; i++) {
+    h1 = xs32(h1);
+    h2 = xs32(h2);
+    out[i] = (h1 ^ h2) & 0xff;
+  }
+  return out;
+}
 function xxteaMx(sum, y, z, p0, e, k) {
   const a = (((z >>> 5) ^ ((y << 2) >>> 0)) + ((y >>> 3) ^ ((z << 4) >>> 0))) >>> 0;
   const b = ((sum ^ y) + ((k[(p0 & 3) ^ e] ^ z) >>> 0)) >>> 0;
@@ -2055,12 +2123,15 @@ function xxteaEncrypt(plain, key16) {
   return xxteaWordsToBuf(v);
 }
 // Entrega el código al ejecutor: texto plano (loaders viejos) o cifrado (loader v2)
-function sendExecutorCode(req, res, script, opts, enc) {
+function sendExecutorCode(req, res, script, opts, enc, keySeed) {
   const code = servedCode(script, opts);
   if (!enc) return res.type('text/plain').send('!VANTARMOR:CODE\n' + code);
-  const key16 = crypto.randomBytes(16);
-  const ct = xxteaEncrypt(code, key16);
-  return res.type('text/plain').send(`!VANTARMOR:ENC\n${key16.toString('hex')}\n${ct.toString('base64')}`);
+  // Loader v3 (ver >= 3): la clave ya no viaja en la respuesta; se deriva de key+hwid+token,
+  // datos que el cliente ya envio. La respuesta capturada es ciphertext sin clave.
+  // Loader v2 viejo (ver < 3): recibe la clave en la respuesta, por compatibilidad.
+  const key16 = keySeed ? deriveKey16(keySeed) : crypto.randomBytes(16);
+  if (keySeed) return res.type('text/plain').send(`!VANTARMOR:ENC\n${xxteaEncrypt(code, key16).toString('base64')}`);
+  return res.type('text/plain').send(`!VANTARMOR:ENC\n${key16.toString('hex')}\n${xxteaEncrypt(code, key16).toString('base64')}`);
 }
 // Entrega el código con un token válido. El token se gasta aunque falle.
 // Solo POST con el token en el cuerpo: un GET (navegador, curl) ya no devuelve código
@@ -2089,7 +2160,8 @@ const payloadHandler = (req, res, slug) => {
   // El token queda atado al HWID que lo pidió: usado desde otro equipo no vale
   if (entry.hwid && _p_hwid && _p_hwid !== entry.hwid) return res.status(403).type('text/plain').send('!VANTARMOR:TOKEN_INVALID');
   // El loader espera el mismo prefijo que en la entrega de un paso
-  return sendExecutorCode(req, res, script, { ip: req.ip, key: entry.key }, entry.v === true);
+  const _seed = entry.ver >= 3 ? `${entry.key || ''}|${entry.seedHwid || ''}|${token}|v2` : null;
+  return sendExecutorCode(req, res, script, { ip: req.ip, key: entry.key }, entry.v === true, _seed);
 };
 // Ruta antigua (por slug): se mantiene para bootstraps que ya estuvieran en ejecución
 app.post('/scripts/hosted/:slug/payload', express.text({ type: () => true, limit: '1kb' }), (req, res) => payloadHandler(req, res, req.params.slug));
@@ -2138,6 +2210,7 @@ const authHandler = (req, res, slug) => {
   if (isLoaderProbe(req)) return sendAuthDecoy(req, res);
   // Los parámetros llegan por GET (loaders viejos) o por POST JSON (nuevos): se mezclan aquí
   const q = { ...req.query, ...((req.body && typeof req.body === 'object' && !Buffer.isBuffer(req.body)) ? req.body : {}) };
+  const qver = Number(String(q.ver || '0')) || 0;
   const FAIL_CODES = new Set(['KEY_INVALID', 'KEY_REQUIRED', 'SCRIPT_NOT_FOUND']);
   const reply = code => {
     // Solo los fallos pasan por el contador: una key válida nunca se bloquea aunque su IP tenga fallos previos
@@ -2157,7 +2230,7 @@ const authHandler = (req, res, slug) => {
   if (script.maintenance) return reply('MAINTENANCE');
   // Kill switch de versión: si se define LOADER_MIN_VERSION, un loader más viejo recibe UPDATE_REQUIRED
   const _minVer = Number(process.env.LOADER_MIN_VERSION || 0) || 0;
-  if (_minVer > 0 && (Number(String(q.ver || '0')) || 0) < _minVer) return reply('UPDATE_REQUIRED');
+  if (_minVer > 0 && qver < _minVer) return reply('UPDATE_REQUIRED');
   // ID de Roblox de quien ejecuta (lo manda el loader desde el juego; vacío si no llegó)
   const rbxid = /^\d{1,20}$/.test(String(q.rbxid || '')) ? String(q.rbxid) : '';
   // El loader avisa cuando loadstring fue interceptado (volcado). Solo avisa al dueño: no banea.
@@ -2200,8 +2273,8 @@ const authHandler = (req, res, slug) => {
       `• HWID: \`${/^[\x21-\x7E]{8,128}$/.test(ffaHwid) ? ffaHwid : 'sin dato'}\``,
       `• ID del script: \`${script.loader_id || script.id}\``,
     ], null, rbxid);
-    if (script.secure_fetch) return res.type('text/plain').send('!VANTARMOR:TOKEN\n' + issuePayloadToken(script, req.ip, null, q.v, ffaHwid));
-    return sendExecutorCode(req, res, script, { ip: req.ip }, q.v === '2');
+    if (script.secure_fetch) return res.type('text/plain').send('!VANTARMOR:TOKEN\n' + issuePayloadToken(script, req.ip, null, q.v, ffaHwid, ffaHwid, qver));
+    return sendExecutorCode(req, res, script, { ip: req.ip }, q.v === '2', qver >= 3 ? `|${ffaHwid}||v2` : null);
   }
 
   const key = String(q.key || '').trim().slice(0, 64);
@@ -2248,8 +2321,8 @@ const authHandler = (req, res, slug) => {
     `• ID del script: \`${script.loader_id || script.id}\``,
     `• Veces que esta key ejecutó este script: ${run?.exec_count ?? 1}`,
   ], k.discord_id, rbxid);
-  if (script.secure_fetch) return res.type('text/plain').send('!VANTARMOR:TOKEN\n' + issuePayloadToken(script, req.ip, key, q.v, hwid));
-  return sendExecutorCode(req, res, script, { ip: req.ip, key }, q.v === '2');
+  if (script.secure_fetch) return res.type('text/plain').send('!VANTARMOR:TOKEN\n' + issuePayloadToken(script, req.ip, key, q.v, hwid, rawHwid, qver));
+  return sendExecutorCode(req, res, script, { ip: req.ip, key }, q.v === '2', qver >= 3 ? `${key}|${rawHwid}||v2` : null);
 };
 // Ruta antigua (por slug): se mantiene para bootstraps que ya estuvieran en ejecución
 app.get('/scripts/hosted/:slug/auth', (req, res) => authHandler(req, res, req.params.slug));

@@ -529,10 +529,6 @@
         </div>
         ${codeFieldHtml()}
         ${protectionHtml(s)}
-        <details class="ver-box">
-          <summary>Historial de versiones</summary>
-          <div id="verList" class="ver-list"></div>
-        </details>
         <div class="form-actions">
           <button type="button" class="btn ghost" data-close>Cancelar</button>
           <button type="submit" class="btn">Guardar cambios</button>
@@ -541,45 +537,6 @@
     wireCodeField();
     wireProtection();
     $('formEditScript').addEventListener('submit', e => submitScript(e, s.id));
-    $('verList').addEventListener('click', async e => {
-      const b = e.target.closest('[data-ver-load]');
-      if (!b) return;
-      setBusy(b, true);
-      try {
-        const v = await api(`/api/scripts/${encodeURIComponent(b.dataset.verScript)}/versions/${encodeURIComponent(b.dataset.verLoad)}`);
-        $('fCode').value = v.source;
-        $('fCode').dispatchEvent(new Event('input'));
-        toast('Versión cargada en el editor. Revisa y guarda para aplicarla.');
-      } catch (err) {
-        toast(err.message, 'error');
-      } finally {
-        setBusy(b, false);
-      }
-    });
-    loadVersions(s.id);
-  }
-
-  async function loadVersions(scriptId) {
-    const box = $('verList');
-    if (!box) return;
-    box.innerHTML = '<p class="hint">Cargando versiones…</p>';
-    try {
-      const list = await api(`/api/scripts/${encodeURIComponent(scriptId)}/versions`);
-      if (!list.length) {
-        box.innerHTML = '<p class="hint">Aún no hay versiones. Se guarda una cada vez que cambias el código.</p>';
-        return;
-      }
-      box.innerHTML = list.map(v => `
-        <div class="ver-row">
-          <div class="ver-meta">
-            <b>${esc(v.name)}</b>
-            <span class="hint">${new Date(v.created_at * 1000).toLocaleString('es-EC', { dateStyle: 'short', timeStyle: 'short' })} · ${esc(OBFUSCATORS[v.obfuscator] ?? v.obfuscator)} · <span class="mono">${esc(String(v.source_hash).slice(0, 12))}</span></span>
-          </div>
-          <button type="button" class="btn ghost sm" data-ver-load="${esc(v.id)}" data-ver-script="${esc(scriptId)}">Cargar en el editor</button>
-        </div>`).join('');
-    } catch (err) {
-      box.innerHTML = `<p class="hint">${esc(err.message)}</p>`;
-    }
   }
 
   function openKeysModal(preselect = '') {

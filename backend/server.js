@@ -445,8 +445,6 @@ setInterval(() => expirePlans(), 10 * 60_000);
 db.exec('CREATE TABLE IF NOT EXISTS app_settings (name TEXT PRIMARY KEY, value TEXT)');
 // Registro de acciones del dueño y ajustes globales (mantenimiento, banner, estado del Ofuscador 3)
 // Historial de versiones del código fuente de cada script (las últimas 10 por script)
-db.exec('CREATE TABLE IF NOT EXISTS script_versions (id INTEGER PRIMARY KEY AUTOINCREMENT, script_id INTEGER NOT NULL, name TEXT, obfuscator TEXT, ffa INTEGER, source_hash TEXT, source TEXT, created_at INTEGER)');
-db.exec('CREATE INDEX IF NOT EXISTS script_versions_by_script ON script_versions(script_id)');
 db.exec('CREATE INDEX IF NOT EXISTS scripts_by_user ON scripts(user_id)');
 db.exec('CREATE INDEX IF NOT EXISTS keys_by_script ON keys(script_id)');
 db.exec('CREATE INDEX IF NOT EXISTS keys_by_discord ON keys(discord_id)');
@@ -458,15 +456,8 @@ db.exec(`CREATE TABLE IF NOT EXISTS free_claims (user_id TEXT NOT NULL, plan TEX
 // Créditos de anuncio recompensado (Unity Ads, callback server a server). oid es único: evita reusar un anuncio
 db.exec(`CREATE TABLE IF NOT EXISTS ad_credits (oid TEXT PRIMARY KEY, sid TEXT NOT NULL, created_at INTEGER NOT NULL, used_at INTEGER)`);
 db.exec(`CREATE TABLE IF NOT EXISTS custom_plan_requests (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id TEXT NOT NULL, scripts INTEGER NOT NULL, obfuscations INTEGER NOT NULL, panels INTEGER NOT NULL, status TEXT NOT NULL DEFAULT 'pending', created_at INTEGER, decided_at INTEGER)`);
-function snapshotVersion(scriptId, { name, obfuscator, ffa, source }) {
-  const hash = crypto.createHash('sha256').update(String(source ?? '')).digest('hex');
-  // Si el código no cambió (solo se editó el nombre o la protección), no se repite la versión
-  const last = db.prepare('SELECT source_hash FROM script_versions WHERE script_id = ? ORDER BY id DESC LIMIT 1').get(scriptId);
-  if (last?.source_hash === hash) return;
-  db.prepare('INSERT INTO script_versions (script_id, name, obfuscator, ffa, source_hash, source, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
-    .run(scriptId, String(name ?? ''), String(obfuscator ?? ''), ffa ? 1 : 0, hash, String(source ?? ''), Math.floor(Date.now() / 1000));
-  db.prepare('DELETE FROM script_versions WHERE script_id = ? AND id NOT IN (SELECT id FROM script_versions WHERE script_id = ? ORDER BY id DESC LIMIT 5)').run(scriptId, scriptId);
-}
+// El historial de versiones se quitó: la tabla se borra al arrancar para liberar su espacio
+try { db.exec('DROP TABLE IF EXISTS script_versions'); } catch (err) { console.warn('[Limpieza] script_versions:', err.message); }
 // Soporte web: tickets y mensajes (el dueño responde como soporte)
 db.exec(`CREATE TABLE IF NOT EXISTS support_tickets (
   id INTEGER PRIMARY KEY AUTOINCREMENT, user_id TEXT NOT NULL, username TEXT, category TEXT NOT NULL,
@@ -3313,7 +3304,6 @@ app.post('/api/scripts', requireAuth, async (req, res) => {
     db.prepare('UPDATE scripts SET perf_level = ? WHERE id = ?').run(analyzePerf(input.source, { obfuscator: input.obfuscator, vm: input.clydeVm === 1 }).level, info.lastInsertRowid);
     // Solo los scripts nuevos usan la entrega en dos pasos; los existentes quedan como estaban (secure_fetch = 0)
     db.prepare('UPDATE scripts SET secure_fetch = 1 WHERE id = ?').run(info.lastInsertRowid);
-    snapshotVersion(info.lastInsertRowid, { name: input.name, obfuscator: input.obfuscator, ffa: input.isFfa, source: input.source });
     if (!input.isFfa) stmt.obfIncrement.run(req.userId);
     if (input.obfuscator === 'luau') luauBumpStmt.run(req.userId, luauDay());
     db.prepare('UPDATE users SET scripts_period = COALESCE(scripts_period, 0) + 1 WHERE id = ?').run(req.userId);
@@ -3329,8 +3319,7 @@ app.delete('/api/scripts/:id', requireAuth, (req, res) => {
   if (!script) return res.status(404).json({ error: 'Script no encontrado' });
   db.transaction(() => {
     db.prepare('DELETE FROM keys WHERE script_id = ?').run(script.id);
-    // script_versions: el código de cada versión pesa hasta 2 MB; antes quedaba huérfano al borrar el script
-    for (const table of ['bot_panels', 'bot_access_rules', 'bot_blacklist', 'script_versions']) {
+    for (const table of ['bot_panels', 'bot_access_rules', 'bot_blacklist']) {
       db.prepare(`DELETE FROM ${table} WHERE script_id = ?`).run(script.id);
     }
     db.prepare('DELETE FROM scripts WHERE id = ? AND user_id = ?').run(script.id, req.userId);
@@ -3367,7 +3356,6 @@ app.put('/api/scripts/:id', requireAuth, async (req, res) => {
       script.id, req.userId,
     );
     db.prepare('UPDATE scripts SET perf_level = ? WHERE id = ?').run(analyzePerf(input.source, { obfuscator: input.obfuscator, vm: input.clydeVm === 1 }).level, script.id);
-    snapshotVersion(script.id, { name: input.name, obfuscator: input.obfuscator, ffa: input.isFfa, source: input.source });
     if (!input.isFfa) stmt.obfIncrement.run(req.userId);
     if (input.obfuscator === 'luau' && !input.isFfa) luauBumpStmt.run(req.userId, luauDay());
     res.json({ ok: true });
@@ -3489,19 +3477,6 @@ app.get('/api/scripts/:id/protected', requireAuth, (req, res) => {
   if (!script) return res.status(404).json({ error: 'Script no encontrado' });
   res.json({ name: script.name, obfuscator: script.obfuscator, content: script.content || '' });
 });
-app.get('/api/scripts/:id/versions', requireAuth, (req, res) => {
-  const script = stmt.scriptOwned.get(Number(req.params.id), req.userId);
-  if (!script) return res.status(404).json({ error: 'Script no encontrado' });
-  res.json(db.prepare('SELECT id, name, obfuscator, ffa, source_hash, created_at FROM script_versions WHERE script_id = ? ORDER BY id DESC').all(script.id));
-});
-app.get('/api/scripts/:id/versions/:vid', requireAuth, (req, res) => {
-  const script = stmt.scriptOwned.get(Number(req.params.id), req.userId);
-  if (!script) return res.status(404).json({ error: 'Script no encontrado' });
-  const v = db.prepare('SELECT id, name, obfuscator, ffa, source_hash, source, created_at FROM script_versions WHERE id = ? AND script_id = ?').get(Number(req.params.vid), script.id);
-  if (!v) return res.status(404).json({ error: 'Versión no encontrada' });
-  res.json(v);
-});
-
 // Borrar keys propias (una o varias, máximo 100 por petición)
 const ownedKeyStmt = db.prepare('SELECT k.key FROM keys k JOIN scripts s ON s.id = k.script_id WHERE k.key = ? AND s.user_id = ?');
 const deleteKeyStmt = db.prepare('DELETE FROM keys WHERE key = ?');
@@ -3867,8 +3842,6 @@ function pruneOldData() {
     db.prepare('DELETE FROM execution_hourly WHERE day < ?').run(ecuadorDay(Date.now() - 60 * 86400_000));
     // La caché de compilaciones es solo una optimización: se borra a los 1 día para no llenar el volumen
     db.prepare('DELETE FROM obf_cache WHERE created_at < ?').run(Math.floor(Date.now() / 1000) - 86400);
-    // Versiones de scripts que ya no existen (borrados antes de que se limpiaran al borrar)
-    db.prepare('DELETE FROM script_versions WHERE script_id NOT IN (SELECT id FROM scripts)').run();
     // Chat de la comunidad: 3 días, igual que dice la política de privacidad (antes no se borraba nunca)
     const chatCut = t - CHAT_KEEP_SECONDS;
     db.prepare('DELETE FROM web_chat_reactions WHERE message_id IN (SELECT id FROM web_chat WHERE created_at < ?)').run(chatCut);

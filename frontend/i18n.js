@@ -47,6 +47,8 @@
   let translating = false;
   const busy = () => { translating = true; setTimeout(() => { translating = false; }, 2500); };
 
+  let gtInstance = null;
+
   // Aplica un idioma con el combo interno de Google Translate. Devuelve true si existía el combo.
   const applyCombo = code => {
     const combo = document.querySelector('.goog-te-combo');
@@ -56,8 +58,22 @@
     combo.dispatchEvent(new Event('change'));
     return true;
   };
-  // Re-traducir todo (para el contenido nuevo del panel): vuelve al español y vuelve a aplicar.
+  // Traduce un bloque (o toda la página) sin volver al español: Google Translate recuerda
+  // el original de lo ya traducido, así que solo procesa el contenido nuevo. Evita el
+  // parpadeo español que se veía cada vez que el panel actualizaba datos.
+  const applySection = node => {
+    try {
+      if (gtInstance && typeof gtInstance.translateSection === 'function') {
+        gtInstance.translateSection(node, want);
+        return true;
+      }
+    } catch (e) { /* si no existe el método, combo de reserva */ }
+    return false;
+  };
+  // Re-traducir el contenido nuevo del panel: primero por sección (sin parpadeo) y, si el
+  // traductor no lo permite, vuelve al español y vuelve a aplicar como antes.
   const retranslate = () => {
+    if (applySection(document.body)) { busy(); return; }
     const combo = document.querySelector('.goog-te-combo');
     if (!combo) return;
     busy();
@@ -110,22 +126,69 @@
   const slot = document.getElementById('langSlot');
   if (slot) slot.appendChild(sel);
 
+  // Placeholders y comentarios dentro de <pre>/<code>: el traductor de Google no los toca.
+  // Espejos: cada texto se copia a un nodo oculto que el traductor sí procesa, y el resultado
+  // vuelve al placeholder o al span marcado con vm-mirror-src.
+  const mirrorBox = document.createElement('div');
+  mirrorBox.style.cssText = 'position:fixed;left:-9999px;top:0;width:1px;height:1px;overflow:hidden';
+  document.body.appendChild(mirrorBox);
+  const mirrors = [];
+  const collectMirrors = () => {
+    document.querySelectorAll('[placeholder]').forEach(el => {
+      if (el._vmPh) return;
+      const m = document.createElement('span');
+      m.textContent = el.getAttribute('placeholder') || '';
+      mirrorBox.appendChild(m);
+      el._vmPh = m;
+      mirrors.push({ el, m, attr: 'placeholder' });
+    });
+    document.querySelectorAll('.vm-mirror-src').forEach(el => {
+      if (el._vmSrc) return;
+      const m = document.createElement('span');
+      m.textContent = el.textContent;
+      mirrorBox.appendChild(m);
+      el._vmSrc = m;
+      mirrors.push({ el, m, attr: null });
+    });
+  };
+  const syncMirrors = () => {
+    mirrors.forEach(({ el, m, attr }) => {
+      if (!m.isConnected || !el.isConnected) return;
+      const t = m.textContent;
+      if (!t || !t.trim()) return;
+      if (attr) { if (el.getAttribute(attr) !== t) el.setAttribute(attr, t); }
+      else if (el.textContent !== t) el.textContent = t;
+    });
+  };
+  if (want && want !== 'es') {
+    collectMirrors();
+    setInterval(collectMirrors, 1200);
+    setInterval(syncMirrors, 700);
+  }
+
   // Contenido dinámico: el panel crea HTML después de cargar; Google Translate no
   // traduce lo nuevo por sí solo, así que se vuelve a aplicar cuando aparece.
   if (want && want !== 'es') {
     let t = null;
     const isGoogleEdit = muts => muts.every(m =>
       Array.from(m.addedNodes).every(n => n.nodeType === 1 && /^FONT$/i.test(n.tagName)));
+    const isMine = muts => muts.every(m => {
+      if (mirrorBox.contains(m.target)) return true;
+      if (m.target.nodeType === 1 && m.target._vmSrc) return true;
+      if (m.target.parentElement && m.target.parentElement._vmSrc) return true;
+      return false;
+    });
     new MutationObserver(muts => {
-      if (translating || isGoogleEdit(muts)) return;
+      if (translating || isGoogleEdit(muts) || isMine(muts)) return;
       clearTimeout(t);
+      collectMirrors();
       t = setTimeout(retranslate, 700);
     }).observe(document.body, { childList: true, subtree: true, characterData: false });
   }
 
   window.vmGtInit = () => {
     if (!window.google || !google.translate) return;
-    new google.translate.TranslateElement({
+    gtInstance = new google.translate.TranslateElement({
       pageLanguage: 'es',
       includedLanguages: LANGS.map(l => l[0]).join(','),
       autoDisplay: false,

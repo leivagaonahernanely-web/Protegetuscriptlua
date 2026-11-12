@@ -607,7 +607,7 @@ const MAINTENANCE_HTML = `<!doctype html>
   <p>VantArmor vuelve en un rato. Si necesitas algo mientras tanto, entra al servidor de Discord para las novedades.</p>
   <a href="https://discord.gg/aKQNc6pC">Ir al Discord</a>
   <a href="/" style="margin-left:12px;opacity:.7">Admins only</a>
-</div></body></html>`;
+</div><div id="langSlot" style="position:fixed;top:14px;right:14px;z-index:50"></div><script src="/i18n.js"></script></body></html>`;
 
 // Rutas de loader: la respuesta depende del interruptor de loaders (print de Lua)
 const LOADER_PATH_RE = /^\/(v1\/l|v1\/a|scripts\/hosted\/[^/]+(\/auth|\/remote)?|files\/v1\/loaders\/[^/]+)\/?$/;
@@ -1424,29 +1424,12 @@ local function nativeFn(f)
   return not (okI and type(info) == "table" and info.what ~= "C")
 end
 local function loaderTampered()
-  -- loadstring es la vía del payload; load también puede usarse para volcar, así que se revisan los dos
+  -- Solo corta por volcado real: loadstring reemplazado por una función de Lua (la vía del
+  -- payload, lo que hacen los env-loggers) o marcadores de un dumper conocido. Todo lo demás
+  -- (load, getgenv, request, HttpGet/HttpPost, writefile envueltos, sondas, hooks presentes)
+  -- va por envWrapped()/softProbeRun() como aviso blando: varios ejecutores legítimos traen
+  -- esas APIs ya envueltas en Lua y un corte aquí echa a usuarios limpios.
   if not nativeFn(loadstring) then return true end
-  if type(load) == "function" and not nativeFn(load) then return true end
-  -- getgenv, request y http_request deben ser funciones nativas: los env-loggers los envuelven
-  -- en funciones de Lua para registrar peticiones y contenido, así que si dejaron de ser "C" hay hook
-  if type(getgenv) == "function" and not nativeFn(getgenv) then return true end
-  if type(request) == "function" and not nativeFn(request) then return true end
-  if type(http_request) == "function" and not nativeFn(http_request) then return true end
-  -- HttpGet/HttpPost/writefile deben seguir siendo nativos: los env-loggers los envuelven para capturar
-  local _okH, _isH = pcall(function() return type(game.HttpGet) == "function" and not nativeFn(game.HttpGet) end)
-  if _okH and _isH then return true end
-  local _okP, _isP = pcall(function() return type(game.HttpPost) == "function" and not nativeFn(game.HttpPost) end)
-  if _okP and _isP then return true end
-  local _okW, _isW = pcall(function() return type(writefile) == "function" and not nativeFn(writefile) end)
-  if _okW and _isW then return true end
-  -- loadstring debe compilar de verdad: un reemplazo que devuelve otra cosa delata al volcador
-  do
-    local _okF, _f = pcall(loadstring, "return 47011")
-    if not _okF then return true end
-    if type(_f) ~= "function" then return true end
-    local _okR, _v = pcall(_f)
-    if not _okR or _v ~= 47011 then return true end
-  end
   -- Marcadores que dejan los dumpers conocidos (Kingmor) al armarse en el entorno
   local _km = false
   pcall(function()
@@ -1461,6 +1444,33 @@ local function loaderTampered()
   end)
   if _km then return true end
   return false
+end
+-- APIs envueltas en funciones de Lua (load, getgenv, request, http_request, HttpGet/HttpPost,
+-- writefile): los env-loggers las envuelven para registrar peticiones y contenido, pero varios
+-- ejecutores legítimos también las traen envueltas, así que esto solo avisa al dueño, no corta.
+local function envWrapped()
+  local _wr = false
+  local function _chk(f)
+    if type(f) == "function" and not nativeFn(f) then _wr = true end
+  end
+  pcall(function()
+    if type(load) == "function" then _chk(load) end
+    if type(getgenv) == "function" then _chk(getgenv) end
+    if type(request) == "function" then _chk(request) end
+    if type(http_request) == "function" then _chk(http_request) end
+    pcall(function() _chk(game.HttpGet) end)
+    pcall(function() _chk(game.HttpPost) end)
+    if type(writefile) == "function" then _chk(writefile) end
+  end)
+  -- loadstring debe compilar de verdad: un reemplazo que devuelve otra cosa delata al volcador
+  local _okF, _f = pcall(loadstring, "return 47011")
+  if not _okF or type(_f) ~= "function" then
+    _wr = true
+  else
+    local _okR, _v = pcall(_f)
+    if not _okR or _v ~= 47011 then _wr = true end
+  end
+  return _wr
 end
 -- [AntiDump] APIs que viven los volcadores y los env-loggers. Se miran las que existen en el
 -- ejecutor: si dejaron de ser C (alguien las envolvio en Lua), hay volcado activo y se corta.
@@ -1561,22 +1571,24 @@ local function envProbeRun()
   return _hookFound
 end
 local hookDetected = envProbeRun()
-if hookDetected then _dumpHit = true end
+if hookDetected then _softHit = true end
 -- Si loadstring fue interceptado: se avisa al servidor (dueño) y se corta antes de validar la key
 if loaderTampered() then _dumpHit = true end
--- Sondas de volcado: extraccion de codigo enganchada = corte; herramientas presentes = aviso
-if hardProbeRun() then _dumpHit = true end
+-- Sondas de volcado: herramientas presentes o enganchadas van a aviso blando; el corte real
+-- lo decide loaderTampered() (loadstring no nativo / marcadores) y el Heartbeat congelado.
+if hardProbeRun() then _softHit = true end
 if softProbeRun() then _softHit = true end
+if envWrapped() then _softHit = true end
 -- [AntiDump] Sonda sandbox/httplog: si el error menciona un entorno de volcado, cuenta como deteccion
 pcall(function()
   local _, _s = pcall(function() string.byte("a", function() return end, 9999, 38) end)
-  if type(_s) == "string" and (_s:find("httplog", 1, true) or _s:find("sandbox", 1, true)) then _dumpHit = true end
+  if type(_s) == "string" and (_s:find("httplog", 1, true) or _s:find("sandbox", 1, true)) then _softHit = true end
 end)
 -- [AntiDump] Gancho de depuracion activo: los env-loggers suelen dejar un hook puesto en debug
 pcall(function()
   if type(debug) == "table" and type(debug.gethook) == "function" then
     local _h = debug.gethook()
-    if _h and _h ~= "" and _h ~= "external hook" then _dumpHit = true end
+    if _h and _h ~= "" and _h ~= "external hook" then _softHit = true end
   end
 end)
 -- [AntiDump] Respuesta al volcado: aviso al servidor (con key y HWID) y kick.
@@ -1850,7 +1862,7 @@ local payload = (body:sub(1, #_prefix) == _prefix and #body > #_prefix) and body
 if not payload then kick("VERIFY_FAILED") end
 -- Revision despues del payload: si algo se engancho mientras corria, se avisa y se corta.
 -- Si solo aparecieron herramientas (sin enganches), queda el aviso blando.
-if loaderTampered() or hardProbeRun() then
+if loaderTampered() then
   pcall(function() game:HttpGet(AUTH_BASE .. "&key=" .. enc(key) .. "&hwid=" .. enc(hwid) .. "&tamper=1") end)
   _clearKey()
   kick("TAMPERING")

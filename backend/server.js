@@ -583,8 +583,11 @@ const LOADER_PATH_RE = /^\/(v1\/l|v1\/a|scripts\/hosted\/[^/]+(\/auth|\/remote)?
 app.use((req, res, next) => {
   const m = maintenanceState();
   if (!m.site && !m.loader) return next();
-  // El panel y sus API nunca se bloquean: ahi se apagan los interruptores
+  // El panel y sus API nunca se bloquean: ahi se apagan los interruptores.
+  // /api/owner es lo que usa el panel de admin (servicio aparte, con token); si se bloquea,
+  // el panel no puede ni apagar el mantenimiento. /api/version es solo el estado publico.
   if (req.path === '/admin' || req.path.startsWith('/api/admin')) return next();
+  if (req.path.startsWith('/api/owner') || req.path === '/api/version') return next();
   // Los admins navegan el sitio aunque este en mantenimiento
   const _sess = getSession(req);
   if (_sess && (ADMIN_DISCORD_IDS.includes(String(_sess.id)) || isOwnerId(_sess.id))) return next();

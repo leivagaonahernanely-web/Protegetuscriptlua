@@ -649,7 +649,7 @@ app.get(['/', '/login'], (req, res, next) => {
 });
 // Sin cache para el HTML/JS del panel: cada refresco trae la version nueva (nada se queda viejo)
 app.use((req, res, next) => {
-  if (/\.(html|js|css)(\?|$)/.test(req.path)) res.setHeader('Cache-Control', 'no-cache');
+  if (/\.(html|js|css)(\?|$)/.test(req.path) || req.path in CLEAN_PAGES) res.setHeader('Cache-Control', 'no-cache');
   next();
 });
 app.use(express.static(path.join(__dirname, '..', 'frontend'), { index: false }));
@@ -2813,7 +2813,7 @@ function requireAdminUser(req, res, next) {
   if (expected && token && token.length === expected.length
       && crypto.timingSafeEqual(Buffer.from(token), Buffer.from(expected))) return next();
   return requireAuth(req, res, () => {
-    if (!ADMIN_DISCORD_IDS.includes(String(req.userId)) || isOwnerId(req.userId)) return res.status(403).json({ error: 'No tienes acceso al panel de admin' });
+    if (!ADMIN_DISCORD_IDS.includes(String(req.userId)) && !isOwnerId(req.userId)) return res.status(403).json({ error: 'No tienes acceso al panel de admin' });
     next();
   });
 }

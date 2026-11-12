@@ -65,6 +65,7 @@
   <div id="gate403" class="card gate" hidden>
     <h1>Acceso restringido</h1>
     <p>Solo los administradores pueden entrar aqui.</p>
+    <p id="gateId" class="dim" hidden></p>
     <a href="/">Volver al inicio</a>
   </div>
 
@@ -150,7 +151,14 @@ async function saveMaint() {
 (async () => {
   const r = await fetch('/api/admin/overview');
   if (r.status === 401) { $('gate401').hidden = false; return; }
-  if (r.status === 403) { $('gate403').hidden = false; return; }
+  if (r.status === 403) {
+    $('gate403').hidden = false;
+    try {
+      const me = await fetch('/api/me');
+      if (me.ok) { const u = await me.json(); const g = $('gateId'); g.textContent = 'Entraste con el ID de Discord: ' + (u.id || u.discord_id || '?'); g.hidden = false; }
+    } catch (e) {}
+    return;
+  }
   if (!r.ok) { $('gate403').hidden = false; return; }
   const j = await r.json();
   $('panel').hidden = false;

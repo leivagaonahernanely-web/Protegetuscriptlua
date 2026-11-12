@@ -1,34 +1,61 @@
 // Selector de idioma. El español es el original de la página.
 // Los demás idiomas se traducen automáticamente con Google Translate.
-// La elección se guarda en la cookie googtrans (la lee Google Translate al cargar).
+// La elección se guarda (localStorage + cookie googtrans) y se vuelve a aplicar
+// sola al entrar, y el contenido que el panel crea después también se traduce.
 (function () {
   const LANGS = [
     ['es', 'Español'], ['en', 'English'], ['pt', 'Português'], ['fr', 'Français'],
     ['de', 'Deutsch'], ['it', 'Italiano'], ['ru', 'Русский'], ['ja', '日本語'], ['zh-CN', '中文'],
   ];
+  const LS_KEY = 'vm-lang';
 
   const current = () => {
     const m = document.cookie.match(/(?:^|;\s*)googtrans=\/es\/([^;]+)/);
     return m ? decodeURIComponent(m[1]) : 'es';
   };
-  // Guarda la elección en la cookie (para recordarla al volver a entrar).
+  const saved = () => { try { return localStorage.getItem(LS_KEY) || ''; } catch (e) { return ''; } };
   const saveCookie = code => {
     const value = code === 'es' ? '' : `/es/${code}`;
     const age = code === 'es' ? 'max-age=0' : 'max-age=31536000';
     document.cookie = `googtrans=${value}; path=/; ${age}`;
     document.cookie = `googtrans=${value}; path=/; domain=${location.hostname}; ${age}`;
   };
-  // Cambia el idioma usando el selector interno de Google Translate (también para volver al español,
-  // que es el idioma original de la página). Si el traductor aún no cargó, recarga la página.
-  const setLang = code => {
-    saveCookie(code);
+
+  // Idioma deseado: lo que el usuario eligió antes, o el de la cookie.
+  const want = saved() || current();
+  if (want && want !== current()) saveCookie(want); // sincroniza la cookie para la próxima carga
+
+  let translating = false;
+  const busy = () => { translating = true; setTimeout(() => { translating = false; }, 2500); };
+
+  // Aplica un idioma con el combo interno de Google Translate. Devuelve true si existía el combo.
+  const applyCombo = code => {
     const combo = document.querySelector('.goog-te-combo');
-    if (combo) {
-      combo.value = code;
+    if (!combo) return false;
+    busy();
+    combo.value = code;
+    combo.dispatchEvent(new Event('change'));
+    return true;
+  };
+  // Re-traducir todo (para el contenido nuevo del panel): vuelve al español y vuelve a aplicar.
+  const retranslate = () => {
+    const combo = document.querySelector('.goog-te-combo');
+    if (!combo) return;
+    busy();
+    combo.value = 'es';
+    combo.dispatchEvent(new Event('change'));
+    setTimeout(() => {
+      busy();
+      combo.value = want;
       combo.dispatchEvent(new Event('change'));
-    } else {
-      location.reload();
-    }
+    }, 120);
+  };
+
+  const setLang = code => {
+    try { localStorage.setItem(LS_KEY, code); } catch (e) { /* sin localStorage: queda la cookie */ }
+    saveCookie(code);
+    if (code === 'es') { busy(); applyCombo('es') || location.reload(); return; }
+    if (!applyCombo(code)) location.reload(); // si el traductor aún no cargó, la cookie ya está guardada
   };
 
   const css = `
@@ -45,7 +72,6 @@
   style.textContent = css;
   document.head.appendChild(style);
 
-  // Contenedor oculto que usa Google Translate.
   const hidden = document.createElement('div');
   hidden.id = 'google_translate_element';
   document.body.appendChild(hidden);
@@ -59,13 +85,24 @@
     o.textContent = name;
     sel.appendChild(o);
   });
-  sel.value = current();
+  sel.value = want || 'es';
   sel.addEventListener('change', () => setLang(sel.value));
 
   const slot = document.getElementById('langSlot');
   if (slot) slot.appendChild(sel);
 
-  // El <html> queda en español: así Chrome no ofrece traducir la página "del chino al español".
+  // Contenido dinámico: el panel crea HTML después de cargar; Google Translate no
+  // traduce lo nuevo por sí solo, así que se vuelve a aplicar cuando aparece.
+  if (want && want !== 'es') {
+    let t = null;
+    const isGoogleEdit = muts => muts.every(m =>
+      Array.from(m.addedNodes).every(n => n.nodeType === 1 && /^FONT$/i.test(n.tagName)));
+    new MutationObserver(muts => {
+      if (translating || isGoogleEdit(muts)) return;
+      clearTimeout(t);
+      t = setTimeout(retranslate, 700);
+    }).observe(document.body, { childList: true, subtree: true, characterData: false });
+  }
 
   window.vmGtInit = () => {
     if (!window.google || !google.translate) return;
@@ -74,9 +111,16 @@
       includedLanguages: LANGS.map(l => l[0]).join(','),
       autoDisplay: false,
     }, 'google_translate_element');
+    // Aplica el idioma guardado en cuanto el combo exista (hasta ~6 s de espera)
+    if (want && want !== 'es') {
+      let n = 0;
+      const iv = setInterval(() => {
+        if (applyCombo(want) || ++n >= 20) clearInterval(iv);
+      }, 300);
+    }
   };
   const s = document.createElement('script');
   s.src = 'https://translate.google.com/translate_a/element.js?cb=vmGtInit';
   s.async = true;
-  document.head.appendChild(s);
+  document.body.appendChild(s);
 })();

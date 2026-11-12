@@ -1270,6 +1270,95 @@ local function _run(pi, ups, ...)
       error("vantobf: opcode desconocido " .. tostring(o), 0)
     end  end
 end
+${opts.antiEnv !== false ? `do
+  local _ae_stop = false
+  local function _ae() _ae_stop = true end
+  -- Checks de consistencia del entorno de Roblox (Luau). Senales ligeras:
+  -- una API faltante o restringida se salta, no cuenta como fallo.
+  pcall(function()
+    local _ok, _pl = pcall(function() return game:GetService("Players") end)
+    if _ok and _pl and _pl.GetPlayerFromCharacter and _pl.GetPlayerFromCharacter(_pl, workspace) ~= nil then _ae() end
+  end)
+  pcall(function()
+    local _ok, _gs = pcall(function() return game:GetService("GuiService") end)
+    if _ok and _gs then
+      local _prev = _gs.SelectedObject
+      local _ok2, _part = pcall(function() return Instance.new("Part") end)
+      if _ok2 and _part then
+        local _acc = pcall(function() _gs.SelectedObject = _part end)
+        if _acc then
+          _ae()
+          pcall(function() _gs.SelectedObject = _prev end)
+        end
+        pcall(function() _part:Destroy() end)
+      end
+    end
+  end)
+  pcall(function()
+    local _ok, _ts = pcall(function() return game:GetService("TweenService") end)
+    if _ok and _ts then
+      local _ok2, _part = pcall(function() return Instance.new("Part") end)
+      if _ok2 and _part then
+        local _ok3, _inf = pcall(function() return TweenInfo.new(0.1) end)
+        if _ok3 and _inf then
+          local _ok4, _gt = pcall(function() return _ts:Create(_part, _inf, { Transparency = 1 }) end)
+          if _ok4 and _gt then
+            pcall(function() _gt:Destroy() end)
+            local _bad = { Position = "not a Vector3", CFrame = true, Transparency = "not a number" }
+            for _bk, _bv in pairs(_bad) do
+              local _ok5, _bt = pcall(function() return _ts:Create(_part, _inf, { [_bk] = _bv }) end)
+              if _ok5 then
+                _ae()
+                if _bt then pcall(function() _bt:Destroy() end) end
+              end
+            end
+          end
+        end
+        pcall(function() _part:Destroy() end)
+      end
+    end
+  end)
+  pcall(function()
+    local _ok, _f = pcall(function() return Instance.new("Folder") end)
+    if _ok and _f then
+      local _ok2, _c = pcall(function() return Instance.new("Folder") end)
+      if _ok2 and _c then
+        _c.Name = "AEPC"
+        _c.Parent = _f
+        if _f:FindFirstChild("AEPC") ~= _c or _c.Parent ~= _f or _c:IsA("Folder") ~= true then _ae() end
+        local _ok3, _cl = pcall(function() return _f:Clone() end)
+        if _ok3 then
+          if not _cl then _ae() else
+            local _cc = _cl:FindFirstChild("AEPC")
+            if _cl == _f or not _cc or _cc == _c or _cc.Parent ~= _cl then _ae() end
+          end
+          pcall(function() _cl:Destroy() end)
+        end
+        pcall(function() _c:Destroy() end)
+      end
+      pcall(function() _f:Destroy() end)
+    end
+  end)
+  pcall(function()
+    local _a = Vector3.new(2, -3, 4)
+    local _b = Vector3.new(-1, 5, 2)
+    if (_a + _b).X ~= 1 or (_a - _b).Z ~= 2 or _a:Dot(_b) ~= -9 then _ae() end
+  end)
+  pcall(function()
+    if typeof(Vector3.new(1, 1, 1)) ~= "Vector3" then _ae() end
+  end)
+  pcall(function()
+    local _ok, _p2 = pcall(function() return Instance.new("Part") end)
+    if _ok and _p2 then
+      if _p2.ClassName ~= "Part" or _p2:IsA("BasePart") ~= true then _ae() end
+      pcall(function() _p2:Destroy() end)
+    end
+  end)
+  if _ae_stop then
+    return
+  end
+end
+` : ''}
 ${opts.guard ? `do
   local _exp = string.char(${[...(opts.guard)].map(c => (c.charCodeAt(0) - 41) + '+41').join(',')})
   local _v

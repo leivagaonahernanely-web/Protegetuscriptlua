@@ -198,13 +198,19 @@ function openCompactedDb() {
     const freelist = conn.pragma('freelist_count', { simple: true });
     const fileBytes = fs.statSync(DATABASE_PATH).size;
     const freeable = freelist * pageSize;
-    if (freeable < fileBytes * 0.1) {
+    // Modo incremental (auto_vacuum=2): las podas devuelven el espacio al volumen con incremental_vacuum,
+    // sin copiar la base. Si la base aún está en modo normal, se reconstruye una vez en ese modo aunque
+    // haya poco que recuperar (ver abajo: el pragma se aplica antes del VACUUM INTO).
+    const autoVac = conn.pragma('auto_vacuum', { simple: true });
+    if (freeable < fileBytes * 0.1 && autoVac === 2) {
       console.log(`[Limpieza] Compactacion al arranque omitida: recuperables ${mb(freeable)} de ${mb(fileBytes)}`);
       return conn;
     }
     try { fs.unlinkSync(tmp); } catch {}
     try { fs.unlinkSync(bakTmp); } catch {}
     conn.pragma('wal_checkpoint(TRUNCATE)');
+    // VACUUM INTO toma el modo de auto_vacuum del pragma si se fija antes: así la copia queda en modo incremental
+    if (autoVac !== 2) conn.pragma('auto_vacuum = INCREMENTAL');
     conn.exec(`VACUUM INTO '${tmp}'`);
     const vacSize = fs.statSync(tmp).size;
     const counts = {};
@@ -3645,9 +3651,20 @@ function pruneOldData() {
     db.prepare('DELETE FROM execution_hourly WHERE day < ?').run(ecuadorDay(Date.now() - 60 * 86400_000));
     // La caché de compilaciones es solo una optimización: se borra a los 1 día para no llenar el volumen
     db.prepare('DELETE FROM obf_cache WHERE created_at < ?').run(Math.floor(Date.now() / 1000) - 86400);
+    // Chat de la comunidad: 3 días, igual que dice la política de privacidad (antes no se borraba nunca)
+    const chatCut = t - CHAT_KEEP_SECONDS;
+    db.prepare('DELETE FROM web_chat_reactions WHERE message_id IN (SELECT id FROM web_chat WHERE created_at < ?)').run(chatCut);
+    db.prepare('DELETE FROM web_chat_reports WHERE message_id IN (SELECT id FROM web_chat WHERE created_at < ?)').run(chatCut);
+    const chat = db.prepare('DELETE FROM web_chat WHERE created_at < ?').run(chatCut).changes;
+    if (chat) console.log(`[Limpieza] ${chat} mensajes del chat borrados (más de 3 días).`);
     if (logs) console.log(`[Limpieza] ${logs} logs de scripts borrados (más de 1 día).`);
+    // Devuelve al volumen las páginas libres que dejaron los DELETE (solo si la base está en modo incremental)
+    if (process.env.DB_ENGINE !== 'postgres' && db.pragma('auto_vacuum', { simple: true }) === 2) {
+      db.prepare('PRAGMA incremental_vacuum').all();
+    }
   } catch (err) { console.error('[Limpieza] Error:', err.message); }
 }
+const CHAT_KEEP_SECONDS = 3 * 86400;
 pruneOldData();
 setInterval(pruneOldData, 60 * 60_000).unref();
 

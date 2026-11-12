@@ -488,6 +488,15 @@ const quotaApi = quota;
 const scriptBanStmt = db.prepare('SELECT 1 FROM script_bans WHERE script_id = ? AND kind = ? AND value = ?');
 const scriptBanned = (scriptId, kind, value) => Boolean(value) && Boolean(scriptBanStmt.get(scriptId, kind, String(value)));
 
+// key_days (estilo de la referencia): keys "en stock" cuyo reloj arranca en la primera ejecucion
+if (!db.prepare("SELECT 1 FROM pragma_table_info('keys') WHERE name = 'key_days'").get()) {
+  db.exec('ALTER TABLE keys ADD COLUMN key_days INTEGER');
+}
+// Secreto por script para la firma anti-spoof del auth (el loader lo lleva horneado)
+if (!db.prepare("SELECT 1 FROM pragma_table_info('scripts') WHERE name = 'auth_secret'").get()) {
+  db.exec('ALTER TABLE scripts ADD COLUMN auth_secret TEXT');
+}
+
 const stmt = {
   userById: db.prepare('SELECT id, username, avatar, custom_avatar, bot_avatar, plan, obf_used, staff_role, discord_joined, plan_expires_at, plan_expired_at FROM users WHERE id = ?'),
   scriptCount: db.prepare('SELECT COUNT(*) AS n FROM scripts WHERE user_id = ?'),
@@ -516,7 +525,7 @@ const stmt = {
     JOIN scripts s ON s.id = k.script_id
     WHERE s.user_id = ?
   `),
-  keyInsert: db.prepare('INSERT INTO keys (key, script_id, expires_at) VALUES (?, ?, ?)'),
+  keyInsert: db.prepare('INSERT INTO keys (key, script_id, expires_at, key_days) VALUES (?, ?, ?, ?)'),
   slugExists: db.prepare('SELECT 1 FROM scripts WHERE slug = ?'),
   scriptBySlug: db.prepare('SELECT * FROM scripts WHERE slug = ?'),
   scriptByLoaderId: db.prepare('SELECT * FROM scripts WHERE loader_id = ?'),
@@ -1327,7 +1336,7 @@ pre{margin:0;padding:16px;background:#040407;font-family:ui-monospace,SFMono-Reg
 // Lee script_key, pide el script a /auth con key + HWID y, si algo falla, expulsa
 // al jugador con el mensaje de la tabla MSG. No contiene el código del script.
 // La key aleatoria por script (loader_id) va en una variable: el bootstrap no lleva el slug ni la ruta completa.
-function loaderBootstrap(loaderId, ffa, secure = false) {
+function loaderBootstrap(loaderId, ffa, secure = false, secret = '', initCode = '') {
   const sk = /^[0-9a-f]{40}$/.test(String(loaderId || '')) ? String(loaderId) : '';
   return `local SK = ${JSON.stringify(sk)}
 local AUTH_BASE = ${JSON.stringify(`${APP_URL}/v1/a?s=`)} .. SK
@@ -1503,7 +1512,37 @@ if _dumpHit then
   _clearKey()
   kick("TAMPERING")
 end
+${initCode ? `-- [Pre-Auth] Codigo del dueño (equivale a LRM_INIT_SCRIPT): corre antes de la autenticacion.
+-- No pasa por el ofuscador, se lee tal cual: no pongas aqui nada critico.
+${initCode}
+` : ''}
 
+-- [AntiSpoof] Firma de la peticion (estilo de la referencia): ct = bloque de 10 s, cn = nonce
+-- aleatorio, cs = mezcla del secreto por script con la key, el HWID y ct. El servidor la
+-- recalcula con la misma rutina; un cliente generico que reenvia parametros capturados
+-- no puede falsificarla. Los loaders viejos sin cs siguen pasando.
+local _AS_SECRET = ${JSON.stringify(secret || '')}
+local _ct = tostring(math.floor(os.time() / 10))
+local _cn = string.format("%08x%08x", math.floor((os.clock() * 1000000) % 4294967296), math.random(0, 2147483647))
+local _cs = ""
+do
+  local _as_h = 5381
+  local _seed = _AS_SECRET .. "|" .. _cn .. "|" .. tostring(key) .. "|" .. tostring(hwid) .. "|" .. _ct
+  for _i = 1, #_seed do
+    _as_h = (_as_h * 33 + _seed:byte(_i)) % 4294967296
+    _as_h = (_as_h * 31 + 7) % 4294967296
+  end
+  local _b1, _b2, _b3, _b4
+  _as_h = (_as_h * 31 + 7) % 4294967296
+  _b1 = _as_h % 256
+  _as_h = (_as_h * 31 + 7) % 4294967296
+  _b2 = _as_h % 256
+  _as_h = (_as_h * 31 + 7) % 4294967296
+  _b3 = _as_h % 256
+  _as_h = (_as_h * 31 + 7) % 4294967296
+  _b4 = _as_h % 256
+  _cs = string.format("%02x%02x%02x%02x", _b1, _b2, _b3, _b4)
+end
 -- Contactar el servidor: POST con JSON (la key y el HWID NO viajan en la URL, no acaban en
 -- logs de proxy) con GET de respaldo para ejecutores sin request. Hasta 3 reintentos con
 -- espera con jitter (Railway puede tardar al arrancar).
@@ -1514,7 +1553,7 @@ local _postFn = (type(request) == "function" and request)
   or nil
 local _authJson = nil
 pcall(function()
-  _authJson = game:GetService("HttpService"):JSONEncode({ s = SK, key = key, hwid = hwid, rbxid = rbxid, v = "2", ver = 3, lt = _lowTrust and 1 or 0 })
+  _authJson = game:GetService("HttpService"):JSONEncode({ s = SK, key = key, hwid = hwid, rbxid = rbxid, v = "2", ver = 3, lt = _lowTrust and 1 or 0, ct = _ct, cn = _cn, cs = _cs })
 end)
 if _postFn and _authJson then
   for _attempt = 1, 3 do
@@ -1528,7 +1567,7 @@ if _postFn and _authJson then
   end
 end
 if not (ok and type(body) == "string" and #body > 0) then
-  local _url = AUTH_BASE .. "&key=" .. enc(key) .. "&hwid=" .. enc(hwid) .. "&rbxid=" .. enc(rbxid) .. "&v=2&ver=3" .. (_lowTrust and "&lt=1" or "")
+  local _url = AUTH_BASE .. "&key=" .. enc(key) .. "&hwid=" .. enc(hwid) .. "&rbxid=" .. enc(rbxid) .. "&v=2&ver=3" .. (_lowTrust and "&lt=1" or "") .. "&ct=" .. _ct .. "&cn=" .. _cn .. "&cs=" .. _cs
   for _attempt = 1, 3 do
     ok, body = pcall(function() return game:HttpGet(_url) end)
     if ok and type(body) == "string" then break end
@@ -1769,11 +1808,18 @@ function loaderStubFromPlain(plain) {
   const key = loaderEncodeKey(plain);
   return `-- VANTARMOR\nlocal _b = ${blob}\nlocal _k = {${key.join(',')}}\nlocal _t = {}\nfor _i = 1, #_b do _t[_i] = string.char((_b[_i] - _k[(_i - 1) % 8 + 1] - (_i - 1) % 251) % 256) end\nlocal _fn = loadstring(table.concat(_t))\nif not _fn then error("[VANTARMOR] loader invalido", 0) end\n_fn()\n`;
 }
+// Secreto y codigo pre-auth del script dueño del loader (se buscan al generar el loader)
+function loaderExtras(loaderId) {
+  const srow = /^[0-9a-f]{40}$/.test(String(loaderId || '')) ? stmt.scriptByLoaderId.get(loaderId) : null;
+  return { secret: srow ? scriptAuthSecret(srow) : '', initCode: srow ? getInitCode(srow.id) : '' };
+}
 function loaderStub(loaderId, ffa, secure) {
-  return loaderStubFromPlain(loaderBootstrap(loaderId, ffa, secure));
+  const ex = loaderExtras(loaderId);
+  return loaderStubFromPlain(loaderBootstrap(loaderId, ffa, secure, ex.secret, ex.initCode));
 }
 async function protectLoader(loaderId, ffa, secure) {
-  const plain = loaderBootstrap(loaderId, ffa, secure);
+  const ex = loaderExtras(loaderId);
+  const plain = loaderBootstrap(loaderId, ffa, secure, ex.secret, ex.initCode);
   const cacheKey = crypto.createHash('sha256').update(plain).digest('hex');
   const cached = loaderObfCache.get(cacheKey);
   if (cached !== undefined) return cached;
@@ -2028,6 +2074,27 @@ setInterval(() => {
   const now = Date.now();
   for (const [t, v] of payloadTokens) if (v.expires < now) payloadTokens.delete(t);
 }, 60_000).unref();
+// Firma anti-spoof del auth (equivale a clienttime/clientnonce/externalsignature de la referencia):
+// el loader hornea un secreto por script y manda ct (bloque de 10 s), cn (nonce) y cs (firma).
+// El servidor recalcula cs con el mismo mezclador; un cliente generico que reenvia parametros
+// capturados no puede falsificarla. Los loaders viejos que no mandan cs siguen pasando.
+function scriptAuthSecret(script) {
+  if (script.auth_secret) return script.auth_secret;
+  const s = crypto.randomBytes(16).toString('hex');
+  try { db.prepare('UPDATE scripts SET auth_secret = ? WHERE id = ?').run(s, script.id); } catch { /* se regenera */ }
+  return s;
+}
+function authSig(secret, nonce, key, hwid, bucket) {
+  const s = Buffer.from(`${secret}|${nonce}|${key}|${hwid}|${bucket}`, 'utf8');
+  let h = 5381;
+  for (let i = 0; i < s.length; i++) {
+    h = (h * 33 + s[i]) % 4294967296;
+    h = (h * 31 + 7) % 4294967296;
+  }
+  const parts = [];
+  for (let i = 0; i < 4; i++) { h = (h * 31 + 7) % 4294967296; parts.push(h % 256); }
+  return parts.map(b => b.toString(16).padStart(2, '0')).join('');
+}
 function issuePayloadToken(script, ip, key, v, hwid, rawHwid, ver) {
   // Un solo token vivo por (script, key): pedir otro revoca el anterior
   for (const [t, e] of payloadTokens) if (e.scriptId === script.id && (e.key || null) === (key || null)) payloadTokens.delete(t);
@@ -2084,9 +2151,14 @@ function parseWebhookMarkers(source) {
   return { list };
 }
 const stripWebhookMarkers = source => String(source ?? '').replace(/^--@webhook:[^\n]*\r?\n?/gm, '');
-const saveScriptWebhooks = (scriptId, list) => {
+// Codigo pre-auth del dueño (equivale a LRM_INIT_SCRIPT): corre en el loader ANTES de la autenticacion
+db.exec('CREATE TABLE IF NOT EXISTS script_init (script_id INTEGER PRIMARY KEY, code TEXT)');
+const getInitCode = scriptId => db.prepare('SELECT code FROM script_init WHERE script_id = ?').get(scriptId)?.code || '';
+const saveScriptExtras = (scriptId, list, initCode) => {
   webhookStmt.clear.run(scriptId);
   for (const h of list) webhookStmt.save.run(scriptId, h.name, h.url);
+  // undefined = no tocar (edicion sin el campo); '' = quitar; texto = guardar
+  if (initCode !== undefined) db.prepare('INSERT OR REPLACE INTO script_init (script_id, code) VALUES (?, ?)').run(scriptId, initCode ? String(initCode).slice(0, 4000) : null);
 };
 
 // Sesión de webhook: token por entrega, vive 6 h. El servidor re-chequea la key en cada envío.
@@ -2314,6 +2386,16 @@ const authHandler = (req, res, slug) => {
   if (_minVer > 0 && qver < _minVer) return reply('UPDATE_REQUIRED');
   // ID de Roblox de quien ejecuta (lo manda el loader desde el juego; vacío si no llegó)
   const rbxid = /^\d{1,20}$/.test(String(q.rbxid || '')) ? String(q.rbxid) : '';
+  // Firma del loader (v3.1+): si la peticion trae cs se valida; los loaders viejos pasan sin ella
+  if (q.cs !== undefined && q.cs !== null && String(q.cs).trim() !== '') {
+    const _ckey = String(q.key || '').trim().slice(0, 64);
+    const _chw = String(q.hwid || '').slice(0, 128);
+    const _ct = Number(String(q.ct || ''));
+    const _now = Math.floor(Date.now() / 1000);
+    const _sigOk = Number.isInteger(_ct) && _ct > 0 && Math.abs(_now - _ct * 10) <= 20
+      && authSig(scriptAuthSecret(script), String(q.cn || ''), _ckey, _chw, String(_ct)) === String(q.cs).trim().toLowerCase();
+    if (!_sigOk) return reply('VERIFY_FAILED');
+  }
   // El loader avisa cuando loadstring fue interceptado (volcado). Solo avisa al dueño: no banea.
   if (q.tamper === '1') {
     const tKey = String(q.key || '').trim().slice(0, 64);
@@ -2393,6 +2475,13 @@ const authHandler = (req, res, slug) => {
     }
   } else if (k.hwid !== hwid) return reportKeyShare(script, k, hwid, reply);
   }
+  // key_days (estilo de la referencia): key en stock sin fecha; el reloj arranca con la primera ejecucion valida
+  if (!k.expires_at && k.key_days) {
+    const _exp = Math.floor(Date.now() / 1000) + k.key_days * 86400;
+    const _act = db.prepare('UPDATE keys SET expires_at = ? WHERE key = ? AND expires_at IS NULL').run(_exp, key);
+    k.expires_at = _act.changes ? _exp : (db.prepare('SELECT expires_at FROM keys WHERE key = ?').get(key)?.expires_at ?? null);
+    if (k.expires_at && k.expires_at * 1000 < Date.now()) return reply('KEY_EXPIRED');
+  }
   const run = db.prepare('UPDATE keys SET last_ip = ?, exec_count = COALESCE(exec_count, 0) + 1 WHERE key = ? RETURNING exec_count')
     .get(req.ip || null, key);
   countExecution(script.id, req.ip, script.user_id);
@@ -2425,6 +2514,36 @@ app.post('/v1/a', express.json({ type: () => true, limit: '8kb' }), (req, res) =
   return authHandler(req, res, row ? row.slug : '');
 });
 app.post('/scripts/hosted/:slug/auth', express.json({ type: () => true, limit: '8kb' }), (req, res) => authHandler(req, res, req.params.slug));
+
+// Chequeo de key sin entrega (equivale a la libreria check_key de la referencia): un script puede
+// validar la key ANTES del loadstring y mostrar su propio mensaje. Solo lectura: no vincula HWID,
+// no cuenta ejecucion, y los fallos pasan por el mismo antifuerza-bruta que /auth.
+app.get('/v1/k', (req, res) => {
+  const replyK = code => res.type('text/plain').send(`!VANTARMOR:${code}`);
+  const sk = String(req.query.s || '');
+  const script = /^[0-9a-f]{40}$/.test(sk) ? stmt.scriptByLoaderId.get(sk) : null;
+  if (!script) {
+    if (authBlocked(req.ip)) return replyK('RATE_LIMITED');
+    noteAuthFail(req.ip);
+    return replyK('SCRIPT_NOT_FOUND');
+  }
+  const key = String(req.query.key || '').trim().slice(0, 64);
+  if (!key || key.length < 8) return replyK('KEY_INVALID');
+  const k = db.prepare('SELECT * FROM keys WHERE key = ? AND script_id = ?').get(key, script.id);
+  if (!k) {
+    if (authBlocked(req.ip)) return replyK('RATE_LIMITED');
+    noteAuthFail(req.ip);
+    return replyK('KEY_INCORRECT');
+  }
+  if (k.banned) return replyK('KEY_BANNED');
+  if (k.expires_at && k.expires_at * 1000 < Date.now()) return replyK('KEY_EXPIRED');
+  if (script.hwid_lock !== 0) {
+    const hwid = /^[\x21-\x7E]{8,128}$/.test(String(req.query.hwid || '')) ? String(req.query.hwid) : '';
+    if (k.hwid && hwid && k.hwid !== hwid) return replyK('KEY_HWID_LOCKED');
+    if (!k.hwid && k.last_hwid && hwid && k.last_hwid !== hwid && script.share_detection !== 0) return replyK('KEY_HWID_LOCKED');
+  }
+  return replyK('KEY_VALID');
+});
 
 app.get('/auth/logout', (req, res) => {
   res.clearCookie(SESSION_COOKIE);
@@ -3603,6 +3722,8 @@ app.post('/api/scripts', requireAuth, async (req, res) => {
     if (remoteErr) return res.status(422).json({ error: remoteErr });
     const _wh = parseWebhookMarkers(input.source);
     if (_wh.error) return res.status(422).json({ error: _wh.error });
+    const _init = typeof req.body?.initCode === 'string' && (req.method === 'POST' || req.body.initCode.trim() !== '') ? req.body.initCode : undefined;
+    if (_init !== undefined && _init.length > 4000) return res.status(422).json({ error: 'El código pre-auth no puede pasar de 4000 caracteres.' });
     const code = stripWebhookMarkers(stripRemoteBlocks(input.source)); // lo que se compila y ofusca: sin los bloques secretos ni las URLs
     const srcErr = await checkLuauSyntax(code);
     if (srcErr) return res.status(422).json({ error: `Tu código no compila: ${srcErr}` });
@@ -3617,7 +3738,7 @@ app.post('/api/scripts', requireAuth, async (req, res) => {
     db.prepare('UPDATE scripts SET perf_level = ? WHERE id = ?').run(analyzePerf(input.source, { obfuscator: input.obfuscator, vm: input.clydeVm === 1 }).level, info.lastInsertRowid);
     // Solo los scripts nuevos usan la entrega en dos pasos; los existentes quedan como estaban (secure_fetch = 0)
     db.prepare('UPDATE scripts SET secure_fetch = 1 WHERE id = ?').run(info.lastInsertRowid);
-    saveScriptWebhooks(Number(info.lastInsertRowid), _wh.list);
+    saveScriptExtras(Number(info.lastInsertRowid), _wh.list, _init);
     if (!input.isFfa) stmt.obfIncrement.run(req.userId);
     if (input.obfuscator === 'luau') luauBumpStmt.run(req.userId, luauDay());
     db.prepare('UPDATE users SET scripts_period = COALESCE(scripts_period, 0) + 1 WHERE id = ?').run(req.userId);
@@ -3661,6 +3782,8 @@ app.put('/api/scripts/:id', requireAuth, async (req, res) => {
     if (remoteErr) return res.status(422).json({ error: remoteErr });
     const _wh = parseWebhookMarkers(input.source);
     if (_wh.error) return res.status(422).json({ error: _wh.error });
+    const _init = typeof req.body?.initCode === 'string' && (req.method === 'POST' || req.body.initCode.trim() !== '') ? req.body.initCode : undefined;
+    if (_init !== undefined && _init.length > 4000) return res.status(422).json({ error: 'El código pre-auth no puede pasar de 4000 caracteres.' });
     const code = stripWebhookMarkers(stripRemoteBlocks(input.source)); // lo que se compila y ofusca: sin los bloques secretos ni las URLs
     const srcErr = await checkLuauSyntax(code);
     if (srcErr) return res.status(422).json({ error: `Tu código no compila: ${srcErr}` });
@@ -3674,7 +3797,7 @@ app.put('/api/scripts/:id', requireAuth, async (req, res) => {
     db.prepare('UPDATE scripts SET perf_level = ? WHERE id = ?').run(analyzePerf(input.source, { obfuscator: input.obfuscator, vm: input.clydeVm === 1 }).level, script.id);
     if (!input.isFfa) stmt.obfIncrement.run(req.userId);
     if (input.obfuscator === 'luau' && !input.isFfa) luauBumpStmt.run(req.userId, luauDay());
-    saveScriptWebhooks(script.id, _wh.list);
+    saveScriptExtras(script.id, _wh.list, _init);
     res.json({ ok: true });
   } catch (err) {
     saveErrorResponse(res, err, 'Editar script');
@@ -4102,7 +4225,10 @@ app.post('/api/keys', requireAuth, (req, res) => {
   const script = stmt.scriptOwned.get(scriptId, req.userId);
   if (!script) return res.status(403).json({ error: 'No autorizado' });
 
-  const expiresAt = seconds ? Math.floor(Date.now() / 1000) + seconds : days ? Math.floor(Date.now() / 1000) + days * 86400 : null;
+  // startOnUse (equivalente a key_days de la referencia): key en stock, el reloj arranca en la primera ejecucion
+  const startOnUse = req.body?.startOnUse === true && !!(seconds || days);
+  const keyDays = startOnUse ? Math.max(1, Math.round((seconds || days * 86400) / 86400)) : null;
+  const expiresAt = startOnUse ? null : seconds ? Math.floor(Date.now() / 1000) + seconds : days ? Math.floor(Date.now() / 1000) + days * 86400 : null;
 
   if (!quotaApi.reserveKeys(req.userId, amount)) {
     return res.status(403).json({ error: `Tu plan Free permite ${keyCapFor(req.userId)} keys cada 15 días. Te quedan ${quotaApi.keysLeft(req.userId)}.` });
@@ -4116,7 +4242,7 @@ app.post('/api/keys', requireAuth, (req, res) => {
         do {
           k = Array.from(crypto.randomBytes(32), b => KEY_ALPHABET[b % KEY_ALPHABET.length]).join('');
         } while (db.prepare('SELECT 1 FROM keys WHERE key = ?').get(k));
-        stmt.keyInsert.run(k, script.id, expiresAt);
+        stmt.keyInsert.run(k, script.id, expiresAt, keyDays);
         list.push(k);
       }
       return list;

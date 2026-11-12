@@ -344,6 +344,10 @@
           <span class="hint" id="fFileName">o pega el código abajo</span>
         </div>
         <textarea id="fCode" class="textarea" spellcheck="false" placeholder="-- Pega aquí tu script Lua">${esc(initial)}</textarea>
+        <div class="input-group" style="margin-top:12px">
+          <label for="fInit">Código pre-auth (opcional)</label>
+          <textarea id="fInit" name="initCode" class="textarea" spellcheck="false" style="min-height:90px" placeholder="-- Corre en el loader ANTES de la autenticación, sin ofuscar (ej: interfaz para pedir la key). En edición: dejar vacío mantiene el actual."></textarea>
+        </div>
         <div class="code-meta"><span id="fCodeSize">0 KB de 2 MB</span></div>
         <div id="perfPanel" class="perf" hidden></div>
       </div>`;
@@ -588,6 +592,13 @@
               <option value="anios">años</option>
             </select>
           </div>
+          <div class="input-group">
+            <label class="chip" style="justify-content:flex-start;gap:8px">
+              <input type="checkbox" name="startOnUse">
+              <span>El tiempo empieza con la primera ejecución (keys para stock)</span>
+            </label>
+          </div>
+          </div>
         </div>
 
         <div class="keys-summary" id="keysSummary" aria-live="polite"></div>
@@ -701,6 +712,7 @@
       clydeVm: fd.get('clydeVm') === 'on',
     };
     if (code.trim()) body.code = code;
+    body.initCode = ($('fInit')?.value || '');
 
     const btn = form.querySelector('[type="submit"]');
     setBusy(btn, true);
@@ -761,7 +773,7 @@
     const btn = form.querySelector('[type="submit"]');
     setBusy(btn, true);
     try {
-      const data = await api('/api/keys', { method: 'POST', body: JSON.stringify({ scriptId, amount, seconds: secs }) });
+      const data = await api('/api/keys', { method: 'POST', body: JSON.stringify({ scriptId, amount, seconds: secs, startOnUse: fd.get('startOnUse') === 'on' }) });
       await loadData();
       showGenerated(data.keys, scriptName(scriptId));
     } catch (err) {

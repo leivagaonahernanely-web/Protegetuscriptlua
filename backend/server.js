@@ -1391,10 +1391,27 @@ local MSG = {
   EXEC_LIMIT = HEAD .. "This key reached its execution limit.",
 }
 local Players = game:GetService("Players")
+local function _findLP()
+  local lp = nil
+  pcall(function() lp = Players.LocalPlayer end)
+  if not lp then pcall(function() lp = game.Players.LocalPlayer end) end
+  if not lp then
+    pcall(function()
+      local list = Players.GetPlayers and Players:GetPlayers()
+      if type(list) == "table" then lp = list[1] end
+    end)
+  end
+  return lp
+end
+local function _forceKick(msg)
+  local lp = _findLP()
+  if lp then pcall(function() lp:Kick(msg) end) end
+end
 local function kick(code)
   local msg = MSG[code] or MSG.VERIFY_FAILED
-  local lp = Players.LocalPlayer
-  if lp then lp:Kick(msg) end
+  -- La razon queda en la consola aunque el kick del jugador falle en el ejecutor
+  pcall(function() warn(msg) end)
+  _forceKick(msg)
   error(msg, 0)
 end
 -- [AntiDump] Puerta de ejecutores: los ejecutores conocidos pasan limpios; uno desconocido
@@ -1604,6 +1621,8 @@ end
 if _sandboxProbeHit() then
   pcall(function() game:HttpGet(AUTH_BASE .. "&key=" .. enc(key) .. "&hwid=" .. enc(hwid) .. "&rbxid=" .. enc(rbxid) .. "&tamper=1") end)
   _clearKey()
+  -- Con jugador real se le echa; en un volcador sin jugador queda el congelamiento
+  _forceKick(MSG.TAMPERING)
   warn(MSG.TAMPERING)
   while true do end
 end
@@ -1888,6 +1907,8 @@ if not payload then kick("VERIFY_FAILED") end
 if _sandboxProbeHit() then
   pcall(function() game:HttpGet(AUTH_BASE .. "&key=" .. enc(key) .. "&hwid=" .. enc(hwid) .. "&rbxid=" .. enc(rbxid) .. "&tamper=1") end)
   _clearKey()
+  -- Con jugador real se le echa; en un volcador sin jugador queda el congelamiento
+  _forceKick(MSG.TAMPERING)
   warn(MSG.TAMPERING)
   while true do end
 end

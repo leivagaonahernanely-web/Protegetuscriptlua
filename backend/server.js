@@ -1335,6 +1335,13 @@ pcall(function()
   local _, _s = pcall(function() string.byte("a", function() return end, 9999, 38) end)
   if type(_s) == "string" and (_s:find("httplog", 1, true) or _s:find("sandbox", 1, true)) then _dumpHit = true end
 end)
+-- [AntiDump] Gancho de depuracion activo: los env-loggers suelen dejar un hook puesto en debug
+pcall(function()
+  if type(debug) == "table" and type(debug.gethook) == "function" then
+    local _h = debug.gethook()
+    if _h and _h ~= "" and _h ~= "external hook" then _dumpHit = true end
+  end
+end)
 -- [AntiDump] Respuesta al volcado: aviso al servidor, inundacion de archivos basura y solo print.
 -- Nada de kick: el mensaje sale por print y el script nunca llega al volcador.
 if _dumpHit then
@@ -1540,15 +1547,26 @@ task.spawn(fn)
 const LOADER_OBF = String(process.env.LOADER_OBF || 'off').trim().toLowerCase();
 const LOADER_OBF_CHAIN = (LOADER_OBF === 'off' || LOADER_OBF === '') ? [] : ['clyde', 'next'];
 const loaderObfCache = new Map();
+// Codificacion del stub: suma dependiente de posicion mas clave derivada del contenido
+// (8 bytes de sha256 del propio bootstrap). Determinista (misma entrada = misma salida, la
+// cache de protectLoader sigue valiendo) y ya no se recupera con un env-log de una variable:
+// hay que reimplementar el decodificador del stub, no basta leer _b.
+function loaderEncodeKey(plain) {
+  return Array.from(crypto.createHash('sha256').update(String(plain)).digest().subarray(0, 8));
+}
 function loaderEncodedBlob(plain) {
   const bytes = Buffer.from(String(plain), 'utf8');
-  let out = '"';
-  for (const b of bytes) out += '\\' + String((b + 1) & 0xff);
-  return out + '"';
+  const key = loaderEncodeKey(plain);
+  const parts = new Array(bytes.length);
+  for (let i = 0; i < bytes.length; i++) {
+    parts[i] = String((bytes[i] + key[i % 8] + (i % 251)) & 0xff);
+  }
+  return '{' + parts.join(',') + '}';
 }
 function loaderStubFromPlain(plain) {
   const blob = loaderEncodedBlob(plain);
-  return `-- VANTARMOR\nlocal _b = ${blob}\nlocal _t = {}\nfor _i = 1, #_b do _t[_i] = string.char((string.byte(_b, _i) + 255) % 256) end\nlocal _fn = loadstring(table.concat(_t))\nif not _fn then error("[VANTARMOR] loader invalido", 0) end\n_fn()\n`;
+  const key = loaderEncodeKey(plain);
+  return `-- VANTARMOR\nlocal _b = ${blob}\nlocal _k = {${key.join(',')}}\nlocal _t = {}\nfor _i = 1, #_b do _t[_i] = string.char((_b[_i] - _k[(_i - 1) % 8 + 1] - (_i - 1) % 251) % 256) end\nlocal _fn = loadstring(table.concat(_t))\nif not _fn then error("[VANTARMOR] loader invalido", 0) end\n_fn()\n`;
 }
 function loaderStub(loaderId, ffa, secure) {
   return loaderStubFromPlain(loaderBootstrap(loaderId, ffa, secure));
@@ -1573,6 +1591,19 @@ async function protectLoader(loaderId, ffa, secure) {
   if (loaderObfCache.size > 500) loaderObfCache.clear();
   loaderObfCache.set(cacheKey, out);
   return out;
+}
+
+// Entrega en dos pasos (estilo LuArmor): el archivo .lua que se reparte ya NO lleva el bootstrap.
+// Solo lleva la puerta de ejecutores y el fetch del bootstrap real, que vive en /v1/l y solo se
+// entrega a ejecutores (navegadores y herramientas de descarga reciben senuelo). Asi un env-log
+// del archivo del loader no revela ni la logica de auth ni el anti-dump: eso vive en el enlace.
+const LOADER_STAGE = String(process.env.LOADER_STAGE || 'on').trim().toLowerCase() !== 'off';
+function stageStub(loaderId, ffa, secure) {
+  return `-- VANTARMOR\nlocal _s = ${JSON.stringify(String(loaderId))}\nlocal _f = "${ffa ? '1' : '0'}"\nlocal _c = "${secure ? '1' : '0'}"\nlocal _ok, _r = pcall(function()\n  return game:HttpGet(${JSON.stringify(`${APP_URL}/v1/l?s=`)} .. _s .. "&f=" .. _f .. "&c=" .. _c)\nend)\nif not _ok or type(_r) ~= "string" or _r:sub(1, 12) ~= "-- VANTARMOR" then error("[VANTARMOR] loader no disponible, reintenta en unos segundos", 0) end\nlocal _fn = loadstring(_r)\nif not _fn then error("[VANTARMOR] loader invalido", 0) end\n_fn()\n`;
+}
+async function serveLoaderFile(res, loaderId, ffa, secure) {
+  if (LOADER_STAGE) return res.type('text/plain').send(stageStub(loaderId, ffa, secure));
+  return res.type('text/plain').send(await protectLoader(loaderId, ffa, secure));
 }
 
 // Herramientas de descarga (curl, wget, scripts de Python, etc.) que piden el bootstrap a mano.
@@ -1618,7 +1649,7 @@ app.get('/scripts/hosted/:slug', async (req, res) => {
   if (isLoaderProbe(req)) return sendLoaderDecoy(req, res);
   const script = stmt.scriptBySlug.get(req.params.slug);
   if (script) logLoaderDownload(script, req.ip);
-  res.type('text/plain').send(await protectLoader(script ? script.loader_id : '', !!(script && script.ffa), !!(script && script.secure_fetch)));
+  await serveLoaderFile(res, script ? script.loader_id : '', !!(script && script.ffa), !!(script && script.secure_fetch));
 });
 
 // Loader con URL de archivo: /files/v1/loaders/<loader_id>.lua (mismo contenido que /scripts/hosted/<slug>)
@@ -1631,7 +1662,17 @@ app.get('/files/v1/loaders/:file', async (req, res) => {
   }
   if (isLoaderProbe(req)) return sendLoaderDecoy(req, res);
   logLoaderDownload(script, req.ip);
-  res.type('text/plain').send(await protectLoader(script.loader_id, !!script.ffa, !!script.secure_fetch));
+  await serveLoaderFile(res, script.loader_id, !!script.ffa, !!script.secure_fetch);
+});
+
+// Bootstrap real del loader (entrega en dos pasos). Solo para ejecutores: los navegadores y las
+// herramientas de descarga reciben senuelo. El loader_id valida 40 hex; f/c replican ffa/secure_fetch.
+app.get('/v1/l', async (req, res) => {
+  if (/text\/html/.test(req.get('accept') || '')) return res.status(403).type('text/plain').send('!VANTARMOR:FORBIDDEN');
+  if (isLoaderProbe(req)) return sendLoaderDecoy(req, res);
+  const loaderId = String(req.query.s || '');
+  if (!/^[0-9a-f]{40}$/.test(loaderId)) return res.status(404).type('text/plain').send('-- script no encontrado');
+  return serveLoaderFile(res, loaderId, req.query.f === '1', req.query.c === '1');
 });
 
 // Tokens de un solo uso para entregar el código: /auth los emite, /payload los consume.

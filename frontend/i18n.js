@@ -10,20 +10,38 @@
   const LS_KEY = 'vm-lang';
 
   const current = () => {
-    const m = document.cookie.match(/(?:^|;\s*)googtrans=\/es\/([^;]+)/);
-    return m ? decodeURIComponent(m[1]) : 'es';
+    // Puede haber varias cookies googtrans (host-only, de dominio y la que escribe el propio
+    // traductor): gana la primera con valor real, no la vacia.
+    let out = '';
+    for (const part of document.cookie.split(/;\s*/)) {
+      const m = part.match(/^googtrans=\/es\/([^;]+)$/);
+      if (m && m[1]) { out = decodeURIComponent(m[1]); break; }
+    }
+    return out || 'es';
   };
-  const saved = () => { try { return localStorage.getItem(LS_KEY) || ''; } catch (e) { return ''; } };
+  // Eleccion guardada: localStorage o la cookie vm-lang (por si borran uno de los dos).
+  const readVmCookie = () => {
+    const m = document.cookie.match(/(?:^|;\s*)vm-lang=([^;]*)/);
+    return m ? decodeURIComponent(m[1]).trim() : '';
+  };
+  const saved = () => {
+    let v = '';
+    try { v = localStorage.getItem(LS_KEY) || ''; } catch (e) { v = ''; }
+    return v || readVmCookie();
+  };
   const saveCookie = code => {
     const value = code === 'es' ? '' : `/es/${code}`;
     const age = code === 'es' ? 'max-age=0' : 'max-age=31536000';
     document.cookie = `googtrans=${value}; path=/; ${age}`;
     document.cookie = `googtrans=${value}; path=/; domain=${location.hostname}; ${age}`;
+    // La eleccion tambien vive aqui: si el navegador borra localStorage o la cookie googtrans,
+    // el idioma elegido no se pierde y no vuelve a saltar la deteccion automatica.
+    document.cookie = `vm-lang=${code}; path=/; max-age=31536000; SameSite=Lax`;
   };
 
   // Primera visita (sin idioma guardado ni cookie): se detecta el idioma del navegador
   // (región del visitante) y queda guardado como si lo hubiera elegido. Después manda su elección.
-  if (!saved() && document.cookie.indexOf('googtrans') === -1) {
+  if (!saved()) {
     const mapLang = c => {
       const l = String(c || '').toLowerCase();
       const t = l.indexOf('-') > -1 ? l.slice(0, l.indexOf('-')) : l;

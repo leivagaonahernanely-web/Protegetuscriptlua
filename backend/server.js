@@ -1734,6 +1734,7 @@ if body:sub(1, #_tp) == _tp then
   end)
   if not _okp or type(_resp) ~= "table" or type(_resp.Body) ~= "string" then kick("SERVER_UNREACHABLE") end
   body = _resp.Body
+  _dbg("paso 4: payload prefijo=<" .. tostring(body):sub(1, 40) .. "> largo=" .. tostring(#body))
 end
   return body
 end

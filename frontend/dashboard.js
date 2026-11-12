@@ -424,6 +424,7 @@
   function protectionHtml(s = {}) {
     const current = s.ffa === undefined ? 'protected' : protectionOf(s);
     const currentObf = s.id ? obfuscatorOf(s) : 'real';
+    const mode = s.obf_mode || 'medium';
     return `
       <div class="input-group">
         <span class="label">Protección</span>
@@ -445,6 +446,24 @@
             `<option value="${val}" ${val === currentObf ? 'selected' : ''} ${val === 'luau' && !hasPlusPlan() ? 'disabled' : ''}>${label}</option>`).join('')}
         </select>
         <div class="hint">Se aplica en el servidor al guardar el script. Para Roblox (Luau) recomendamos el Ofuscador 1.</div>
+        <div id="obfModeWrap" hidden style="margin-top:10px">
+          <span class="label">Modo de protección</span>
+          <div class="choice-grid" style="grid-template-columns:repeat(3,1fr);margin-top:6px">
+            <label class="choice">
+              <input type="radio" name="obfMode" value="low" ${mode === 'low' ? 'checked' : ''}>
+              <span><b>Bajo</b><small>Más rápido y liviano</small></span>
+            </label>
+            <label class="choice">
+              <input type="radio" name="obfMode" value="medium" ${mode !== 'low' && mode !== 'high' ? 'checked' : ''}>
+              <span><b>Medio</b><small>Equilibrio (recomendado)</small></span>
+            </label>
+            <label class="choice">
+              <input type="radio" name="obfMode" value="high" ${mode === 'high' ? 'checked' : ''}>
+              <span><b>Alto</b><small>Máxima protección</small></span>
+            </label>
+          </div>
+          <div class="hint">Doble capa de cifrado y nombres únicos por script en Alto. Cualquier executor lo corre igual (Delta, Roblox, etc.).</div>
+        </div>
         <label id="vmGroup" style="display:flex;gap:10px;align-items:flex-start;margin-top:12px;cursor:pointer">
           <input type="checkbox" name="clydeVm" ${s.clyde_vm ? 'checked' : ''} style="margin-top:3px">
           <span><b>Máquina virtual</b><small style="display:block;color:var(--text-soft)">Más protección, pero puede bajar los FPS del juego. Solo aplica al Ofuscador 1.</small></span>
@@ -487,7 +506,10 @@
       const isProtected = document.querySelector('input[name="protection"]:checked')?.value === 'protected';
       // El ofuscador se elige en FFA y en protegido; el reinicio de HWID solo aplica a protegido
       $('hwidGroup').hidden = !isProtected;
-      $('macroBtn').hidden = $('fObf').value !== 'luau';
+      const isVant = $('fObf').value === 'vantobf';
+      $('obfModeWrap').hidden = !isVant;
+      $('macroBtn').hidden = !isVant && $('fObf').value !== 'luau';
+      $('macroBtn').textContent = isVant ? 'Macros de rendimiento (Ofuscador 5)' : 'Macros de rendimiento (Ofuscador 3)';
         $('vmGroup').hidden = true; // la máquina virtual ya no se ofrece
       const vmOn = $('vmGroup').querySelector('input')?.checked;
       const hot = hotRanges($('fCode')?.value || '').length > 0;
@@ -694,6 +716,7 @@
     const code = $('fCode').value;
     const protection = fd.get('protection') || 'protected';
     const obfuscator = fd.get('obfuscator') || 'real';
+    const obfMode = fd.get('obfMode') || 'medium';
 
     if (!name) { toast('Escribe un nombre', 'error'); return; }
     if (!editId && !code.trim()) { toast('Agrega el código del script', 'error'); return; }
@@ -705,6 +728,7 @@
       ffa: protection === 'ffa',
       // El ofuscador se elige en FFA y en protegido
       obfuscator,
+      obf_mode: obfMode,
       hwidResetHours: Number(fd.get('hwidReset') ?? 24),
       shareDetection: fd.get('shareDetection') === 'on',
       hwidLock: fd.get('hwidLock') === 'on',
@@ -2429,6 +2453,7 @@
     return out;
   }
   function openMacroPicker() {
+    const isVant = $('fObf').value === 'vantobf';
     const fns = findLuauFunctions($('fCode').value);
     if (!fns.length) { toast('No encontré funciones en el código', 'error'); return; }
     const hot = hotRanges($('fCode').value);
@@ -2445,7 +2470,23 @@
     wrap.innerHTML = `
       <div class="modal" role="dialog" aria-modal="true" style="max-width:520px;width:100%">
         <h3>Macros de rendimiento</h3>
-        <p class="hint">Las funciones marcadas salen de la VM: corren más rápido, pero quedan menos protegidas.</p>
+        <p class="hint">${isVant ? 'Con el Ofuscador 5 cada nivel ajusta cuánto se cifra el código de esa función: a más nivel, más rápido corre.' : 'Las funciones marcadas salen de la VM: corren más rápido, pero quedan menos protegidas.'}</p>
+        <div style="margin-top:10px">
+          <span class="label">Nivel de la macro</span>
+          <select id="mcLevel" class="field block" style="margin-top:6px">
+            ${isVant ? `
+            <option value="bajo">Bajo: cifrado completo (protección máxima)</option>
+            <option value="medio" selected>Medio: sin cifrar los textos</option>
+            <option value="alto">Alto: sin cifrar nada</option>
+            <option value="extremo">Extremo: sin cifrar nada, también funciones anidadas</option>
+            ` : `
+            <option value="bajo">Bajo: la función queda dentro de la VM (protección máxima)</option>
+            <option value="medio" selected>Medio: la función sale de la VM (corre más rápido)</option>
+            <option value="alto">Alto: la función sale de la VM</option>
+            <option value="extremo">Extremo: la función sale de la VM</option>
+            `}
+          </select>
+        </div>
         <label style="display:flex;gap:8px;align-items:center;margin-top:10px;cursor:pointer">
           <input type="checkbox" data-mc-only checked>
           <span>Mostrar solo las que tienen bucles o corren cada frame (${heavyCount})</span>
@@ -2473,12 +2514,19 @@
     wrap.querySelector('[data-mc-apply]').addEventListener('click', () => {
       const chosen = [...wrap.querySelectorAll('[data-mc]:checked')].map(c => fns[Number(c.dataset.mc)]);
       if (!chosen.length) { toast('Marca al menos una función', 'error'); return; }
+      const lvl = (wrap.querySelector('#mcLevel') || {}).value || 'medio';
       const lines = $('fCode').value.split('\n');
       // De abajo hacia arriba para que no se muevan los números de línea
-      for (const f of [...chosen].sort((a, b) => b.line - a.line)) lines.splice(f.line, 0, `${f.indent}LUO_NO_VIRTUALIZE()`);
+      let added = 0;
+      for (const f of [...chosen].sort((a, b) => b.line - a.line)) {
+        if (!isVant && lvl === 'bajo') break; // Bajo con Ofuscador 3: dejarla en la VM
+        lines.splice(f.line, 0, isVant ? `${f.indent}--VANT_MACRO(${lvl})` : `${f.indent}LUO_NO_VIRTUALIZE()`);
+        added++;
+      }
       $('fCode').value = lines.join('\n');
       wrap.remove();
-      toast(`Macro agregada a ${chosen.length} función(es). Guarda el script para aplicarla`);
+      if (added) toast(`Macro agregada a ${added} función(es). Guarda el script para aplicarla`);
+      else toast('Con Bajo no se agrega macro: esas funciones quedan en la VM', 'error');
     });
   }
   document.addEventListener('click', e => { if (e.target.closest('#macroBtn')) openMacroPicker(); });

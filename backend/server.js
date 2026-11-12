@@ -368,6 +368,7 @@ db.exec(`
   if (!cols.includes('hwid_lock')) db.exec('ALTER TABLE scripts ADD COLUMN hwid_lock INTEGER DEFAULT 1');
   // 1 = entregar el código ofuscado (content). 0 = comportamiento actual (código original). Se activa por script tras probarlo en móvil
   if (!cols.includes('serve_protected')) db.exec('ALTER TABLE scripts ADD COLUMN serve_protected INTEGER DEFAULT 0');
+  if (!cols.includes('obf_mode')) db.exec("ALTER TABLE scripts ADD COLUMN obf_mode TEXT DEFAULT 'medium'");
   // Entrega en dos pasos: /auth (GET) solo da un token de un solo uso, y el código sale de /payload (POST). 0 = como antes
   if (!cols.includes('secure_fetch')) db.exec('ALTER TABLE scripts ADD COLUMN secure_fetch INTEGER DEFAULT 0');
   // Detección de keys compartidas (1 = activa)
@@ -532,16 +533,16 @@ const stmt = {
   `),
   // Nunca se seleccionan source ni content aquí
   scriptsByUser: db.prepare(`
-    SELECT id, user_id, name, slug, loader_id, ffa, obfuscator, hwid_reset_hours, share_detection, auto_revoke_dump, maintenance, clyde_vm, perf_level, project_id, hwid_lock, COALESCE(dump_attempts, 0) AS dump_attempts, last_dump_at FROM scripts
+    SELECT id, user_id, name, slug, loader_id, ffa, obfuscator, obf_mode, hwid_reset_hours, share_detection, auto_revoke_dump, maintenance, clyde_vm, perf_level, project_id, hwid_lock, COALESCE(dump_attempts, 0) AS dump_attempts, last_dump_at FROM scripts
     WHERE user_id = ? ORDER BY id DESC
   `),
   scriptOwned: db.prepare('SELECT * FROM scripts WHERE id = ? AND user_id = ?'),
   scriptInsert: db.prepare(`
-    INSERT INTO scripts (user_id, name, slug, ffa, obfuscator, source, content, hwid_reset_hours, share_detection, clyde_vm, auto_revoke_dump, hwid_lock)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO scripts (user_id, name, slug, ffa, obfuscator, obf_mode, source, content, hwid_reset_hours, share_detection, clyde_vm, auto_revoke_dump, hwid_lock)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `),
   scriptUpdate: db.prepare(`
-    UPDATE scripts SET name = ?, ffa = ?, obfuscator = ?, source = ?, content = ?, hwid_reset_hours = ?, share_detection = ?, clyde_vm = ?, auto_revoke_dump = ?, hwid_lock = ?
+    UPDATE scripts SET name = ?, ffa = ?, obfuscator = ?, obf_mode = ?, source = ?, content = ?, hwid_reset_hours = ?, share_detection = ?, clyde_vm = ?, auto_revoke_dump = ?, hwid_lock = ?
     WHERE id = ? AND user_id = ?
   `),
   keysByUser: db.prepare(`
@@ -776,7 +777,7 @@ const luauUsedStmt = db.prepare('SELECT n FROM luau_usage WHERE user_id = ? AND 
 const luauBumpStmt = db.prepare('INSERT INTO luau_usage (user_id, day, n) VALUES (?, ?, 1) ON CONFLICT(user_id, day) DO UPDATE SET n = n + 1');
 const luauUsedToday = userId => luauUsedStmt.get(userId, luauDay())?.n ?? 0;
 
-function validateScriptInput({ name, ffa, obfuscator, code, hwidResetHours, shareDetection, clydeVm, autoRevokeDump, hwidLock }, current = null) {
+function validateScriptInput({ name, ffa, obfuscator, obfMode, code, hwidResetHours, shareDetection, clydeVm, autoRevokeDump, hwidLock }, current = null) {
   const cleanName = name === undefined ? current?.name : String(name).trim();
   if (!cleanName || cleanName.length > 60) return { error: 'Nombre inválido (1 a 60 caracteres)' };
 
@@ -800,7 +801,11 @@ function validateScriptInput({ name, ffa, obfuscator, code, hwidResetHours, shar
   const autoRevoke = autoRevokeDump === undefined ? (current?.auto_revoke_dump ?? 0) : (autoRevokeDump ? 1 : 0);
   // Solo en el equipo que la usó: apagado por defecto (la key sirve en otros equipos). Scripts existentes: encendido.
   const lock = hwidLock === undefined ? (current?.hwid_lock ?? 0) : (hwidLock ? 1 : 0);
-  return { name: cleanName, isFfa, obfuscator: obf, source, hwidResetHours: hwid, shareDetection: share, clydeVm: vm, autoRevokeDump: autoRevoke, hwidLock: lock };
+  // Modo del Ofuscador 5 (VantObf): bajo/medium/high; default y fallback: medium
+  const mode = obfMode === undefined || obfMode === null || obfMode === ''
+    ? (current?.obf_mode || 'medium')
+    : (['low', 'medium', 'high'].includes(String(obfMode)) ? String(obfMode) : 'medium');
+  return { name: cleanName, isFfa, obfuscator: obf, obfMode: mode, source, hwidResetHours: hwid, shareDetection: share, clydeVm: vm, autoRevokeDump: autoRevoke, hwidLock: lock };
 }
 
 // ==========================================
@@ -1022,9 +1027,9 @@ const NEXT_ENGINE_VERSION = (() => {
   return h.digest('hex').slice(0, 16);
 })();
 // Ofuscador 5 (VantVM): motor nativo propio, VM interna con opcodes aleatorizados por script
-function obfuscateVant(source) {
+function obfuscateVant(source, mode) {
   try {
-    return buildVantObf(source, crypto.randomInt(1, 2 ** 31)).code;
+    return buildVantObf(source, crypto.randomInt(1, 2 ** 31), { mode }).code;
   } catch (err) {
     if (err instanceof VantBuildError) throw Object.assign(new Error(err.message), { status: 400 });
     throw err;
@@ -1042,7 +1047,7 @@ function obfuscateNext(source) {
 async function obfuscateUncached(source, obfuscator, opts = {}) {
   if (obfuscator === 'luau') return obfuscateLuau(source);
   if (obfuscator === 'next') return obfuscateNext(source);
-  if (obfuscator === 'vantobf') return obfuscateVant(source);
+  if (obfuscator === 'vantobf') return obfuscateVant(source, opts.mode);
   const cfg = OBF_CONFIG[obfuscator];
   if (!cfg) throw Object.assign(new Error('Elige un ofuscador válido'), { status: 400 });
   if (!cfg.dir) {
@@ -3994,12 +3999,12 @@ app.post('/api/scripts', requireAuth, async (req, res) => {
     const code = stripWebhookMarkers(stripRemoteBlocks(input.source)); // lo que se compila y ofusca: sin los bloques secretos ni las URLs
     const srcErr = await checkLuauSyntax(code);
     if (srcErr) return res.status(422).json({ error: `Tu código no compila: ${srcErr}` });
-    const content = input.obfuscator === 'none' ? code : await obfuscate(code, input.obfuscator, { vm: input.clydeVm === 1 });
+    const content = input.obfuscator === 'none' ? code : await obfuscate(code, input.obfuscator, { vm: input.clydeVm === 1, mode: input.obfMode });
     const outErr = input.obfuscator === 'none' ? null : await checkLuauSyntax(content);
     if (outErr) return res.status(422).json({ error: `La versión ofuscada no compila. Avisa al equipo con este mensaje: ${outErr}` });
     const info = stmt.scriptInsert.run(
       req.userId, input.name, uniqueSlug(input.name), input.isFfa ? 1 : 0,
-      input.obfuscator, input.source, content, input.hwidResetHours, input.shareDetection, input.clydeVm, input.autoRevokeDump, input.hwidLock,
+      input.obfuscator, input.obfMode, input.source, content, input.hwidResetHours, input.shareDetection, input.clydeVm, input.autoRevokeDump, input.hwidLock,
     );
     db.prepare('UPDATE scripts SET loader_id = ? WHERE id = ?').run(crypto.randomBytes(20).toString('hex'), info.lastInsertRowid);
     db.prepare('UPDATE scripts SET perf_level = ? WHERE id = ?').run(analyzePerf(input.source, { obfuscator: input.obfuscator, vm: input.clydeVm === 1 }).level, info.lastInsertRowid);
@@ -4054,11 +4059,11 @@ app.put('/api/scripts/:id', requireAuth, async (req, res) => {
     const code = stripWebhookMarkers(stripRemoteBlocks(input.source)); // lo que se compila y ofusca: sin los bloques secretos ni las URLs
     const srcErr = await checkLuauSyntax(code);
     if (srcErr) return res.status(422).json({ error: `Tu código no compila: ${srcErr}` });
-    const content = input.obfuscator === 'none' ? code : await obfuscate(code, input.obfuscator, { vm: input.clydeVm === 1 });
+    const content = input.obfuscator === 'none' ? code : await obfuscate(code, input.obfuscator, { vm: input.clydeVm === 1, mode: input.obfMode });
     const outErr = input.obfuscator === 'none' ? null : await checkLuauSyntax(content);
     if (outErr) return res.status(422).json({ error: `La versión ofuscada no compila. Avisa al equipo con este mensaje: ${outErr}` });
     stmt.scriptUpdate.run(
-      input.name, input.isFfa ? 1 : 0, input.obfuscator, input.source, content, input.hwidResetHours, input.shareDetection, input.clydeVm, input.autoRevokeDump, input.hwidLock,
+      input.name, input.isFfa ? 1 : 0, input.obfuscator, input.obfMode, input.source, content, input.hwidResetHours, input.shareDetection, input.clydeVm, input.autoRevokeDump, input.hwidLock,
       script.id, req.userId,
     );
     db.prepare('UPDATE scripts SET perf_level = ? WHERE id = ?').run(analyzePerf(input.source, { obfuscator: input.obfuscator, vm: input.clydeVm === 1 }).level, script.id);

@@ -184,6 +184,7 @@ function compileExpr(ctx, e, dst) {
     case 'Call': return compileCallExpr(ctx, e, dst, 1);
     case 'Func': {
       const child = new FnCtx(ctx, e.isVararg);
+      if (e._macroLevel) child._macroLevel = e._macroLevel;
       compileFuncBody(child, e);
       ctx.protos.push(child);
       emit(ctx, OP.CLOSURE, dst, 0, 0);
@@ -814,17 +815,20 @@ class ByteWriter {
   toStr() { return this.bytes.map(b => String.fromCharCode(b)).join(''); }
 }
 
-function serializeProto(w, fn, ops) {
+function serializeProto(w, fn, ops, opts = {}) {
   w.u8(fn.isVararg ? 1 : 0);
   w.uv(fn.params ? fn.params.length : 0);
   w.uv(fn.nr);
   w.uv(fn.nboxes);
   w.uv(fn.upvalList.length);
   for (const u of fn.upvalList) { w.u8(u.kind); w.uv(u.idx); }
+  const cf = constFlag(fn, opts);
+  w.u8(cf);
   w.uv(fn.k.length);
-  for (const kv of fn.k) {
-    if (typeof kv === 'number') { w.u8(1); w.str(fmtNum(kv)); }
-    else if (typeof kv === 'string') { w.u8(2); w.str(kv); }
+  for (let ki = 0; ki < fn.k.length; ki++) {
+    const kv = fn.k[ki];
+    if (typeof kv === 'number') { w.u8(1); w.str(cf & 2 ? encConst(fmtNum(kv), opts.seed, fn.pid, ki + 1) : fmtNum(kv)); }
+    else if (typeof kv === 'string') { w.u8(2); w.str(cf & 1 ? encConst(kv, opts.seed, fn.pid, ki + 1) : kv); }
     else if (typeof kv === 'boolean') { w.u8(3); w.u8(kv ? 1 : 0); }
     else { w.u8(0); }
   }
@@ -840,13 +844,34 @@ function serializeProto(w, fn, ops) {
   // saltos: b puede ser negativo -> usar sv en ops de salto
   // re-escribimos: guardamos con sv para ops de salto
   w.uv(fn.protos.length);
-  for (const c of fn.protos) serializeProto(w, c, ops);
+  for (const c of fn.protos) serializeProto(w, c, ops, opts);
 }
 
-export function serializeRoot(fn, ops) {
+// Nivel de cifrado de constantes por proto (version 2 del formato):
+//   bit 1 = strings cifradas, bit 2 = numeros cifrados. 0 = plain (macros de rendimiento)
+const LEVEL_FLAG = { bajo: 3, medio: 2, alto: 0, extremo: 0 };
+
+function constFlag(fn, opts) {
+  if (fn._macroLevel && LEVEL_FLAG[fn._macroLevel] !== undefined) return LEVEL_FLAG[fn._macroLevel];
+  return opts.constFlag || 0;
+}
+
+// Misma aritmetica que _de en el runtime: keystream por (seed, pid, idx)
+function encConst(str, seed, pid, idx) {
+  let k0 = (seed + pid * 1000003 + idx * 31) % 2147483647;
+  if (k0 <= 0) k0 += 2147483646;
+  let out = '';
+  for (let j = 0; j < str.length; j++) {
+    k0 = (k0 * 16807) % 2147483647;
+    out += String.fromCharCode((str.charCodeAt(j) & 255) ^ (k0 % 256));
+  }
+  return out;
+}
+
+export function serializeRoot(fn, ops, opts = {}) {
   const w = new ByteWriter();
-  w.u8(1); // version
-  serializeProto(w, fn, ops);
+  w.u8(2); // version 2: byte de flag de constantes por proto
+  serializeProto(w, fn, ops, opts);
   return w.toStr();
 }
 
@@ -859,11 +884,12 @@ function fmtNum(v) {
 }
 
 // ===================== orden de opcodes aleatorio por semilla =====================
-export function shuffledOps(seed) {
+export function shuffledOps(seed, shuffle = true) {
   let s = seed % 2147483647;
   if (s <= 0) s += 2147483646;
   const rnd = () => { s = s * 16807 % 2147483647; return s / 2147483647; };
   const arr = OP_NAMES.map((_, i) => i);
+  if (!shuffle) return arr;
   for (let i = arr.length - 1; i > 0; i--) {
     const j = Math.floor(rnd() * (i + 1));
     [arr[i], arr[j]] = [arr[j], arr[i]];
@@ -903,105 +929,29 @@ function keystreamBytes(seed, n) {
   return out;
 }
 
-export function emitRuntime(data, seed, ops) {
+export function emitRuntime(data, seed, ops, opts = {}) {
   // ops: array nombreIdx -> opcode real
   const O = {};
   OP_NAMES.forEach((n, i) => { O[n] = ops[i]; });
+  const layers = opts.layers === 2 ? 2 : 1;
   const ks = keystreamBytes(seed, data.length);
   let enc = '';
   for (let i = 0; i < data.length; i++) {
     const b = data.charCodeAt(i) & 255;
     enc += String.fromCharCode(b ^ ks[i]);
   }
+  const seed2 = (seed * 7919) % 2147483647 || 1;
+  if (layers === 2) {
+    const ks2 = keystreamBytes(seed2, data.length);
+    let enc2 = '';
+    for (let i = 0; i < enc.length; i++) enc2 += String.fromCharCode(enc.charCodeAt(i) ^ ks2[i]);
+    enc = enc2;
+  }
   const lua = `
 local _NX = {${nibbleTableLiteral()}}
 local function _x(a, b)
   return _NX[(a - a % 16) / 16 * 16 + (b - b % 16) / 16 + 1] * 16 + _NX[a % 16 * 16 + b % 16 + 1]
 end
-local _S = ${seed % 2147483647}
-if _S <= 0 then _S = _S + 2147483646 end
-local _blob = ${blobChunks(enc)}
-do
-  local parts = {}
-  for i = 1, #_blob do
-    _S = _S * 16807 % 2147483647
-    parts[i] = string.char(_x(string.byte(_blob, i), _S % 256))
-  end
-  _blob = table.concat(parts)
-end
-local _pos = 1
-local function _u8() local v = string.byte(_blob, _pos); _pos = _pos + 1; return v end
-local function _uv()
-  local v, m = 0, 1
-  while true do
-    local b = string.byte(_blob, _pos); _pos = _pos + 1
-    v = v + (b % 128) * m
-    if b < 128 then break end
-    m = m * 128
-  end
-  return v
-end
-local function _sv()
-  local v = _uv()
-  local neg = v % 2
-  v = (v - neg) / 2
-  if neg == 1 then return -v - 1 end
-  return v
-end
-local function _str()
-  local len = _uv()
-  local s = string.sub(_blob, _pos, _pos + len - 1)
-  _pos = _pos + len
-  return s
-end
-local function _k()
-  local tag = _u8()
-  if tag == 1 then return tonumber(_str()) end
-  if tag == 2 then return _str() end
-  if tag == 3 then return _u8() == 1 end
-  return nil
-end
-local _P = {}
-_u8() -- version
-local function _proto()
-  local P = {}
-  local id = #_P + 1
-  _P[id] = P
-  P.nv = _u8()
-  P.np = _uv()
-  P.nr = _uv()
-  P.nb = _uv()
-  local nu = _uv()
-  P.u = {}
-  for i = 1, nu do
-    P.u[i] = { _u8(), _uv() }
-  end
-  local nk = _uv()
-  P.k = {}
-  for i = 1, nk do P.k[i] = _k() end
-  local nc = _uv()
-  P.co = {}
-  P.ca = {}
-  P.cb = {}
-  P.cc = {}
-  for i = 1, nc do
-    local o = _u8()
-    local a = _uv()
-    local b = _uv()
-    local c = _uv()
-    if o == ${O.JMP} or o == ${O.FORPREP} or o == ${O.FORLOOP} or o == ${O.TFORLOOP} then
-      b = i + 1 + ((b - b % 2) / 2 * (b % 2 == 1 and -1 or 1) - (b % 2 == 1 and 1 or 0))
-    end
-    P.co[i] = o; P.ca[i] = a; P.cb[i] = b; P.cc[i] = c
-  end
-  local np2 = _uv()
-  P.p = {}
-  for i = 1, np2 do P.p[i] = _proto() end
-  return P
-end
-_proto()
-local _pack = table.pack or function(...) local t = {...}; t.n = select('#', ...); return t end
-local _unpack = unpack or table.unpack
 local b32 = bit32
 local function _band(x, y)
   if b32 then return b32.band(x, y) end
@@ -1048,6 +998,120 @@ local function _shr(x, n)
   if n >= 32 then return 0 end
   return math.floor((x % 4294967296) / 2 ^ n)
 end
+${opts.junk ? `local _j1 = 0
+do
+  local _j2 = 7
+  for _i = 1, 6 do _j2 = (_j2 * 31 + _i) % 2147483647 end
+  if _j2 == 999999 then _j1 = _j2 end
+end
+` : ''}local _S0 = ${seed % 2147483647}
+if _S0 <= 0 then _S0 = _S0 + 2147483646 end
+local _S1 = ${seed2}
+if _S1 <= 0 then _S1 = _S1 + 2147483646 end
+local _S = _S0
+local _blob = ${blobChunks(enc)}
+for _pass = 1, ${layers} do
+  local parts = {}
+  _S = _pass == 1 and _S0 or _S1
+  for i = 1, #_blob do
+    _S = _S * 16807 % 2147483647
+    parts[i] = string.char(_x(string.byte(_blob, i), _S % 256))
+  end
+  _blob = table.concat(parts)
+end
+local _pos = 1
+local function _u8() local v = string.byte(_blob, _pos); _pos = _pos + 1; return v end
+local function _uv()
+  local v, m = 0, 1
+  while true do
+    local b = string.byte(_blob, _pos); _pos = _pos + 1
+    v = v + (b % 128) * m
+    if b < 128 then break end
+    m = m * 128
+  end
+  return v
+end
+local function _sv()
+  local v = _uv()
+  local neg = v % 2
+  v = (v - neg) / 2
+  if neg == 1 then return -v - 1 end
+  return v
+end
+local function _str()
+  local len = _uv()
+  local s = string.sub(_blob, _pos, _pos + len - 1)
+  _pos = _pos + len
+  return s
+end
+local _ver, _cf = 0, 0
+local function _de(s, pid, idx)
+  local k0 = (${seed % 2147483647} + pid * 1000003 + idx * 31) % 2147483647
+  if k0 <= 0 then k0 = k0 + 2147483646 end
+  local out, kk = {}, k0
+  for j = 1, #s do
+    kk = kk * 16807 % 2147483647
+    out[j] = string.char(_bxor(string.byte(s, j), kk % 256))
+  end
+  return table.concat(out)
+end
+local function _k(pid, idx)
+  local tag = _u8()
+  if tag == 1 then
+    local s = _str()
+    if _band(_cf, 2) ~= 0 then s = _de(s, pid, idx) end
+    return tonumber(s)
+  end
+  if tag == 2 then
+    local s = _str()
+    if _band(_cf, 1) ~= 0 then s = _de(s, pid, idx) end
+    return s
+  end
+  if tag == 3 then return _u8() == 1 end
+  return nil
+end
+local _P = {}
+_ver = _u8() -- version
+local function _proto()
+  local P = {}
+  local id = #_P + 1
+  _P[id] = P
+  P.nv = _u8()
+  P.np = _uv()
+  P.nr = _uv()
+  P.nb = _uv()
+  local nu = _uv()
+  P.u = {}
+  for i = 1, nu do
+    P.u[i] = { _u8(), _uv() }
+  end
+  if _ver >= 2 then _cf = _u8() else _cf = 0 end
+  local nk = _uv()
+  P.k = {}
+  for i = 1, nk do P.k[i] = _k(id, i) end
+  local nc = _uv()
+  P.co = {}
+  P.ca = {}
+  P.cb = {}
+  P.cc = {}
+  for i = 1, nc do
+    local o = _u8()
+    local a = _uv()
+    local b = _uv()
+    local c = _uv()
+    if o == ${O.JMP} or o == ${O.FORPREP} or o == ${O.FORLOOP} or o == ${O.TFORLOOP} then
+      b = i + 1 + ((b - b % 2) / 2 * (b % 2 == 1 and -1 or 1) - (b % 2 == 1 and 1 or 0))
+    end
+    P.co[i] = o; P.ca[i] = a; P.cb[i] = b; P.cc[i] = c
+  end
+  local np2 = _uv()
+  P.p = {}
+  for i = 1, np2 do P.p[i] = _proto() end
+  return P
+end
+_proto()
+local _pack = table.pack or function(...) local t = {...}; t.n = select('#', ...); return t end
+local _unpack = unpack or table.unpack
 local function _run(pi, ups, ...)
   local P = _P[pi]
   local R = {}
@@ -1208,5 +1272,12 @@ local function _run(pi, ups, ...)
 end
 return _run(1, {}, ...)
 `;
+  if (opts.mangle) {
+    const sfx = String(seed % 9973);
+    const names = ['_NX','_x','_S0','_S','_blob','_pos','_u8','_uv','_sv','_str','_de','_k','_P','_proto','_pack','_unpack','_band','_bor','_bxor','_shl','_shr','_run','_cf','_ver','_pass','_j1','_j2','_i','b32'];
+    let out = lua;
+    for (const n of names) out = out.replace(new RegExp('\\b' + n + '\\b', 'g'), n + sfx);
+    return out;
+  }
   return lua;
 }

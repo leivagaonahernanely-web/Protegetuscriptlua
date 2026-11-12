@@ -121,8 +121,62 @@ export function computeCaptures2(ast) {
   return ast;
 }
 
+// Macros de rendimiento del Ofuscador 5: lineas "--VANT_MACRO(nivel)" justo encima de la funcion.
+// Acepta niveles en espanol o ingles: bajo/low, medio/medium, alto/high, extremo/extreme.
+const MACRO_ALIASES = { low: 'bajo', bajo: 'bajo', medium: 'medio', medio: 'medio', high: 'alto', alto: 'alto', extreme: 'extremo', extremo: 'extremo' };
+
+function scanVantMacros(srcText) {
+  const out = [];
+  const lines = srcText.split('\n');
+  const fnRe = /^(?:\s*)(?:local\s+)?function\s+([\w.:]+)\s*\(|^(?:\s*)(?:local\s+)?([\w.]+)\s*=\s*function\s*\(/;
+  for (let i = 0; i < lines.length; i++) {
+    const m = lines[i].match(/^\s*--\s*VANT_MACRO\s*\(\s*([A-Za-z]+)\s*\)/);
+    if (!m) continue;
+    const lvl = MACRO_ALIASES[m[1].toLowerCase()];
+    if (!lvl) continue;
+    for (let j = i + 1; j < Math.min(i + 4, lines.length); j++) {
+      if (!lines[j].trim()) continue;
+      const fm = lines[j].match(fnRe);
+      if (fm) out.push({ name: fm[1] || fm[2], level: lvl });
+      break;
+    }
+  }
+  return out;
+}
+
+// Anota cada Func del arbol con el nivel de su macro (solo funciones con nombre, igual que el picker de la web).
+// "extremo" se hereda a las funciones anidadas que no tienen macro propia.
+function annotateMacros(ast, wanted) {
+  if (!wanted.length) return;
+  const map = new Map();
+  for (const w of wanted) map.set(w.name, w.level);
+  const roots = [];
+  for (const st of ast) {
+    if (st.t === 'FuncStat') {
+      const key = st.target && (st.target.method || (st.target.parts && st.target.parts[st.target.parts.length - 1]));
+      if (key && map.has(key)) { st.fn._macroLevel = map.get(key); roots.push(st.fn); }
+    } else if (st.t === 'LocalFunc') {
+      if (map.has(st.name)) { st.fn._macroLevel = map.get(st.name); roots.push(st.fn); }
+    }
+  }
+  for (const rootFn of roots) {
+    if (rootFn._macroLevel !== 'extremo') continue;
+    (function inherit(e) {
+      if (!e || typeof e !== 'object') return;
+      if (e.t === 'Func') { if (!e._macroLevel) e._macroLevel = 'extremo'; }
+      for (const k of Object.keys(e)) {
+        const v = e[k];
+        if (Array.isArray(v)) v.forEach(inherit);
+        else if (v && typeof v === 'object' && v.t) inherit(v);
+      }
+    })(rootFn);
+  }
+}
+
 export function buildVantObf(source, seed, opts = {}) {
   if (typeof source !== 'string' || !source.trim()) throw new BuildError('El script esta vacio');
+  const mode = opts.mode === 'low' || opts.mode === 'high' ? opts.mode : 'medium';
+  const macros = scanVantMacros(source);
   let pre;
   try {
     pre = preprocess(source, { fileName: opts.fileName || 'script.lua' });
@@ -138,12 +192,17 @@ export function buildVantObf(source, seed, opts = {}) {
     if (err instanceof ParseError) throw new BuildError(err.message);
     throw err;
   }
+  annotateMacros(ast, macros);
   computeCaptures2(ast);
   const { root } = compile(ast, ast._capNames);
-  const ops = shuffledOps(seed);
-  const data = serializeRoot(root, ops);
-  const code = emitRuntime(data, seed, ops);
-  return { code, stats: { protos: countProtos(root), instrs: countInstrs(root), bytes: data.length } };
+  const ops = shuffledOps(seed, mode !== 'low');
+  const data = serializeRoot(root, ops, { seed, constFlag: mode === 'low' ? 0 : 3 });
+  const code = emitRuntime(data, seed, ops, {
+    layers: mode === 'high' ? 2 : 1,
+    mangle: mode === 'high',
+    junk: mode === 'high',
+  });
+  return { code, stats: { protos: countProtos(root), instrs: countInstrs(root), bytes: data.length, mode } };
 }
 
 function countProtos(fn) { return 1 + fn.protos.reduce((n, c) => n + countProtos(c), 0); }

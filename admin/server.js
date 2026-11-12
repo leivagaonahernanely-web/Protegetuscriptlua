@@ -5,6 +5,7 @@ import cookieParser from 'cookie-parser';
 import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
 import path from 'path';
+import { Readable } from 'stream';
 import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -202,17 +203,19 @@ app.post('/admin/api/plan-keys/:key/:action', requireSession, (req, res) => {
 });
 
 // Restaurar una copia: el archivo se reenvía tal cual al servidor principal
-app.post('/admin/api/import-db', requireSession, express.raw({ type: () => true, limit: '300mb' }), async (req, res) => {
+app.post('/admin/api/import-db', requireSession, async (req, res) => {
   try {
+    // Se reenvía en streaming: la copia no se guarda entera en memoria del admin
     const out = await fetch(`${MAIN_API_URL}/api/owner/import-db`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${ADMIN_API_TOKEN}`, 'Content-Type': 'application/octet-stream' },
-      body: req.body,
-      signal: AbortSignal.timeout(120_000),
+      body: Readable.toWeb(req),
+      duplex: 'half',
+      signal: AbortSignal.timeout(30 * 60_000),
     });
     res.status(out.status).json(await out.json().catch(() => ({ error: 'Respuesta inválida del servidor principal' })));
-  } catch {
-    res.status(502).json({ error: 'No se pudo contactar al servidor principal' });
+  } catch (err) {
+    res.status(502).json({ error: `No se pudo enviar la copia al servidor principal: ${err.cause?.message || err.message}` });
   }
 });
 

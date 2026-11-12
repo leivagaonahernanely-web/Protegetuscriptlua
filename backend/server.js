@@ -12,6 +12,8 @@ import os from 'os';
 import { execFile } from 'child_process';
 import { fileURLToPath } from 'url';
 import { createRequire } from 'module';
+import { Transform } from 'stream';
+import { pipeline } from 'stream/promises';
 import { normalizeLuaSource } from './lib/lua-source.js';
 import { openDatabase } from './lib/db-engine.js';
 import { validateRemoteBlocks, remoteBlocks, stripRemoteBlocks, hasRemoteBlocks, remoteHeader, hasStrayMarkers } from './lib/remote-blocks.js';
@@ -2825,28 +2827,41 @@ app.post('/api/owner/serve-protected', requireOwnerApi, (req, res) => {
 });
 
 // Restaurar una copia (.db). El archivo se valida y queda pendiente: se aplica al reiniciar el servicio.
-app.post('/api/owner/import-db', requireOwnerApi, express.raw({ type: () => true, limit: '300mb' }), (req, res) => {
+app.post('/api/owner/import-db', requireOwnerApi, async (req, res) => {
   if (process.env.DB_ENGINE === 'postgres') {
     return res.status(409).json({ error: 'La base está en PostgreSQL. Quita DB_ENGINE para restaurar una copia SQLite.' });
   }
-  const buf = req.body;
-  if (!Buffer.isBuffer(buf) || buf.length < 100 || buf.subarray(0, 16).toString('latin1') !== 'SQLite format 3\u0000') {
-    return res.status(400).json({ error: 'El archivo no es una base SQLite válida' });
-  }
+  // La copia se escribe en disco mientras llega (no se carga entera en memoria, que tumbaba el servicio)
   const pending = `${DATABASE_PATH}.import`;
+  const part = `${pending}.part`;
+  const IMPORT_MAX = 300 * 1024 * 1024;
   try {
-    fs.writeFileSync(pending, buf);
+    let size = 0;
+    let head = Buffer.alloc(0);
+    const sniff = new Transform({
+      transform(chunk, _enc, cb) {
+        size += chunk.length;
+        if (size > IMPORT_MAX) return cb(new Error('la copia supera 300 MB'));
+        if (head.length < 16) head = Buffer.concat([head, chunk]).subarray(0, 16);
+        cb(null, chunk);
+      },
+    });
+    await pipeline(req, sniff, fs.createWriteStream(part));
+    if (size < 100 || head.toString('latin1') !== 'SQLite format 3\u0000') throw new Error('el archivo no es una base SQLite válida');
     const Database = createRequire(import.meta.url)('better-sqlite3');
-    const check = new Database(pending, { readonly: true, fileMustExist: true });
-    const integrity = check.pragma('quick_check', { simple: true });
-    const count = table => { try { return check.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get().n; } catch { return null; } };
-    const counts = { usuarios: count('users'), scripts: count('scripts'), keys: count('keys') };
-    check.close();
+    const check = new Database(part, { readonly: true, fileMustExist: true });
+    let integrity, counts;
+    try {
+      integrity = check.pragma('quick_check', { simple: true });
+      const count = table => { try { return check.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get().n; } catch { return null; } };
+      counts = { usuarios: count('users'), scripts: count('scripts'), keys: count('keys') };
+    } finally { check.close(); }
     if (integrity !== 'ok') throw new Error(`la verificación de la base falló (${integrity})`);
-    auditLog(req.userId, 'settings', 'copia restaurada (pendiente de reinicio)', `${buf.length} bytes`);
-    res.json({ ok: true, bytes: buf.length, counts, message: 'Copia recibida. Reinicia el servicio web en Railway para aplicarla.' });
+    fs.renameSync(part, pending);
+    auditLog(req.userId, 'settings', 'copia restaurada (pendiente de reinicio)', `${size} bytes`);
+    res.json({ ok: true, bytes: size, counts, message: 'Copia recibida. Reinicia el servicio web en Railway para aplicarla.' });
   } catch (err) {
-    fs.rmSync(pending, { force: true });
+    fs.rmSync(part, { force: true });
     res.status(400).json({ error: `No se pudo usar el archivo: ${err.message}` });
   }
 });

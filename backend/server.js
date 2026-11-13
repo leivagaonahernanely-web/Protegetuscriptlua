@@ -2034,7 +2034,10 @@ pcall(function()
     end
   end
 end)
-task.spawn(fn, _lfn)
+task.spawn(function()
+  local _rok, _rerr = pcall(fn, _lfn)
+  if not _rok and _rerr then warn(tostring(_rerr)) end
+end)
 task.spawn(function()
   pcall(function() task.wait(1.5) end)
   pcall(function()
@@ -2130,7 +2133,7 @@ async function protectLoader(loaderId, ffa, secure) {
 
 // Loader v5 (una sola etapa): el archivo que se reparte lee la key del usuario
 // (getgenv().VANTARMOR_KEY o script_key), pide a /v1/l el payload firmado y solo compila
-// si la firma HMAC-SHA256 y la vigencia (10 min) verifican. Sin key no hay entrega: el
+// si la firma HMAC-SHA256 y la vigencia (10 min) verifican. Sin key no hay entrega (salvo\n// scripts FFA, que son publicos por diseño): el
 // servidor responde 401. Los loaders viejos dejan de funcionar: hay que volver a descargar.
 function v5Loader(loaderId, ffa, secure) {
   const ex = loaderExtras(loaderId);
@@ -2138,7 +2141,7 @@ function v5Loader(loaderId, ffa, secure) {
   return `-- VANTARMOR (v5): entrega autenticada con respuesta firmada (HMAC-SHA256).
 -- La key va en getgenv().VANTARMOR_KEY (o script_key) ANTES de ejecutar el loader.
 -- El servidor valida key + HWID y solo entrega {ok, exp, sig, body}; este loader verifica
--- la firma y la vigencia (max 10 minutos) antes de compilar. Sin key no hay entrega.
+-- la firma y la vigencia (max 10 minutos) antes de compilar. Sin key no hay entrega (salvo\n-- scripts FFA, que son publicos por diseño).
 local SK = ${JSON.stringify(String(loaderId))}
 local SEC = ${JSON.stringify(String(ex.secret || ''))}
 local GUARD = ${JSON.stringify(String(ex.guard || ''))}
@@ -2412,7 +2415,10 @@ if type(_lf5._G) ~= "table" then _lf5._G = _lf5 end
 local _fn, _ferr = loadstring(_data.body, "=VantArmor", _lf5)
 if not _fn then _close() pcall(function() warn(tostring(_ferr)) end) error(MSG.PAYLOAD_LOAD_FAILED, 0) end
 pcall(function() if setfenv and type(_lf5) == "table" then setfenv(_fn, _lf5) end end)
-task.spawn(_fn, _lf5)
+task.spawn(function()
+  local _rok, _rerr = pcall(_fn, _lf5)
+  if not _rok and _rerr then warn(tostring(_rerr)) end
+end)
 task.spawn(function()
   pcall(function() task.wait(1.5) end)
   _close()

@@ -96,7 +96,9 @@ const jsonLimit = rateLimit({
 // 0. CONSTANTES Y CONFIGURACIÓN
 // ==========================================
 const MAX_CODE_BYTES = 2 * 1024 * 1024;           // 2 MB por script
-const OBFUSCATORS = ['real', 'obscura', 'luau', 'next', 'vantobf'];   // 'next' = Ofuscador 4 (NextOfuscator, lib/nextofuscator, todos los planes);    // RealObfuscator (predeterminado, modo VM), Obscura, Ofuscador 3 (LuaUObfuscator, solo Premium Plus); 'none' = sin ofuscar. Clyde se quitó.
+// 'next' = Ofuscador 4 (NextOfuscator, lib/nextofuscator, predeterminado); 'luau' = Ofuscador 3 (LuaUObfuscator, solo Premium Plus); 'vantobf' = Ofuscador 5 (VantVM).
+// Ofuscador 1 (RealObfuscator) y Ofuscador 2 (Obscura) se quitaron.
+const OBFUSCATORS = ['luau', 'next', 'vantobf'];
 const KEY_ALPHABET = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
 // Un error suelto no debe tirar el servidor ni dejar al bot a medias: se registra y el proceso sigue
 process.on('unhandledRejection', err => console.error('[Proceso] Promesa sin manejar:', err));
@@ -803,8 +805,8 @@ function validateScriptInput({ name, ffa, obfuscator, obfMode, code, hwidResetHo
   const isFfa = ffa === undefined ? !!current?.ffa : !!ffa;
   // FFA también se ofusca: el ofuscador se elige igual que en modo protegido
   // Scripts viejos con Clyde: si no mandan ofuscador, se regeneran con Obscura
-  // Scripts viejos con Clyde, Ofuscador 4 o los modos propios (quitados): si no mandan ofuscador, se regeneran con Ofuscador 1
-  const legacy = { clyde: 'real', km: 'real', pro: 'real', light: 'real', luau51: 'real' };
+  // Scripts viejos con Clyde, Ofuscador 4 o los modos propios (quitados): si no mandan ofuscador, se regeneran con Ofuscador 4
+  const legacy = { clyde: 'next', km: 'next', pro: 'next', light: 'next', luau51: 'next', real: 'next', obscura: 'next' };
   const obf = obfuscator === undefined ? (legacy[current?.obfuscator] ?? current?.obfuscator) : obfuscator;
   if (!OBFUSCATORS.includes(obf)) return { error: 'Elige un ofuscador válido' };
 
@@ -858,21 +860,6 @@ const OBF_CONFIG = {
     dir: findEntryDir(path.join(OBF_DIR, 'clyde'), path.join('dist', 'cli', 'obfuscate.js')),
     // Sin VM: rápido (casi no baja FPS). Con VM: más protección, pero más lento al ejecutarse
     args: (input, out, vm) => [path.join('dist', 'cli', 'obfuscate.js'), input, ...(vm ? ['--vm'] : []), '-o', out],
-    output: (input, out) => out,
-  },
-  // RealObfuscator (Rust, GPL-3.0). Modo VM. CLI: realobfuscator <entrada> --mode vm --output <salida>
-  real: {
-    bin: process.env.REAL_BIN || path.join(OBF_DIR, 'real', 'target', 'release', 'realobfuscator'),
-    dir: fs.existsSync(process.env.REAL_BIN || path.join(OBF_DIR, 'real', 'target', 'release', 'realobfuscator')) ? path.join(OBF_DIR, 'real') : null,
-    args: (input, out) => [input, '--mode', 'vm', '--output', out],
-    output: (input, out) => out,
-  },
-  // Ofuscador 2 = Obscura (Python, MIT). CLI: python main.py <entrada> -o <salida> --mode lightweight
-  obscura: {
-    // Obscura usa sintaxis de Python 3.12; el Dockerfile instala ese intérprete
-    bin: process.env.OBSCURA_PYTHON || '/opt/obscura-venv/bin/python',
-    dir: findEntryDir(path.join(OBF_DIR, 'obscura'), 'main.py'),
-    args: (input, out) => ['main.py', input, '-o', out, '--mode', 'lightweight'],
     output: (input, out) => out,
   },
 };
@@ -5027,7 +5014,7 @@ const perfLimit = rateLimit({
 app.post('/api/perf-check', requireAuth, perfLimit, (req, res) => {
   const source = String(req.body?.source || '');
   if (Buffer.byteLength(source) > MAX_CODE_BYTES) return res.status(400).json({ error: 'El código supera 2 MB' });
-  const obfuscator = OBFUSCATORS.includes(req.body?.obfuscator) ? req.body.obfuscator : 'real';
+  const obfuscator = OBFUSCATORS.includes(req.body?.obfuscator) ? req.body.obfuscator : 'next';
   res.json(analyzePerf(source, { obfuscator, vm: req.body?.clydeVm !== false }));
 });
 

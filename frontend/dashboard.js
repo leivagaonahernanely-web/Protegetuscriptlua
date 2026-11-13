@@ -9,10 +9,8 @@
   };
   const PLAN_LABELS = { free: 'Free', premium: 'Premium', plus: 'Premium Plus', custom: 'Custom' };
   const OBFUSCATORS = {
-    real:       'Ofuscador 1 · recomendado',
-    obscura:    'Ofuscador 2',
     luau:       'Ofuscador 3 · Premium Plus · 2 compilaciones por día',
-    next:       'Ofuscador 4 · NextOfuscator',
+    next:       'Ofuscador 4 · NextOfuscator · recomendado',
     vantobf:    'Ofuscador 5 · VantVM',
   };
   const NAV = {
@@ -86,8 +84,8 @@
 
   // Protección del script: 'ffa' (sin key) o 'protected' (con key y ofuscador)
   const protectionOf = s => (s.ffa ? 'ffa' : 'protected');
-  // Scripts viejos con Clyde se muestran como Ofuscador 1 al editarlos: al guardar se regeneran con ese
-  const obfuscatorOf = s => (OBFUSCATORS[s.obfuscator] ? s.obfuscator : 'real');
+  // Scripts viejos (Clyde, Ofuscador 1 y 2) se muestran como Ofuscador 4 al editarlos: al guardar se regeneran con ese
+  const obfuscatorOf = s => (OBFUSCATORS[s.obfuscator] ? s.obfuscator : 'next');
 
   async function api(path, opts = {}) {
     const headers = opts.body ? { 'Content-Type': 'application/json' } : {};
@@ -368,7 +366,7 @@
     const seq = ++perfSeq;
     const body = {
       source,
-      obfuscator: $('fObf')?.value || 'real',
+      obfuscator: $('fObf')?.value || 'next',
       clydeVm: $('vmGroup')?.querySelector('input')?.checked ?? true,
     };
     try {
@@ -429,7 +427,7 @@
   // Selector de protección: FFA o Protegido, y si es Protegido, el ofuscador
   function protectionHtml(s = {}) {
     const current = s.ffa === undefined ? 'protected' : protectionOf(s);
-    const currentObf = s.id ? obfuscatorOf(s) : 'real';
+    const currentObf = s.id ? obfuscatorOf(s) : 'next';
     const mode = s.obf_mode || 'medium';
     return `
       <div class="input-group">
@@ -451,7 +449,7 @@
           ${Object.entries(OBFUSCATORS).map(([val, label]) =>
             `<option value="${val}" ${val === currentObf ? 'selected' : ''} ${val === 'luau' && !hasPlusPlan() ? 'disabled' : ''}>${label}</option>`).join('')}
         </select>
-        <div class="hint">Se aplica en el servidor al guardar el script. Para Roblox (Luau) recomendamos el Ofuscador 1.</div>
+        <div class="hint">Se aplica en el servidor al guardar el script. Para Roblox (Luau) recomendamos el Ofuscador 4.</div>
         <div class="input-group" style="margin-top:12px">
           <label for="fObfApi">Ofuscación por API key</label>
           <div style="display:flex;gap:10px;align-items:center">
@@ -739,7 +737,7 @@
     const name = String(fd.get('name') || '').trim();
     const code = $('fCode').value;
     const protection = fd.get('protection') || 'protected';
-    const obfuscator = fd.get('obfuscator') || 'real';
+    const obfuscator = fd.get('obfuscator') || 'next';
     const obfMode = fd.get('obfMode') || 'medium';
 
     const projectId = editId ? null : Number($('fProject')?.value);

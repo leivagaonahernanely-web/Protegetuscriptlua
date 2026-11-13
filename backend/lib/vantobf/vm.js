@@ -709,6 +709,9 @@ function compileStatInner(ctx, st, loop) {
         }
       }
       for (const d of decls) ctx.locals.push(d);
+      // las variables del for viven en rF+2..rF+1+n: los temporales del cuerpo
+      // deben empezar ENCIMA de ellas o las pisan (ej: print pisaba la 2a var)
+      ctx.bump(rF + 2 + n);
       const tcallPc = ctx.code.length;
       emit(ctx, OP.TFORCALL, rF, n, 0);
       const tloopIdx = ctx.code.length;

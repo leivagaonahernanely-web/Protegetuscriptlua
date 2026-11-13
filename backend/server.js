@@ -2796,9 +2796,40 @@ const v1lHandler = async (req, res) => {
   const _browser = req.get('sec-fetch-site') || req.get('sec-fetch-mode') || req.get('sec-fetch-dest') || req.get('sec-ch-ua')
     || /Mozilla\/5\.0 \(.*(Chrome|CriOS|Firefox|FxiOS|Safari|Edge|Edg|OPR|SamsungBrowser)/.test(_uaL);
   if (/text\/html/.test(_acc) && (_browser || !isRobloxAuthRequest(req))) return res.status(403).type('text/plain').send('!VANTARMOR:FORBIDDEN');
-  // curl, wget, python y demas herramientas de consola: la auth no es para ellas
+  // curl, wget, python y demas herramientas de consola: la auth no es para ellas.
+  // Igual que un reporte de volcado: queda en dump_events, suma al contador y avisa al dueño.
+  // Y si traen una key valida del script, la key queda baneada al instante (el "kick" del lado
+  // del servidor: curl no corre en el juego, no hay a quien echar).
   if (/^(curl|wget|httpie)\//i.test(_uaL) || /python-requests|python-urllib|libwww-perl|postmanruntime/i.test(_uaL)) {
-    logAuthFail(req, '', 'BLOCKED_UA', '');
+    const _cb = (req.body && typeof req.body === 'object' && !Buffer.isBuffer(req.body)) ? req.body : {};
+    const _cq = { ...req.query, ..._cb };
+    const _cs = String(_cq.s || '');
+    const _ckey = String(_cq.key || '').trim().slice(0, 64);
+    const _cscript = /^[0-9a-f]{40}$/.test(_cs) ? stmt.scriptByLoaderId.get(_cs) : null;
+    const _ck = _cscript && _ckey ? keyForScript(_ckey, _cscript) : null;
+    const nowS = Math.floor(Date.now() / 1000);
+    if (_cscript) {
+      try {
+        db.prepare('INSERT INTO dump_events (script_id, key, hwid, ip, discord_id, soft, created_at) VALUES (?, ?, ?, ?, ?, 0, ?)')
+          .run(_cscript.id, _ck ? _ck.key : (_ckey || null), null, req.ip || null, _ck ? _ck.discord_id : null, nowS);
+        db.prepare('UPDATE scripts SET dump_attempts = COALESCE(dump_attempts, 0) + 1, last_dump_at = ? WHERE id = ?').run(nowS, _cscript.id);
+      } catch { /* el registro nunca rompe la respuesta */ }
+      if (_ck && !_ck.banned) {
+        try { db.prepare("UPDATE keys SET banned = 1, ban_reason = 'UA no permitido (curl/wget/python)' WHERE key = ? AND script_id = ?").run(_ck.key, _cscript.id); } catch { }
+      }
+      const _seenUA = `${_cscript.id}|ua|${_ckey}`;
+      if (Date.now() - (tamperSeen.get(_seenUA) || 0) > 10 * 60 * 1000) {
+        tamperSeen.set(_seenUA, Date.now());
+        logWithRoblox(_cscript.id, [
+          '🚨 Intento de dump con herramienta de consola (curl/wget/python)',
+          `• Key: \`${_ckey || 'sin key'}\``,
+          `• IP: \`${req.ip || 'sin dato'}\``,
+        ], _ck ? _ck.discord_id : null, '');
+        discordBot?.notifyTamper?.({ scriptId: _cscript.id, key: _ckey, hwid: '', rbxid: '', discordId: _ck ? _ck.discord_id : null, autoRevoked: Boolean(_ck && !_ck.banned), soft: false });
+        fireWebhooks(_cscript.user_id, 'script.tamper', { scriptId: _cscript.id, key: _ckey, hwid: '', rbxid: '', autoRevoked: Boolean(_ck && !_ck.banned), soft: false });
+      }
+    }
+    logAuthFail(req, _cs, 'BLOCKED_UA', _ckey);
     return res.status(403).type('text/plain').send('!VANTARMOR:FORBIDDEN');
   }
   const b = (req.body && typeof req.body === 'object' && !Buffer.isBuffer(req.body)) ? req.body : {};

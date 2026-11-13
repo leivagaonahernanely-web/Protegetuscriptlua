@@ -2455,13 +2455,39 @@ function runtimeHeader(script, ip, key) {
   return head;
 }
 
+// [AntiDump] La ruta del loader NUNCA entrega la fuente en claro: si la copia guardada
+// es la fuente (script guardado sin ofuscar) o no existe copia, se ofusca al vuelo con
+// el motor propio y se cachea. Si la proteccion falla, no se entrega nada (fail closed).
+const _plainGuardCache = new Map();
+function protectedBase(script, plain) {
+  const saved = script.content || '';
+  // Plain = sin copia, o copia identica a la fuente (comparada sin bordes: el guardado
+  // puede diferir solo en espacios). Un ofuscado real nunca coincide con la fuente.
+  const isPlain = !!plain && (!saved || saved.trim() === plain.trim());
+  if (!isPlain) return saved;                                // copia ofuscada real
+  const k = crypto.createHash('sha1').update(plain).digest('hex');
+  if (_plainGuardCache.has(k)) return _plainGuardCache.get(k);
+  let out = null;
+  try {
+    // Motor propio (VantObf): la fuente en claro nunca sale del servidor aunque el script
+    // se haya guardado sin ofuscar. Resultado cacheado por hash de la fuente.
+    out = obfuscateVant(plain, script.obf_mode || undefined, scriptGuardValue(script.guard_secret || ''));
+    if (!out || !String(out).trim()) out = null;
+  } catch (err) {
+    console.error('[AntiDump] ofuscado al vuelo fallo:', err.message);
+    out = null;
+  }
+  if (_plainGuardCache.size > 200) _plainGuardCache.clear();
+  _plainGuardCache.set(k, out);
+  return out; // null = fallo al proteger: no se entrega nada
+}
 function servedCode(script, { ip, key } = {}) {
   // La ruta del loader SIEMPRE sirve la copia protegida (ofuscada): el toggle
   // serve_protected solo controla la vista previa del panel, nunca lo que
-  // llega al ejecutor. Si no hay copia ofuscada cae a la fuente original.
-  const base = script.content
-    ? script.content
-    : (script.source ? stripRemoteBlocks(script.source) : script.content);
+  // llega al ejecutor. La fuente en claro nunca sale del servidor.
+  const plain = script.source ? stripWebhookMarkers(stripRemoteBlocks(script.source)) : '';
+  const base = protectedBase(script, plain);
+  if (base === null) return null;
   const head = runtimeHeader(script, ip, key);
   if (!hasRemoteBlocks(script.source || '')) return head + base;
   const token = issueRemoteToken(script, ip, key);
@@ -2540,6 +2566,8 @@ function xxteaEncrypt(plain, key16) {
 // Entrega el código al ejecutor: texto plano (loaders viejos) o cifrado (loader v2)
 function sendExecutorCode(req, res, script, opts, enc, keySeed) {
   const code = servedCode(script, opts);
+  // Fail closed: sin version protegida no hay entrega (la fuente en claro nunca sale)
+  if (code === null) return res.status(503).type('text/plain').send('!VANTARMOR:SERVER_UNREACHABLE');
   if (!enc) return res.type('text/plain').send('!VANTARMOR:CODE\n' + code);
   // Loader v3 (ver >= 3): la clave ya no viaja en la respuesta; se deriva de key+hwid+token,
   // datos que el cliente ya envio. La respuesta capturada es ciphertext sin clave.
@@ -2630,6 +2658,8 @@ app.get('/v1/a/start/:uuid', (req, res) => {
   authSessions.delete(uuid);
   const token = crypto.randomBytes(24).toString('hex');
   const code = servedCode(script, { ip: req.ip, key: sess.key });
+  // Fail closed: sin version protegida no hay entrega (la fuente en claro nunca sale)
+  if (code === null) return res.status(503).type('text/plain').send('!VANTARMOR:SERVER_UNREACHABLE');
   const key16 = deriveKey16(`${sess.key || ''}|${sess.rawHwid || ''}|${token}|v2`);
   const enc = xxteaEncrypt(code, key16);
   const b64 = enc.toString('base64');

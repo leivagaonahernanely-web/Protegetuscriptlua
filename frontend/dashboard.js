@@ -9,7 +9,7 @@
   };
   const PLAN_LABELS = { free: 'Free', premium: 'Premium', plus: 'Premium Plus', custom: 'Custom' };
   const OBFUSCATORS = {
-    luau:       'Vanta Obfuscation · API · 2 compilaciones por día',
+    luau:       'Vanta Obfuscation · Próximamente',
     next:       'Ofuscador 4 · NextOfuscator · recomendado',
     vantobf:    'Ofuscador 5 · VantVM',
     none:       'No obf',
@@ -449,7 +449,7 @@
         <label for="fObf">Ofuscador</label>
         <select id="fObf" name="obfuscator" class="field block">
           ${Object.entries(OBFUSCATORS).map(([val, label]) =>
-            `<option value="${val}" ${val === currentObf ? 'selected' : ''}>${label}</option>`).join('')}
+            `<option value="${val}"${val === 'luau' ? ' disabled' : ''} ${val === currentObf ? 'selected' : ''}>${label}</option>`).join('')}
         </select>
         <div class="hint">Se aplica en el servidor al guardar el script. Para Roblox (Luau) recomendamos el Ofuscador 4.</div>
         <div id="obfModeWrap" hidden style="margin-top:10px">

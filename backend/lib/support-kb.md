@@ -13,7 +13,7 @@ Vantarmor protege scripts de Roblox escritos en Lua/Luau. El creador sube su có
 Nunca menciones el nombre del motor interno de cada ofuscador. Habla solo de "Ofuscador 3", "Ofuscador 4", "Ofuscador 5" y "No obf".
 1. **Ofuscador 4:** el predeterminado para scripts nuevos.
 2. **Ofuscador 5:** alternativa.
-3. **Ofuscador 3:** solo Premium Plus, con límite diario de compilaciones.
+3. **Ofuscador 3:** en pausa (próximamente). No está disponible para nuevos scripts y ningún script lo usa; los que lo tenían entregan con el Ofuscador 5.
 4. **No obf:** el código solo se protege con keys.
 Si un script viejo usa un ofuscador que ya no existe, sigue funcionando; al editarlo se regenera con el Ofuscador 4.
 En el dashboard, cada script tiene el botón "Ver código protegido" para ver y copiar el código que sirve el loader (solo el dueño lo ve).

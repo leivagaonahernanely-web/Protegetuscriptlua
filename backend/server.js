@@ -810,7 +810,9 @@ function validateScriptInput({ name, ffa, obfuscator, obfMode, code, hwidResetHo
   // Scripts viejos con Clyde, Ofuscador 4 o los modos propios (quitados): si no mandan ofuscador, se regeneran con Ofuscador 4
   // Ofuscadores quitados (1, 2, Clyde y modos viejos): al guardar pasan a Ofuscador 4
   const legacy = { clyde: 'next', km: 'next', pro: 'next', light: 'next', luau51: 'next', real: 'next', obscura: 'next' };
-  const obf = obfuscator === undefined ? (legacy[current?.obfuscator] ?? current?.obfuscator) : obfuscator;
+  let obf = obfuscator === undefined ? (legacy[current?.obfuscator] ?? current?.obfuscator) : obfuscator;
+  // Ofuscador 3 (API) en pausa (próximamente): ningún script lo usa; al guardar pasa a Ofuscador 4
+  if (obf === 'luau') obf = 'next';
   if (!OBFUSCATORS.includes(obf)) return { error: 'Elige un ofuscador válido' };
 
   const source = code === undefined ? current?.source : code;
@@ -3511,7 +3513,11 @@ function protectedBase(script, plain) {
   const src = String(script.source || '');
   const variants = new Set([plain, src, stripWebhookMarkers(src), stripRemoteBlocks(src)]
     .map(v => String(v || '').trim()).filter(Boolean));
-  const isPlain = !saved || (plain && variants.has(saved.trim())) || looksLikePlainSource(saved);
+  // Ofuscador 3 (API externa) en pausa: su salida está fallando dentro de su VM en el juego
+  // (aritmética sobre nil), así que su copia guardada nunca se sirve: la entrega pasa por el
+  // motor propio (Ofuscador 5) con la misma caché y fail closed.
+  const forzarRegen = script.obfuscator === 'luau';
+  const isPlain = forzarRegen || !saved || (plain && variants.has(saved.trim())) || looksLikePlainSource(saved);
   if (!isPlain) return saved;                                // copia ofuscada real
   const k = crypto.createHash('sha1').update(plain).digest('hex');
   if (_plainGuardCache.has(k)) return _plainGuardCache.get(k);
@@ -5511,7 +5517,13 @@ app.post('/api/scripts/:id/maintenance', requireAuth, (req, res) => {
 app.get('/api/scripts/:id/protected', requireAuth, (req, res) => {
   const script = stmt.scriptOwned.get(Number(req.params.id), req.userId);
   if (!script) return res.status(404).json({ error: 'Script no encontrado' });
-  res.json({ name: script.name, obfuscator: script.obfuscator, content: script.content || '' });
+  // Ofuscador 3 en pausa: la vista previa muestra lo mismo que sirve el loader (copia propia)
+  let shown = script.content || '';
+  if (script.obfuscator === 'luau') {
+    const pl = script.source ? stripWebhookMarkers(stripRemoteBlocks(script.source)) : '';
+    shown = protectedBase(script, pl) || '';
+  }
+  res.json({ name: script.name, obfuscator: script.obfuscator, content: shown });
 });
 // Borrar keys propias (una o varias, máximo 100 por petición)
 const ownedKeyStmt = db.prepare('SELECT k.key FROM keys k LEFT JOIN scripts s ON s.id = k.script_id LEFT JOIN projects p ON p.id = k.project_id WHERE k.key = ? AND (s.user_id = ? OR p.user_id = ?)');

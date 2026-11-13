@@ -2169,7 +2169,6 @@ if body:sub(1, #_encp) == _encp then
   for _i = 1, _m do
     local _o = (_i - 1) * 4
     _v[_i] = _bytes[_o + 1] + _bytes[_o + 2] * 256 + _bytes[_o + 3] * 65536 + _bytes[_o + 4] * 16777216
-    if _i % 4096 == 0 and task then task.wait() end
   end
   local function _mx(sum, y, z, p0, e, k)
     local _t1 = _xor(math.floor(z / 32), (y * 4) % _M)
@@ -2200,7 +2199,6 @@ if body:sub(1, #_encp) == _encp then
   for _i = 1, _m do
     local _w = _v[_i]
     _parts[_i] = string.char(_w % 256, math.floor(_w / 256) % 256, math.floor(_w / 65536) % 256, math.floor(_w / 16777216) % 256)
-    if _i % 4096 == 0 and task then task.wait() end
   end
   local _pt = table.concat(_parts)
   local _len = #_pt
@@ -2750,8 +2748,6 @@ local function _vantDec5(_b64, _ckey, _chwid, _cexp)
         _acc = _acc % 2 ^ _bts
       end
     end
-    -- Cede el hilo cada 4096 caracteres: payloads grandes no pueden bloquear el ejecutor
-    if _i % 4096 == 0 and task then task.wait() end
   end
   if _bn == 0 or _bn % 4 ~= 0 then return nil end
   local _DL = 2654435769
@@ -2770,7 +2766,6 @@ local function _vantDec5(_b64, _ckey, _chwid, _cexp)
   for _i = 1, _m do
     local _o = (_i - 1) * 4
     _v[_i] = _bytes[_o + 1] + _bytes[_o + 2] * 256 + _bytes[_o + 3] * 65536 + _bytes[_o + 4] * 16777216
-    if _i % 4096 == 0 and task then task.wait() end
   end
   local function _mx(sum, y, z, p0, e, k)
     local _t1 = _xor(math.floor(z / 32), (y * 4) % _M)
@@ -2801,7 +2796,6 @@ local function _vantDec5(_b64, _ckey, _chwid, _cexp)
   for _i = 1, _m do
     local _w = _v[_i]
     _parts[_i] = string.char(_w % 256, math.floor(_w / 256) % 256, math.floor(_w / 65536) % 256, math.floor(_w / 16777216) % 256)
-    if _i % 4096 == 0 and task then task.wait() end
   end
   local _pt = table.concat(_parts)
   local _len = #_pt

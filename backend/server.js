@@ -1981,6 +1981,13 @@ end
 -- task.spawn: ejecuta el script del usuario en un hilo separado.
 -- Si el script del usuario tiene un error, no mata el bootstrap y el error
 -- aparece con el nombre real del script (no "LocalScript").
+-- El payload compilado hereda el entorno global plano del executor (sin game ni getgenv),
+-- y ahi el VM del Ofuscador 5 no resuelve los globals del script del usuario. Se lo cambia
+-- al entorno real del loader (con game, workspace y los globals del executor).
+pcall(function()
+  local _le = getfenv(1)
+  if type(_le) == 'table' and type(setfenv) == 'function' then setfenv(fn, _le) end
+end)
 task.spawn(fn)
 `;
 }

@@ -89,10 +89,19 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 2 3 7v6c0 5 4 9 9 9s9-4 9-9V7l-9-5z"/></svg>
           Planes
         </button>
+        <button class="nav-item" data-nav="rewards">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><polyline points="20 12 20 22 4 22 4 12"/><rect x="2" y="7" width="20" height="5"/><line x1="12" y1="22" x2="12" y2="7"/><path d="M12 7H7.5a2.5 2.5 0 0 1 0-5C11 2 12 7 12 7z"/><path d="M12 7h4.5a2.5 2.5 0 0 0 0-5C13 2 12 7 12 7z"/></svg>
+          Recompensas
+        </button>
         <button class="nav-item" data-nav="profile" data-lockable="profile">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h.01a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v.01a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
           Ajustes
         </button>
+
+        <a class="nav-item" href="/auth/logout" style="text-decoration:none;color:inherit">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+          Cerrar sesión
+        </a>
         <a class="nav-item" id="navAdmin" href="/admin" hidden style="text-decoration:none">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 3l7 3v5c0 5-3.5 8.5-7 10-3.5-1.5-7-5-7-10V6l7-3z"/></svg>
           Admin
@@ -310,7 +319,7 @@
         <div class="section-head">
           <div>
             <h2>Mis proyectos</h2>
-            <p>Crea un proyecto y dentro de él tus scripts, como en Luarmor. Cada proyecto agrupa sus scripts y sus keys.</p>
+            <p>Crea un proyecto y dentro de él tus scripts. Cada proyecto agrupa sus scripts y sus keys.</p>
           </div>
           <div class="row" style="gap:8px;flex-wrap:wrap">
             <button class="btn" data-open="project">+ Nuevo proyecto</button>
@@ -678,6 +687,36 @@
             <button class="btn" type="submit">Crear webhook</button>
           </form>
           <div id="whList" style="margin-top:16px"></div>
+        </article>
+      </section>
+
+      <section class="view" data-view="rewards">
+        <article class="card">
+          <h3>Canjear recompensa</h3>
+          <p class="hint">Canjea un código y recibes una key al instante. Es una key en stock: el tiempo empieza con la primera ejecución.</p>
+          <form id="rewardsRedeemForm">
+            <div class="input-group">
+              <label for="rewardsCode">Código</label>
+              <input id="rewardsCode" class="field block" maxlength="40" placeholder="REWARD-CODE" autocomplete="off">
+            </div>
+            <div class="form-actions"><button type="submit" class="btn">Canjear</button></div>
+          </form>
+          <div id="rewardsResult" hidden></div>
+        </article>
+        <article class="card" id="rewardsOwnerCard" hidden>
+          <h3>Crear recompensa</h3>
+          <p class="hint">El código regala una key del script elegido. Define cuántos días de key da y cuántas veces se puede canjear.</p>
+          <form id="rewardsForm">
+            <div class="input-group"><label for="rwCode">Código</label><input id="rwCode" class="field block" maxlength="40" placeholder="BIENVENIDA-2026" autocomplete="off"></div>
+            <div class="input-group"><label for="rwScript">Script</label><select id="rwScript" class="field block"></select></div>
+            <div class="input-group"><label for="rwDays">Días de key</label><input id="rwDays" class="field block" type="number" min="1" max="3650" value="30"></div>
+            <div class="input-group"><label for="rwUses">Usos máximos</label><input id="rwUses" class="field block" type="number" min="1" max="10000" value="1"></div>
+            <div class="form-actions"><button type="submit" class="btn">Crear recompensa</button></div>
+          </form>
+        </article>
+        <article class="card" id="rewardsListCard" hidden>
+          <h3>Recompensas creadas</h3>
+          <div id="rewardsList"></div>
         </article>
       </section>
 

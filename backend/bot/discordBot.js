@@ -1,4 +1,4 @@
-// Bot de Discord para Vantarmor (estilo Luarmor).
+// Bot de Discord para Vantarmor (estilo Vantarmor).
 // Comparte la base SQLite de server.js: recibe `db` y crea sus tablas con ensureBotSchema().
 import {
   ActionRowBuilder,
@@ -435,7 +435,7 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
       (r.kind === 'user' && r.discord_id === userId) || (r.kind === 'role' && roleIds.includes(r.discord_id)));
   }
 
-  // Mensaje para quien no tiene whitelist ni key (estilo Luarmor)
+  // Mensaje para quien no tiene whitelist ni key (estilo Vantarmor)
   const NO_ACCESS_MSG = 'You need to be whitelisted to get this script.\nIf you have a script key, click on the Redeem button below to redeem it';
   const KEY_LIMIT_MSG = '⛔ El creador de este script alcanzó el límite de keys de su plan en este periodo. Vuelve a intentar cuando se reinicie.';
 
@@ -688,7 +688,7 @@ export async function startDiscordBot({ db, token, clientId, guildId, publicUrl,
     return `${parts.day}/${parts.month}/${parts.year} ${parts.hour}:${parts.minute}`;
   }
 
-  // Panel con botones (estilo Luarmor): muestra quién creó el script
+  // Panel con botones (estilo Vantarmor): muestra quién creó el script
   function panelPayload(script, customDescription, displayName = null) {
     const creator = script.user_id ? q.userById.get(script.user_id) : null;
     // Apodo en el servidor (o nombre visible) del dueño; si no se pudo leer, el nombre de usuario

@@ -23,6 +23,7 @@
     scripts:   { title: 'Proyectos', sub: 'Crea un proyecto y dentro de él tus scripts; keys por script o por proyecto' },
     keys:      { title: 'Keys',      sub: 'Licencias generadas' },
     blacklist: { title: 'Blacklist', sub: 'Bloquea usuarios de Discord, IPs o HWID en tus scripts' },
+    rewards:   { title: 'Recompensas', sub: 'Canjea códigos y gana keys para tus scripts' },
     plans:     { title: 'Planes',    sub: 'Elige el plan que necesitas' },
     soporte:   { title: 'Soporte',   sub: 'Preguntas frecuentes y tus tickets' },
     stats: { title: 'Estadísticas', sub: 'Ejecuciones de tus scripts y de dónde vienen' },
@@ -159,6 +160,7 @@
     $('pageTitle').firstChild.textContent = NAV[name].title;
     $('pageSub').textContent = NAV[name].sub;
     if (name === 'profile') renderProfile();
+    if (name === 'rewards') loadRewards();
     if (name === 'precios') loadPricesForm();
     if (name === 'bienvenida') loadWelcomeForm();
     stopChatPolling();
@@ -971,7 +973,7 @@
     const groups = projects.map(p => ({ p, list: scripts.filter(s => String(s.project_id ?? '') === String(p.id)) }));
     const loose = scripts.filter(s => !projects.some(p => String(p.id) === String(s.project_id)));
     if (!groups.length && !loose.length) {
-      grid.innerHTML = `<div class="empty"><h3>Aún no tienes proyectos</h3><p>Crea tu primer proyecto: cada script vive dentro de un proyecto, como en Luarmor.</p><button class="btn" data-open="project">+ Nuevo proyecto</button></div>`;
+      grid.innerHTML = `<div class="empty"><h3>Aún no tienes proyectos</h3><p>Crea tu primer proyecto: cada script vive dentro de un proyecto.</p><button class="btn" data-open="project">+ Nuevo proyecto</button></div>`;
       return;
     }
     grid.innerHTML = groups.map(({ p, list }) => `
@@ -1505,6 +1507,57 @@
   }
 
   // ---------- CHAT DE LA COMUNIDAD ----------
+  // Recompensas: canje de códigos (keydrop) y gestión del dueño
+  async function loadRewards() {
+    if (!(user && user.owner)) return;
+    $('rewardsOwnerCard').hidden = false;
+    $('rewardsListCard').hidden = false;
+    let list = scripts;
+    if (!list.length) {
+      try { const d = await api('/api/scripts'); list = Array.isArray(d) ? d : (d.scripts || []); } catch (_) {}
+    }
+    $('rwScript').innerHTML = list.map(s => `<option value="${s.id}">${esc(s.name)}</option>`).join('');
+    try {
+      const data = await api('/api/rewards');
+      const rewards = data.rewards || [];
+      $('rewardsList').innerHTML = rewards.length ? rewards.map(r => `<div class="keys-summary"><strong>${esc(r.code)}</strong> · ${esc(r.script_name || 'script borrado')} · ${r.key_days} días · ${r.uses}/${r.max_uses} usos <button class="btn ghost sm" data-rwdel="${r.id}" type="button">Eliminar</button></div>`).join('') : '<div class="hint">Todavía no hay recompensas.</div>';
+    } catch (_) {}
+  }
+
+  $('rewardsRedeemForm').addEventListener('submit', async e => {
+    e.preventDefault();
+    const code = $('rewardsCode').value.trim();
+    if (!code) return;
+    const box = $('rewardsResult');
+    try {
+      const r = await api('/api/rewards/redeem', { method: 'POST', body: JSON.stringify({ code }) });
+      box.hidden = false;
+      box.innerHTML = `<div class="keys-summary">Key generada (${r.keyDays} días, empieza con la primera ejecución):<br><code>${esc(r.key)}</code></div>`;
+      copyText(r.key, 'Key copiada al portapapeles');
+      toast('Recompensa canjeada');
+    } catch (err) {
+      box.hidden = false;
+      box.innerHTML = `<div class="hint">${esc((err && err.message) || 'No se pudo canjear')}</div>`;
+    }
+  });
+
+  $('rewardsForm').addEventListener('submit', async e => {
+    e.preventDefault();
+    try {
+      await api('/api/rewards', { method: 'POST', body: JSON.stringify({ code: $('rwCode').value.trim(), scriptId: Number($('rwScript').value), keyDays: Number($('rwDays').value), maxUses: Number($('rwUses').value) }) });
+      toast('Recompensa creada');
+      $('rwCode').value = '';
+      loadRewards();
+    } catch (err) { toast((err && err.message) || 'No se pudo crear', 'error'); }
+  });
+
+  $('rewardsList').addEventListener('click', async e => {
+    const btn = e.target.closest('[data-rwdel]');
+    if (!btn) return;
+    try { await api(`/api/rewards/${btn.dataset.rwdel}`, { method: 'DELETE' }); toast('Recompensa eliminada'); loadRewards(); }
+    catch (err) { toast((err && err.message) || 'No se pudo eliminar', 'error'); }
+  });
+
   let chatMessages = [];
   let chatES = null;            // conexión en vivo (SSE)
   let chatPollTimer = null;     // respaldo si la conexión en vivo no funciona
@@ -2817,7 +2870,7 @@
     if (scriptsLoaded || scriptsError) renderScripts();
   }
 
-  // Modal de proyecto: crear o editar (webhooks de logs y alertas, HWID y auto-borrado, estilo Luarmor)
+  // Modal de proyecto: crear o editar (webhooks de logs y alertas, HWID y auto-borrado, estilo panel)
   function openProjectModal(p = null) {
     const edit = !!p;
     openModal(edit ? 'Ajustes del proyecto' : 'Nuevo proyecto', `

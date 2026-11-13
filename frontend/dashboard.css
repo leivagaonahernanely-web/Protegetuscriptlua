@@ -47,10 +47,10 @@
   .nav-label { font-size: 11px; font-weight: 800; color: var(--text-dim); text-transform: uppercase; letter-spacing: 1px; padding: 14px 12px 8px; }
   .nav-item { width: 100%; text-align: left; padding: 11px 12px; border-radius: 10px; display: flex; align-items: center; gap: 12px; color: var(--text-dim); font-weight: 600; font-size: 14px; transition: background .2s, color .2s; }
   .nav-item:hover { background: rgba(255,255,255,.05); color: var(--text); }
-  .nav-item.active { background: #fff; color: #000; font-weight: 800; }
+  .nav-item.active { background: rgba(255,255,255,.10); color: #fff; font-weight: 700; }
   .nav-item svg { width: 18px; height: 18px; flex-shrink: 0; }
   .nav-count { margin-left: auto; font-size: 11px; font-weight: 800; background: rgba(255,255,255,.1); padding: 2px 7px; border-radius: 6px; }
-  .nav-item.active .nav-count { background: rgba(0,0,0,.12); }
+  .nav-item.active .nav-count { background: rgba(255,255,255,.15); }
 
   .user-widget { padding: 16px; border-top: 1px solid var(--border); }
   .user-box { display: flex; align-items: center; gap: 12px; padding: 10px; background: rgba(255,255,255,.03); border: 1px solid var(--border); border-radius: 12px; }
@@ -863,7 +863,7 @@ tbody tr:hover td { background: rgba(255,255,255,.025); }
 
 .code-view { max-height: 60vh; overflow: auto; margin: 0 0 14px; padding: 12px; border-radius: 10px; background: rgba(0,0,0,.35); border: 1px solid var(--border); font: 12px/1.45 ui-monospace, Menlo, Consolas, monospace; white-space: pre; color: var(--text); }
 
-  /* Proyectos estilo Luarmor dentro de la vista de scripts */
+  /* Proyectos estilo Vantarmor dentro de la vista de scripts */
   .proj-panel { gap: 12px; }
   .proj-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
   .proj-title { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-width: 0; }

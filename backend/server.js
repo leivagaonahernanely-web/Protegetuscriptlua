@@ -2768,7 +2768,7 @@ db.exec(`CREATE TABLE IF NOT EXISTS auth_fail_log (
   key_hint TEXT
 )`);
 // Keys de proyecto: una key puede ser de script (script_id) o de proyecto (project_id); una key de
-// proyecto sirve para todos los scripts de ese proyecto (estilo Luarmor: usuarios por aplicacion).
+// proyecto sirve para todos los scripts de ese proyecto (estilo Vantarmor: usuarios por aplicacion).
 const keyByKeyStmt = db.prepare('SELECT * FROM keys WHERE key = ?');
 const keyForScript = (key, script) => {
   if (!key || !script) return null;
@@ -2809,6 +2809,11 @@ const v1lHandler = async (req, res) => {
   const _browser = req.get('sec-fetch-site') || req.get('sec-fetch-mode') || req.get('sec-fetch-dest') || req.get('sec-ch-ua')
     || /Mozilla\/5\.0 \(.*(Chrome|CriOS|Firefox|FxiOS|Safari|Edge|Edg|OPR|SamsungBrowser)/.test(_uaL);
   if (/text\/html/.test(_acc) && (_browser || !isRobloxAuthRequest(req))) return res.status(403).type('text/plain').send('!VANTARMOR:FORBIDDEN');
+  // curl, wget, python y demas herramientas de consola: la auth no es para ellas
+  if (/^(curl|wget|httpie)\//i.test(_uaL) || /python-requests|python-urllib|libwww-perl|postmanruntime/i.test(_uaL)) {
+    logAuthFail(req, '', 'BLOCKED_UA', '');
+    return res.status(403).type('text/plain').send('!VANTARMOR:FORBIDDEN');
+  }
   const b = (req.body && typeof req.body === 'object' && !Buffer.isBuffer(req.body)) ? req.body : {};
   const q = { ...req.query, ...b };
   const s = String(q.s || '');
@@ -3164,7 +3169,7 @@ db.exec(`CREATE TABLE IF NOT EXISTS dump_events (
   id INTEGER PRIMARY KEY, script_id INTEGER, key TEXT, hwid TEXT, ip TEXT, discord_id TEXT, soft INTEGER, created_at INTEGER
 )`);
 
-// ---- Webhooks protegidos (estilo Luarmor V4) + variables de entorno ----
+// ---- Webhooks protegidos (estilo V4) + variables de entorno ----
 // El dueño marca en el source una línea `--@webhook:nombre https://...`. El servidor guarda la URL
 // y la quita del código entregado; el script llama VANT_SEND_WEBHOOK("nombre", payload) y el
 // servidor (no el cliente) lleva la URL, limita 30/min por IP, y sustituye %VARIABLES% que el
@@ -3317,7 +3322,7 @@ function remoteProtectedBody(script, body) {
   return out;
 }
 
-// Entrega cifrada (v2, estilo Luarmor): el código sale cifrado con XXTEA y una key de sesión
+// Entrega cifrada (v2, estilo Vantarmor): el código sale cifrado con XXTEA y una key de sesión
 // aleatoria. Un fetch a mano a /auth sin key válida no recibe nada, y cada entrega es un blob
 // distinto que no se puede reusar. La misma rutina corre en Lua puro dentro del bootstrap.
 const XXTEA_DELTA = 0x9E3779B9 >>> 0;
@@ -3801,6 +3806,8 @@ app.post('/scripts/hosted/:slug/auth', express.json({ type: () => true, limit: '
 // no cuenta ejecucion, y los fallos pasan por el mismo antifuerza-bruta que /auth.
 app.get('/v1/k', (req, res) => {
   const replyK = code => res.type('text/plain').send(`!VANTARMOR:${code}`);
+  const _uaK = String(req.get('user-agent') || '');
+  if (/^(curl|wget|httpie)\//i.test(_uaK) || /python-requests|python-urllib|libwww-perl|postmanruntime/i.test(_uaK)) return replyK('FORBIDDEN');
   const sk = String(req.query.s || '');
   const script = /^[0-9a-f]{40}$/.test(sk) ? stmt.scriptByLoaderId.get(sk) : null;
   if (!script) {
@@ -5045,7 +5052,7 @@ app.post('/api/scripts', requireAuth, async (req, res) => {
   if (maintenanceBlock(req, res)) return;
   const input = validateScriptInput(req.body || {});
   if (input.error) return res.status(400).json({ error: input.error });
-  // Un script siempre vive dentro de un proyecto (estilo Luarmor): hay que crearlo primero
+  // Un script siempre vive dentro de un proyecto (estilo Vantarmor): hay que crearlo primero
   const _pjId = Number(req.body?.projectId);
   if (!Number.isInteger(_pjId) || !db.prepare('SELECT 1 FROM projects WHERE id = ? AND user_id = ?').get(_pjId, req.userId)) {
     return res.status(400).json({ error: 'Elige un proyecto: crea uno primero si no tienes ninguno.' });
@@ -5542,7 +5549,7 @@ async function deliverWebhook(w, event, data) {
 }
 
 // Envía el evento a todos los webhooks activos del dueño que escuchan ese evento (en segundo plano)
-// Webhooks del proyecto (estilo Luarmor): 'logs' recibe ejecuciones correctas, 'alert' intentos de crack y baneos
+// Webhooks del proyecto (estilo Vantarmor): 'logs' recibe ejecuciones correctas, 'alert' intentos de crack y baneos
 function fireProjectWebhook(projectId, kind, data) {
   if (projectId == null) return;
   try {
@@ -5659,6 +5666,86 @@ app.post('/api/keys', requireAuth, (req, res) => {
     console.error('Create keys error:', err);
     res.status(500).json({ error: 'Error del servidor' });
   }
+});
+
+// ==========================================
+// 6b. RECOMPENSAS (codigos que canjean keys, estilo Vantarmor: rewards -> keydrop)
+// ==========================================
+db.exec(`CREATE TABLE IF NOT EXISTS rewards (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  code TEXT UNIQUE NOT NULL,
+  script_id INTEGER NOT NULL,
+  key_days INTEGER NOT NULL DEFAULT 30,
+  max_uses INTEGER NOT NULL DEFAULT 1,
+  uses INTEGER NOT NULL DEFAULT 0,
+  created_by INTEGER,
+  created_at INTEGER
+)`);
+
+const rewardByCode = db.prepare('SELECT * FROM rewards WHERE code = ?');
+const rewardInsert = db.prepare('INSERT INTO rewards (code, script_id, key_days, max_uses, uses, created_by, created_at) VALUES (?, ?, ?, ?, 0, ?, ?)');
+const rewardInc = db.prepare('UPDATE rewards SET uses = uses + 1 WHERE id = ?');
+const rewardDelete = db.prepare('DELETE FROM rewards WHERE id = ?');
+const rewardsAll = db.prepare('SELECT r.*, s.name AS script_name FROM rewards r LEFT JOIN scripts s ON s.id = r.script_id ORDER BY r.id DESC');
+const normRewardCode = v => String(v || '').trim().toUpperCase().slice(0, 40);
+
+app.get('/api/rewards', requireAuth, (req, res) => {
+  if (!isOwnerId(req.userId)) return res.status(403).json({ error: 'No autorizado' });
+  res.json({ rewards: rewardsAll.all() });
+});
+
+app.post('/api/rewards', requireAuth, (req, res) => {
+  if (!isOwnerId(req.userId)) return res.status(403).json({ error: 'No autorizado' });
+  const code = normRewardCode(req.body?.code);
+  const scriptId = Number(req.body?.scriptId);
+  const keyDays = req.body?.keyDays === undefined ? 30 : Number(req.body.keyDays);
+  const maxUses = req.body?.maxUses === undefined ? 1 : Number(req.body.maxUses);
+  if (!/^[A-Z0-9_-]{4,40}$/.test(code)) return res.status(400).json({ error: 'Código inválido (4-40 caracteres, letras y números)' });
+  if (!Number.isInteger(scriptId)) return res.status(400).json({ error: 'scriptId inválido' });
+  if (!db.prepare('SELECT id FROM scripts WHERE id = ?').get(scriptId)) return res.status(400).json({ error: 'Script no encontrado' });
+  if (!Number.isInteger(keyDays) || keyDays < 1 || keyDays > 3650) return res.status(400).json({ error: 'Días inválidos (1-3650)' });
+  if (!Number.isInteger(maxUses) || maxUses < 1 || maxUses > 10000) return res.status(400).json({ error: 'Usos inválidos (1-10000)' });
+  try {
+    rewardInsert.run(code, scriptId, keyDays, maxUses, req.userId, Math.floor(Date.now() / 1000));
+    res.json({ ok: true });
+  } catch (err) {
+    if (String(err.message || '').includes('UNIQUE')) return res.status(409).json({ error: 'Ese código ya existe' });
+    console.error('Create reward error:', err);
+    res.status(500).json({ error: 'Error del servidor' });
+  }
+});
+
+app.delete('/api/rewards/:id', requireAuth, (req, res) => {
+  if (!isOwnerId(req.userId)) return res.status(403).json({ error: 'No autorizado' });
+  rewardDelete.run(Number(req.params.id) || 0);
+  res.json({ ok: true });
+});
+
+// Canje: el codigo regala una key del script elegido (key en stock, el reloj arranca en la primera ejecucion)
+app.post('/api/rewards/redeem', requireAuth, (req, res) => {
+  const code = normRewardCode(req.body?.code);
+  if (!code) return res.status(400).json({ error: 'Escribe un código' });
+  const r = rewardByCode.get(code);
+  if (!r) return res.status(404).json({ error: 'Código no válido' });
+  if (r.uses >= r.max_uses) return res.status(410).json({ error: 'Este código ya se agotó' });
+  const script = db.prepare('SELECT id, user_id FROM scripts WHERE id = ?').get(r.script_id);
+  if (!script) return res.status(410).json({ error: 'El script de esta recompensa ya no existe' });
+  let k;
+  try {
+    k = db.transaction(() => {
+      let key;
+      do { key = Array.from(crypto.randomBytes(32), b => KEY_ALPHABET[b % KEY_ALPHABET.length]).join(''); }
+      while (db.prepare('SELECT 1 FROM keys WHERE key = ?').get(key));
+      stmt.keyInsert.run(key, script.id, null, r.key_days, null);
+      rewardInc.run(r.id);
+      return key;
+    })();
+  } catch (err) {
+    console.error('Redeem reward error:', err);
+    return res.status(500).json({ error: 'Error del servidor' });
+  }
+  fireWebhooks(script.user_id, 'key.created', { scriptId: script.id, count: 1, keys: [k] });
+  res.json({ key: k, scriptId: script.id, keyDays: r.key_days });
 });
 
 // ==========================================

@@ -50,14 +50,19 @@ export function remoteHeader({ url, token }) {
   const q = s => JSON.stringify(String(s));
   return [
     `local __vm_session = ${q(token)}`,
-    'local function __vm_remote(name)',
+    '__vm_remote = function(name)',   // global: el payload ofuscado resuelve globales vía _G
     '  local ok, body = pcall(function()',
     `    return game:HttpGet(${q(url)} .. "?name=" .. name .. "&token=" .. __vm_session)`,
     '  end)',
     '  if not ok or type(body) ~= "string" or body:sub(1, 11) == "!VANTARMOR:" then',
     '    error("[VantArmor] No se pudo cargar el bloque remoto " .. name, 2)',
     '  end',
-    '  local fn, cerr = loadstring("return " .. body)',
+    '  local fn, cerr',
+    '  if body:sub(1, 16) == "--VANTARMOR:OBF\\n" then',
+    '    fn, cerr = loadstring(body:sub(17))',
+    '  else',
+    '    fn, cerr = loadstring("return " .. body)',
+    '  end',
     '  if not fn then error("[VantArmor] Bloque remoto " .. name .. " inválido: " .. tostring(cerr), 2) end',
     '  return fn()',
     'end',

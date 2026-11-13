@@ -2459,11 +2459,30 @@ function runtimeHeader(script, ip, key) {
 // es la fuente (script guardado sin ofuscar) o no existe copia, se ofusca al vuelo con
 // el motor propio y se cachea. Si la proteccion falla, no se entrega nada (fail closed).
 const _plainGuardCache = new Map();
+// Firma de fuente legible: los motores reales cifran las cadenas, quitan los comentarios
+// y renombran identificadores, así que una copia que conserva eso es fuente en claro.
+// Cubre también copias viejas que ya no coinciden byte a byte con la fuente actual.
+// Dudoso = plain (se re-ofusca): entregar sin protección nunca es una opción.
+function looksLikePlainSource(s) {
+  if (/(^|\n)\s*--/.test(s) || s.includes('--[[')) return true;
+  if (/[:%. ]GetService\s*\(/.test(s)) return true;
+  let readable = 0;
+  const re = /"((?:[^"\\\n]|\\.){8,})"/g;
+  let m;
+  while ((m = re.exec(s))) {
+    if (!/\\x[0-9a-fA-F]{2}|\\[0-9]{1,3}|\\u\{/.test(m[1])) { readable++; if (readable >= 3) return true; }
+  }
+  return false;
+}
 function protectedBase(script, plain) {
-  const saved = script.content || '';
-  // Plain = sin copia, o copia identica a la fuente (comparada sin bordes: el guardado
-  // puede diferir solo en espacios). Un ofuscado real nunca coincide con la fuente.
-  const isPlain = !!plain && (!saved || saved.trim() === plain.trim());
+  const saved = String(script.content || '');
+  // Plain = sin copia, o copia que coincide con la fuente en cualquiera de sus formas
+  // (cruda, sin webhooks, sin bloques remotos), o copia que conserva marcas de fuente
+  // legible (copias viejas incluidas). Un ofuscado real no conserva nada de eso.
+  const src = String(script.source || '');
+  const variants = new Set([plain, src, stripWebhookMarkers(src), stripRemoteBlocks(src)]
+    .map(v => String(v || '').trim()).filter(Boolean));
+  const isPlain = !saved || (plain && variants.has(saved.trim())) || looksLikePlainSource(saved);
   if (!isPlain) return saved;                                // copia ofuscada real
   const k = crypto.createHash('sha1').update(plain).digest('hex');
   if (_plainGuardCache.has(k)) return _plainGuardCache.get(k);
@@ -2492,6 +2511,30 @@ function servedCode(script, { ip, key } = {}) {
   if (!hasRemoteBlocks(script.source || '')) return head + base;
   const token = issueRemoteToken(script, ip, key);
   return head + remoteHeader({ url: `${APP_URL}/scripts/hosted/${script.slug}/remote`, token }) + base;
+}
+
+// [AntiDump] Los bloques remotos tampoco salen en claro: el cuerpo se entrega ofuscado
+// con el mismo motor y el mismo sello que el payload base. Si la protección falla, el
+// bloque no se sirve (fail closed). La cabecera que lo consume viaja en cada entrega,
+// así que el cambio no obliga a volver a descargar el loader.
+const _remoteBodyCache = new Map();
+function remoteProtectedBody(script, body) {
+  const bare = stripWebhookMarkers(String(body || ''));
+  if (!bare.trim()) return null;
+  const seal = scriptGuardValue(script.guard_secret || '');
+  const k = crypto.createHash('sha1').update(bare + '|' + seal).digest('hex');
+  if (_remoteBodyCache.has(k)) return _remoteBodyCache.get(k);
+  if (_remoteBodyCache.size > 200) _remoteBodyCache.clear();
+  let out = null;
+  try {
+    const obf = obfuscateVant('return ' + bare, script.obf_mode || undefined, seal);
+    if (obf && String(obf).trim()) out = '--VANTARMOR:OBF\n' + obf;
+  } catch (err) {
+    console.error('[AntiDump] bloque remoto: ofuscado falló:', err.message);
+    out = null;
+  }
+  _remoteBodyCache.set(k, out);
+  return out;
 }
 
 // Entrega cifrada (v2, estilo Luarmor): el código sale cifrado con XXTEA y una key de sesión
@@ -3825,7 +3868,10 @@ app.get('/scripts/hosted/:slug/remote', (req, res) => {
   }
   const body = remoteBlocks(script.source || '').get(String(req.query.name || ''));
   if (body === undefined) return deny();
-  res.type('text/plain').send(body);
+  // El cuerpo del bloque nunca sale en claro: mismo tratamiento que el payload base.
+  const out = remoteProtectedBody(script, body);
+  if (!out) return deny();
+  res.type('text/plain').send(out);
 });
 
 // Dueño: compacta la base SQLite para devolver al volumen el espacio libre de páginas borradas.

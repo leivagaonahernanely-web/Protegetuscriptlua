@@ -1561,6 +1561,9 @@ if okh and type(h) == "string" and #h >= 8 then hwid = h end
 local rbxid = ""
 local okr, rid = pcall(function() return tostring(Players.LocalPlayer.UserId) end)
 if okr and rid then rbxid = rid end
+local _DBG = ${(LOADER_DEBUG || DEBUG_LOADER_IDS.includes(sk)) ? 'true' : 'false'}
+local function _dbg(m) if _DBG then print("[VANT-DBG " .. string.format("%.2f", os.clock()) .. "] " .. tostring(m)) end end
+_dbg("inicio bootstrap")
 -- Detector de dump: solo verifica que el Heartbeat responda (reloj completamente congelado = volcado)
 local detections = 0
 pcall(function()
@@ -1584,6 +1587,7 @@ local function _clearKey()
   if type(_G) == "table" then pcall(function() _G.script_key = nil end) end
   pcall(function() script_key = nil end)
 end
+_dbg("detector terminado detections=" .. tostring(detections))
 if detections > 0 then _dumpHit = true; _dumpWhy = "heartbeat_congelado" end
 -- Detector de entorno: solo reporta si encuentra funciones de hook activas (hookfunction, etc.)
 -- Las comprobaciones de Tween/FPS se eliminaron porque fallaban en ejecutores legítimos y causaban

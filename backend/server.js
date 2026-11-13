@@ -97,8 +97,8 @@ const jsonLimit = rateLimit({
 // ==========================================
 const MAX_CODE_BYTES = 2 * 1024 * 1024;           // 2 MB por script
 // 'next' = Ofuscador 4 (NextOfuscator, lib/nextofuscator, predeterminado); 'luau' = Ofuscador 3 (LuaUObfuscator, solo Premium Plus); 'vantobf' = Ofuscador 5 (VantVM).
-// Ofuscador 1 (RealObfuscator) y Ofuscador 2 (Obscura) se quitaron.
-const OBFUSCATORS = ['luau', 'next', 'vantobf'];
+// 'none' = No obf (sin ofuscar, solo key). Ofuscador 1 (RealObfuscator) y Ofuscador 2 (Obscura) se quitaron.
+const OBFUSCATORS = ['luau', 'next', 'vantobf', 'none'];
 const KEY_ALPHABET = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
 // Un error suelto no debe tirar el servidor ni dejar al bot a medias: se registra y el proceso sigue
 process.on('unhandledRejection', err => console.error('[Proceso] Promesa sin manejar:', err));
@@ -806,8 +806,8 @@ function validateScriptInput({ name, ffa, obfuscator, obfMode, code, hwidResetHo
   // FFA también se ofusca: el ofuscador se elige igual que en modo protegido
   // Scripts viejos con Clyde: si no mandan ofuscador, se regeneran con Obscura
   // Scripts viejos con Clyde, Ofuscador 4 o los modos propios (quitados): si no mandan ofuscador, se regeneran con Ofuscador 4
-  // Ofuscadores quitados (1, 2, sin ofuscar, Clyde y modos viejos): al guardar pasan a Ofuscador 4
-  const legacy = { clyde: 'next', km: 'next', pro: 'next', light: 'next', luau51: 'next', real: 'next', obscura: 'next', none: 'next' };
+  // Ofuscadores quitados (1, 2, Clyde y modos viejos): al guardar pasan a Ofuscador 4
+  const legacy = { clyde: 'next', km: 'next', pro: 'next', light: 'next', luau51: 'next', real: 'next', obscura: 'next' };
   const obf = obfuscator === undefined ? (legacy[current?.obfuscator] ?? current?.obfuscator) : obfuscator;
   if (!OBFUSCATORS.includes(obf)) return { error: 'Elige un ofuscador válido' };
 

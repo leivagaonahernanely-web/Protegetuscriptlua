@@ -12,6 +12,7 @@
     luau:       'Ofuscador 3 · Premium Plus · 2 compilaciones por día',
     next:       'Ofuscador 4 · NextOfuscator · recomendado',
     vantobf:    'Ofuscador 5 · VantVM',
+    none:       'No obf',
   };
   const NAV = {
     dashboard: { title: 'Dashboard', sub: 'Resumen de tu cuenta' },

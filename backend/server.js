@@ -2186,7 +2186,7 @@ if body:sub(1, #_encp) == _encp then
       local _z = _v[_p - 1]
       _y = (_v[_p] - _mx(_sum, _y, _z, _p - 1, _e, _k)) % _M
       _v[_p] = _y
-      if _p % 1024 == 0 and task then task.wait() end
+      if _p % 4096 == 0 and task then task.wait() end
     end
     local _z2 = _v[_m]
     _y = (_v[1] - _mx(_sum, _y, _z2, 0, _e, _k)) % _M
@@ -2781,7 +2781,7 @@ local function _vantDec5(_b64, _ckey, _chwid, _cexp)
       local _z = _v[_p - 1]
       _y = (_v[_p] - _mx(_sum, _y, _z, _p - 1, _e, _k)) % _M
       _v[_p] = _y
-      if _p % 1024 == 0 and task then task.wait() end
+      if _p % 4096 == 0 and task then task.wait() end
     end
     local _z2 = _v[_m]
     _y = (_v[1] - _mx(_sum, _y, _z2, 0, _e, _k)) % _M

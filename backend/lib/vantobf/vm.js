@@ -249,7 +249,7 @@ function compileBin(ctx, e, dst) {
     compileExprSimple(ctx, e.l, dst);
     // and: truthy -> evaluar dst ; or: falsy -> evaluar dst
     // TEST a c: skip next si truthy(R[a]) ~= (c==1)  => c=0 salta si truthy, c=1 salta si falsy
-    emit(ctx, OP.TEST, dst, op === 'and' ? 0 : 1, 0);
+    emit(ctx, OP.TEST, dst, 0, op === 'and' ? 0 : 1);
     const jOver = emitJump(ctx);
     compileExprSimple(ctx, e.r, dst);
     patchJump(ctx, jOver, ctx.code.length);

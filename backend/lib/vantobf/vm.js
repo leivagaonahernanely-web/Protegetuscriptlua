@@ -77,6 +77,7 @@ function upvalIndex(ctx, name) {
   const pLocal = parent.findLocal(name);
   let entry;
   if (pLocal) {
+    if (pLocal.box < 0) throw new VantError('captura no soportada: ' + name + ' (local sin caja en la funcion padre)');
     entry = { kind: 1, idx: pLocal.box };
     parent.captured.add(name);
   } else {

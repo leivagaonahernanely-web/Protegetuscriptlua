@@ -109,7 +109,7 @@ export function computeCaptures2(ast) {
   }
   function rec(e) {
     if (!e || typeof e !== 'object') return;
-    if (e.t === 'Func') { annotateFn(e); return; }
+    if (e.t === 'Func') annotateFn(e); // anotar y SEGUIR: los Func anidados (dentro de otro Func) tambien necesitan _capNames
     for (const k of Object.keys(e)) {
       const v = e[k];
       if (Array.isArray(v)) v.forEach(rec);

@@ -9,7 +9,7 @@
   };
   const PLAN_LABELS = { free: 'Free', premium: 'Premium', plus: 'Premium Plus', custom: 'Custom' };
   const OBFUSCATORS = {
-    luau:       'Ofuscador 3 · API · 2 compilaciones por día',
+    luau:       'Vanta Obfuscation · API · 2 compilaciones por día',
     next:       'Ofuscador 4 · NextOfuscator · recomendado',
     vantobf:    'Ofuscador 5 · VantVM',
     none:       'No obf',
@@ -538,6 +538,11 @@
           <input id="fName" name="name" class="field block" required maxlength="60" autocomplete="off">
         </div>
         <div class="input-group">
+          <label for="fVersion">Versión</label>
+          <input id="fVersion" name="version" class="field block" maxlength="24" placeholder="1.0.0" autocomplete="off">
+          <div class="hint">Se muestra en la columna Versión del proyecto (ej.: 1.0.0)</div>
+        </div>
+        <div class="input-group">
           <label for="fProject">Proyecto</label>
           <select id="fProject" name="projectId" class="field block" required>
             ${projects.map(p => `<option value="${esc(p.id)}" ${String(p.id) === String(preProject) ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}
@@ -566,6 +571,11 @@
         <div class="input-group">
           <label for="fName">Nombre</label>
           <input id="fName" name="name" class="field block" required maxlength="60" value="${esc(s.name)}" autocomplete="off">
+        </div>
+        <div class="input-group">
+          <label for="fVersion">Versión</label>
+          <input id="fVersion" name="version" class="field block" maxlength="24" placeholder="1.0.0" value="${esc(s.version || '')}" autocomplete="off">
+          <div class="hint">Se muestra en la columna Versión del proyecto (ej.: 1.0.0)</div>
         </div>
         ${codeFieldHtml()}
         ${protectionHtml(s)}
@@ -729,6 +739,7 @@
     const form = e.currentTarget;
     const fd = new FormData(form);
     const name = String(fd.get('name') || '').trim();
+    const version = String(fd.get('version') || '').trim().slice(0, 24);
     const code = $('fCode').value;
     const protection = fd.get('protection') || 'protected';
     const obfuscator = fd.get('obfuscator') || 'next';
@@ -743,6 +754,7 @@
 
     const body = {
       name,
+      version,
       ffa: protection === 'ffa',
       // El ofuscador se elige en FFA y en protegido
       obfuscator,
@@ -941,7 +953,7 @@
     return `
         <tr>
           <td>${badge}</td>
-          <td class="pj-ver">v0.0.0.0</td>
+          <td class="pj-ver">${s.version ? esc(s.version) : '—'}</td>
           <td class="pj-when">${esc(when)}</td>
           <td>
             <div class="pj-acts">
@@ -984,10 +996,10 @@
           </div>` : ''}
         </div>
         ${list.length ? `
-        <table class="pj-table">
+        <div class="pj-table-wrap"><table class="pj-table">
           <thead><tr><th>Estado</th><th>Versión</th><th>Última edición</th><th>Acciones</th></tr></thead>
           <tbody>${list.map(pjRow).join('')}</tbody>
-        </table>` : `<p class="hint pj-empty">Este proyecto todavía no tiene scripts: usa “Añadir script”.</p>`}
+        </table></div>` : `<p class="hint pj-empty">Este proyecto todavía no tiene scripts: usa “Añadir script”.</p>`}
       </article>`;
     grid.innerHTML = groups.map(({ p, list }) => pjCard(p.name, p.id, list)).join('') +
       (loose.length ? pjCard('Sin proyecto', '', loose) : '');

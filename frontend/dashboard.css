@@ -946,3 +946,6 @@ tbody tr:hover td { background: rgba(255,255,255,.025); }
   .pj-modal-btns { flex-direction: row; }
   .pj-head { flex-wrap: wrap; }
 }
+
+.pj-table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: thin; }
+.pj-table { min-width: 640px; }

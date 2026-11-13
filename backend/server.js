@@ -379,6 +379,7 @@ db.exec(`
   if (!cols.includes('share_detection')) db.exec('ALTER TABLE scripts ADD COLUMN share_detection INTEGER DEFAULT 1');
   if (!cols.includes('auto_revoke_dump')) db.exec('ALTER TABLE scripts ADD COLUMN auto_revoke_dump INTEGER DEFAULT 0');
   if (!cols.includes('updated_at')) db.exec('ALTER TABLE scripts ADD COLUMN updated_at INTEGER');
+  if (!cols.includes('version')) db.exec("ALTER TABLE scripts ADD COLUMN version TEXT DEFAULT ''");
   if (!cols.includes('maintenance')) db.exec('ALTER TABLE scripts ADD COLUMN maintenance INTEGER DEFAULT 0');
 
   // Columnas de keys para el bot y el control de HWID
@@ -555,16 +556,16 @@ const stmt = {
   `),
   // Nunca se seleccionan source ni content aquí
   scriptsByUser: db.prepare(`
-    SELECT id, user_id, name, slug, loader_id, ffa, obfuscator, obf_mode, hwid_reset_hours, share_detection, auto_revoke_dump, maintenance, clyde_vm, perf_level, project_id, hwid_lock, COALESCE(dump_attempts, 0) AS dump_attempts, last_dump_at, updated_at FROM scripts
+    SELECT id, user_id, name, slug, loader_id, ffa, obfuscator, obf_mode, hwid_reset_hours, share_detection, auto_revoke_dump, maintenance, clyde_vm, perf_level, project_id, hwid_lock, COALESCE(dump_attempts, 0) AS dump_attempts, last_dump_at, updated_at, version FROM scripts
     WHERE user_id = ? ORDER BY id DESC
   `),
   scriptOwned: db.prepare('SELECT * FROM scripts WHERE id = ? AND user_id = ?'),
   scriptInsert: db.prepare(`
-    INSERT INTO scripts (user_id, project_id, name, slug, ffa, obfuscator, obf_mode, guard_secret, source, content, hwid_reset_hours, share_detection, clyde_vm, auto_revoke_dump, hwid_lock, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO scripts (user_id, project_id, name, slug, ffa, obfuscator, obf_mode, guard_secret, source, content, hwid_reset_hours, share_detection, clyde_vm, auto_revoke_dump, hwid_lock, updated_at, version)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `),
   scriptUpdate: db.prepare(`
-    UPDATE scripts SET name = ?, ffa = ?, obfuscator = ?, obf_mode = ?, guard_secret = ?, source = ?, content = ?, hwid_reset_hours = ?, share_detection = ?, clyde_vm = ?, auto_revoke_dump = ?, hwid_lock = ?, updated_at = ?
+    UPDATE scripts SET name = ?, ffa = ?, obfuscator = ?, obf_mode = ?, guard_secret = ?, source = ?, content = ?, hwid_reset_hours = ?, share_detection = ?, clyde_vm = ?, auto_revoke_dump = ?, hwid_lock = ?, updated_at = ?, version = COALESCE(?, version)
     WHERE id = ? AND user_id = ?
   `),
   keysByUser: db.prepare(`
@@ -799,7 +800,7 @@ const luauUsedStmt = db.prepare('SELECT n FROM luau_usage WHERE user_id = ? AND 
 const luauBumpStmt = db.prepare('INSERT INTO luau_usage (user_id, day, n) VALUES (?, ?, 1) ON CONFLICT(user_id, day) DO UPDATE SET n = n + 1');
 const luauUsedToday = userId => luauUsedStmt.get(userId, luauDay())?.n ?? 0;
 
-function validateScriptInput({ name, ffa, obfuscator, obfMode, code, hwidResetHours, shareDetection, clydeVm, autoRevokeDump, hwidLock }, current = null) {
+function validateScriptInput({ name, ffa, obfuscator, obfMode, code, hwidResetHours, shareDetection, clydeVm, autoRevokeDump, hwidLock, version }, current = null) {
   const cleanName = name === undefined ? current?.name : String(name).trim();
   if (!cleanName || cleanName.length > 60) return { error: 'Nombre inválido (1 a 60 caracteres)' };
 
@@ -828,7 +829,8 @@ function validateScriptInput({ name, ffa, obfuscator, obfMode, code, hwidResetHo
   const mode = obfMode === undefined || obfMode === null || obfMode === ''
     ? (current?.obf_mode || 'medium')
     : (['low', 'medium', 'high'].includes(String(obfMode)) ? String(obfMode) : 'medium');
-  return { name: cleanName, isFfa, obfuscator: obf, obfMode: mode, source, hwidResetHours: hwid, shareDetection: share, clydeVm: vm, autoRevokeDump: autoRevoke, hwidLock: lock };
+  const ver = version === undefined ? (current?.version || '') : String(version).trim().slice(0, 24);
+  return { name: cleanName, isFfa, obfuscator: obf, obfMode: mode, source, hwidResetHours: hwid, shareDetection: share, clydeVm: vm, autoRevokeDump: autoRevoke, hwidLock: lock, version: ver };
 }
 
 // ==========================================
@@ -5326,7 +5328,7 @@ app.post('/api/scripts', requireAuth, async (req, res) => {
     if (outErr) return res.status(422).json({ error: `La versión ofuscada no compila. Avisa al equipo con este mensaje: ${outErr}` });
     const info = stmt.scriptInsert.run(
       req.userId, _pjId, input.name, uniqueSlug(input.name), input.isFfa ? 1 : 0,
-      input.obfuscator, input.obfMode, guardSecret, input.source, content, input.hwidResetHours, input.shareDetection, input.clydeVm, input.autoRevokeDump, input.hwidLock, Math.floor(Date.now() / 1000),
+      input.obfuscator, input.obfMode, guardSecret, input.source, content, input.hwidResetHours, input.shareDetection, input.clydeVm, input.autoRevokeDump, input.hwidLock, Math.floor(Date.now() / 1000), input.version || '',
     );
     db.prepare('UPDATE scripts SET loader_id = ? WHERE id = ?').run(crypto.randomBytes(20).toString('hex'), info.lastInsertRowid);
     db.prepare('UPDATE scripts SET perf_level = ? WHERE id = ?').run(analyzePerf(input.source, { obfuscator: input.obfuscator, vm: input.clydeVm === 1 }).level, info.lastInsertRowid);
@@ -5385,7 +5387,7 @@ app.put('/api/scripts/:id', requireAuth, async (req, res) => {
     const outErr = input.obfuscator === 'none' ? null : await checkLuauSyntax(content);
     if (outErr) return res.status(422).json({ error: `La versión ofuscada no compila. Avisa al equipo con este mensaje: ${outErr}` });
     stmt.scriptUpdate.run(
-      input.name, input.isFfa ? 1 : 0, input.obfuscator, input.obfMode, guardSecret, input.source, content, input.hwidResetHours, input.shareDetection, input.clydeVm, input.autoRevokeDump, input.hwidLock, Math.floor(Date.now() / 1000),
+      input.name, input.isFfa ? 1 : 0, input.obfuscator, input.obfMode, guardSecret, input.source, content, input.hwidResetHours, input.shareDetection, input.clydeVm, input.autoRevokeDump, input.hwidLock, Math.floor(Date.now() / 1000), input.version ? input.version : null,
       script.id, req.userId,
     );
     db.prepare('UPDATE scripts SET perf_level = ? WHERE id = ?').run(analyzePerf(input.source, { obfuscator: input.obfuscator, vm: input.clydeVm === 1 }).level, script.id);

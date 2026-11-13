@@ -2309,9 +2309,11 @@ end)
 // eso queda el stub de respaldo (bytes desplazados + escapes \ddd, ilegible a simple vista,
 // decodificado con Lua puro) y LOADER_OBF=off como salida rápida. La seguridad fuerte sigue en el
 // servidor (validación de key/HWID), no en ocultar el loader.
-// La cadena va ENCENDIDA por defecto desde el loader v6 (sin capa VM, que era lo que rompía
-// móviles). Si un executor se rompe, LOADER_OBF=off vuelve al stub codificado al instante.
-const LOADER_OBF = String(process.env.LOADER_OBF || 'on').trim().toLowerCase();
+// La cadena va APAGADA por defecto: el bundle VM del loader se congela dentro de su propia VM
+// en el juego (aritmética sobre nil en el opcode de resta) y el bootstrap entero interpretado
+// dentro de la VM es lento (lag y caída de FPS). El stub codificado corre el bootstrap en Lua
+// claro: rápido y estable. LOADER_OBF=on vuelve a encender el bundle VM cuando se arregle la VM.
+const LOADER_OBF = String(process.env.LOADER_OBF || 'off').trim().toLowerCase();
 const LOADER_OBF_CHAIN = (LOADER_OBF === 'off' || LOADER_OBF === '') ? [] : ['vantobf'];
 const loaderObfCache = new Map();
 // Codificacion del stub: suma dependiente de posicion mas clave derivada del contenido
@@ -3513,11 +3515,10 @@ function protectedBase(script, plain) {
   const src = String(script.source || '');
   const variants = new Set([plain, src, stripWebhookMarkers(src), stripRemoteBlocks(src)]
     .map(v => String(v || '').trim()).filter(Boolean));
-  // Ofuscador 3 (API externa) en pausa: su salida está fallando dentro de su VM en el juego
-  // (aritmética sobre nil), así que su copia guardada nunca se sirve: la entrega pasa por el
-  // motor propio (Ofuscador 5) con la misma caché y fail closed.
-  const forzarRegen = script.obfuscator === 'luau';
-  const isPlain = forzarRegen || !saved || (plain && variants.has(saved.trim())) || looksLikePlainSource(saved);
+  // La copia ofuscada guardada se sirve tal cual: los crashes "aritmética sobre nil" del
+  // juego salían del bundle VM del LOADER (loader v6), no de las copias guardadas. Si la
+  // copia falta o es fuente en claro, el guard la protege al vuelo como siempre.
+  const isPlain = !saved || (plain && variants.has(saved.trim())) || looksLikePlainSource(saved);
   if (!isPlain) return saved;                                // copia ofuscada real
   const k = crypto.createHash('sha1').update(plain).digest('hex');
   if (_plainGuardCache.has(k)) return _plainGuardCache.get(k);

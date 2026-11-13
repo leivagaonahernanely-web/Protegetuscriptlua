@@ -2070,16 +2070,17 @@ function loaderEncodeKey(plain) {
 function loaderEncodedBlob(plain) {
   const bytes = Buffer.from(String(plain), 'utf8');
   const key = loaderEncodeKey(plain);
+  // String con escapes \ddd (no tabla numerica): Luau lo compila mucho mas rapido y no agota memoria
   const parts = new Array(bytes.length);
   for (let i = 0; i < bytes.length; i++) {
-    parts[i] = String((bytes[i] + key[i % 8] + (i % 251)) & 0xff);
+    parts[i] = '\\' + String((bytes[i] + key[i % 8] + (i % 251)) & 0xff).padStart(3, '0');
   }
-  return '{' + parts.join(',') + '}';
+  return '"' + parts.join('') + '"';
 }
 function loaderStubFromPlain(plain) {
   const blob = loaderEncodedBlob(plain);
   const key = loaderEncodeKey(plain);
-  return `-- VANTARMOR\nlocal _b = ${blob}\nlocal _k = {${key.join(',')}}\nlocal _t = {}\nfor _i = 1, #_b do _t[_i] = string.char((_b[_i] - _k[(_i - 1) % 8 + 1] - (_i - 1) % 251) % 256) end\nlocal _fn = loadstring(table.concat(_t))\nif not _fn then error("[VANTARMOR] loader invalido", 0) end\n_fn()\n`;
+  return `-- VANTARMOR\nlocal _b = ${blob}\nlocal _k = {${key.join(',')}}\nlocal _t = {}\nfor _i = 1, #_b do _t[_i] = string.char((string.byte(_b, _i) - _k[(_i - 1) % 8 + 1] - (_i - 1) % 251) % 256) end\nlocal _fn = loadstring(table.concat(_t))\nif not _fn then error("[VANTARMOR] loader invalido", 0) end\n_fn()\n`;
 }
 // Sello anti-dump: el loader lo pone en el entorno y el script ofuscado (Ofuscador 5) lo exige.
 // Si alguien ejecuta el payload solo, sin el loader, el script lo echa con kick.

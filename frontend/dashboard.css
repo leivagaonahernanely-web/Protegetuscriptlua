@@ -871,3 +871,29 @@ tbody tr:hover td { background: rgba(255,255,255,.025); }
   .proj-id { color: var(--text-dim); font-size: 12px; font-family: ui-monospace, monospace; }
   .proj-actions { display: flex; gap: 6px; flex-wrap: wrap; }
   .proj-scripts { display: grid; gap: 10px; }
+
+  /* Ajustes: gear en el widget de usuario */
+  .user-gear { background: transparent; border: 1px solid var(--border); border-radius: 8px; color: var(--text-soft); width: 30px; height: 30px; min-width: 30px; display: grid; place-items: center; cursor: pointer; transition: background .2s, color .2s; }
+  .user-gear:hover { background: rgba(255,255,255,.08); color: #fff; }
+  .user-gear svg { width: 15px; height: 15px; }
+
+  /* Tema del panel */
+  .theme-pick { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .theme-opt { display: flex; gap: 10px; align-items: flex-start; border: 1px solid var(--border); border-radius: 12px; padding: 12px; cursor: pointer; transition: border-color .2s, background .2s; }
+  .theme-opt input { width: 16px; height: 16px; margin-top: 2px; accent-color: #fff; cursor: pointer; }
+  .theme-opt:has(input:checked) { border-color: rgba(255,255,255,.55); background: rgba(255,255,255,.05); }
+  .theme-opt strong { display: block; font-size: 14px; font-weight: 800; }
+  .theme-opt small { color: var(--text-soft); font-size: 12px; line-height: 1.4; display: block; margin-top: 2px; }
+
+  /* Basic Mode: plata y negro, profesional */
+  body.theme-basic .btn { background: linear-gradient(135deg, #e9e9ee, #b7b7c1); color: #000; }
+  body.theme-basic .btn.ghost { background: rgba(216,216,224,.06); color: #e8e8ee; border-color: rgba(203,203,212,.35); }
+  body.theme-basic .chip.on, body.theme-basic .chip:has(input:checked) { background: linear-gradient(135deg, #e9e9ee, #b7b7c1); color: #000; box-shadow: none; }
+  body.theme-basic .plan-card.current { border-color: #b7b7c1; background: linear-gradient(180deg, rgba(203,203,212,.08) 0%, transparent 100%); }
+  body.theme-basic .profile-hero { background: linear-gradient(180deg, var(--panel-2), var(--panel)); }
+  body.theme-basic .badge.ok { background: rgba(203,203,212,.15); color: #e2e3e9; }
+  body.theme-basic .badge.bad { background: rgba(203,203,212,.12); color: #c8c9d0; }
+  body.theme-basic .badge.warn { background: rgba(203,203,212,.13); color: #e4e5eb; }
+  body.theme-basic .owner-bar i { background: linear-gradient(90deg, #e9e9ee, #b7b7c1); }
+  body.theme-basic .card::before { background: linear-gradient(90deg, transparent, rgba(203,203,212,.22), transparent); }
+  body.theme-basic .topbar::after { background: linear-gradient(90deg, transparent, rgba(203,203,212,.25), transparent); }

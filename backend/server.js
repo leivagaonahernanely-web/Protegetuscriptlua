@@ -1494,6 +1494,23 @@ local function loaderTampered()
     end
   end)
   if _km then return true, "km_markers" end
+  -- Env-logger concreto (Source Hub / Kyroxx): define GlobalScan y GenvScan como globales y
+  -- escribe logged.txt con una cabecera fija. Un ejecutor limpio no trae ninguna de las dos.
+  local _ev = false
+  pcall(function()
+    local _envs = {}
+    if type(getgenv) == "function" then local _e = getgenv(); if type(_e) == "table" then _envs[#_envs + 1] = _e end end
+    if type(_G) == "table" then _envs[#_envs + 1] = _G end
+    if type(getfenv) == "function" then local _okf, _f = pcall(getfenv, 1); if _okf and type(_f) == "table" then _envs[#_envs + 1] = _f end end
+    for _, _e in ipairs(_envs) do
+      if type(rawget(_e, "GlobalScan")) == "function" and type(rawget(_e, "GenvScan")) == "function" then _ev = true end
+    end
+    if not _ev and type(readfile) == "function" then
+      local _okr, _txt = pcall(readfile, "logged.txt")
+      if _okr and type(_txt) == "string" and _txt:find('GetService("WebSocketService")', 1, true) and _txt:find("GameSettings", 1, true) then _ev = true end
+    end
+  end)
+  if _ev then return true, "envlogger_markers" end
   return false, ""
 end
 -- APIs envueltas en funciones de Lua (load, getgenv, request, http_request, HttpGet/HttpPost,

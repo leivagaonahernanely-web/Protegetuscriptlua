@@ -17,13 +17,12 @@
   };
   const NAV = {
     dashboard: { title: 'Dashboard', sub: 'Resumen de tu cuenta' },
-    profile:   { title: 'Perfil', sub: 'Foto de perfil y foto del bot en tu servidor' },
+    profile:    { title: 'Ajustes', sub: 'Tu cuenta: fotos y tema del panel' },
     precios:   { title: 'Precios', sub: 'Publica tu tabla de precios en tu servidor (solo planes pagos)' },
     bienvenida: { title: 'Bienvenida', sub: 'Mensaje para nuevos miembros de tu servidor (solo Premium Plus)' },
     scripts:   { title: 'Proyectos', sub: 'Crea un proyecto y dentro de él tus scripts; keys por script o por proyecto' },
     keys:      { title: 'Keys',      sub: 'Licencias generadas' },
     blacklist: { title: 'Blacklist', sub: 'Bloquea usuarios de Discord, IPs o HWID en tus scripts' },
-    chat:      { title: 'Chat',      sub: 'Chat de la comunidad de Vantarmor' },
     plans:     { title: 'Planes',    sub: 'Elige el plan que necesitas' },
     soporte:   { title: 'Soporte',   sub: 'Preguntas frecuentes y tus tickets' },
     stats: { title: 'Estadísticas', sub: 'Ejecuciones de tus scripts y de dónde vienen' },
@@ -162,7 +161,7 @@
     if (name === 'profile') renderProfile();
     if (name === 'precios') loadPricesForm();
     if (name === 'bienvenida') loadWelcomeForm();
-    if (name === 'chat') startChatPolling(); else stopChatPolling();
+    stopChatPolling();
     if (name === 'blacklist') loadBlacklist();
     if (name === 'scripts') loadProjects();
     if (isMobile()) setSidebar(false);
@@ -452,10 +451,10 @@
         </select>
         <div class="hint">Se aplica en el servidor al guardar el script. Para Roblox (Luau) recomendamos el Ofuscador 1.</div>
         <div class="input-group" style="margin-top:12px">
-          <label for="fObfApi">Ofuscar con API key</label>
+          <label for="fObfApi">Ofuscación por API key</label>
           <div style="display:flex;gap:10px;align-items:center">
-            <input id="fObfApi" class="field block" value="VNTA-c4d914db-044c92db-fe8e3ba9" disabled aria-label="API key de ofuscación (próximamente)">
-            <span class="badge warn" style="white-space:nowrap">Próximamente</span>
+            <input id="fObfApi" class="field block" value="New Protection" disabled aria-label="Nueva protección (próximamente)">
+            <span class="badge warn" style="white-space:nowrap">Coming soon</span>
           </div>
           <div class="hint">Pronto podrás ofuscar desde tu propio código con esta API key. De momento, usa el ofuscador del panel.</div>
         </div>
@@ -2996,6 +2995,23 @@
   });
 
   $('userAvatar').addEventListener('click', () => showView('profile'));
+  $('userGear').addEventListener('click', () => showView('profile'));
+
+  // Tema del panel: christmas (por defecto) o basic (plata y negro)
+  const THEME_KEY = 'vm_theme';
+  const applyTheme = () => {
+    try { document.body.classList.toggle('theme-basic', (localStorage.getItem(THEME_KEY) || 'christmas') === 'basic'); } catch (_) {}
+  };
+  applyTheme();
+  document.querySelectorAll('input[name="vaTheme"]').forEach(r => {
+    try { r.checked = r.value === (localStorage.getItem(THEME_KEY) || 'christmas'); } catch (_) {}
+    r.addEventListener('change', () => {
+      if (!r.checked) return;
+      try { localStorage.setItem(THEME_KEY, r.value); } catch (_) {}
+      applyTheme();
+      toast(r.value === 'basic' ? 'Basic Mode activado: plata y negro' : 'Christmas Mode activado');
+    });
+  });
   $('userAvatar').title = 'Mi perfil';
   $('userAvatar').style.cursor = 'pointer';
 

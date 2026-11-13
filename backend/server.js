@@ -806,7 +806,8 @@ function validateScriptInput({ name, ffa, obfuscator, obfMode, code, hwidResetHo
   // FFA también se ofusca: el ofuscador se elige igual que en modo protegido
   // Scripts viejos con Clyde: si no mandan ofuscador, se regeneran con Obscura
   // Scripts viejos con Clyde, Ofuscador 4 o los modos propios (quitados): si no mandan ofuscador, se regeneran con Ofuscador 4
-  const legacy = { clyde: 'next', km: 'next', pro: 'next', light: 'next', luau51: 'next', real: 'next', obscura: 'next' };
+  // Ofuscadores quitados (1, 2, sin ofuscar, Clyde y modos viejos): al guardar pasan a Ofuscador 4
+  const legacy = { clyde: 'next', km: 'next', pro: 'next', light: 'next', luau51: 'next', real: 'next', obscura: 'next', none: 'next' };
   const obf = obfuscator === undefined ? (legacy[current?.obfuscator] ?? current?.obfuscator) : obfuscator;
   if (!OBFUSCATORS.includes(obf)) return { error: 'Elige un ofuscador válido' };
 
@@ -887,7 +888,7 @@ function runObfuscatorCli(bin, args, cwd, luaPath) {
         const detail = String(stderr || stdout || err.message).slice(0, 500);
         // Error de sintaxis del propio script
         if (/Parsing Error|syntax|unexpected token|expected <|expected/i.test(detail)) {
-          return reject(Object.assign(new Error('Tu script tiene sintaxis que el ofuscador no entiende. Revisa que sea Lua/Luau válido o usa Sin ofuscar.'), { status: 422 }));
+          return reject(Object.assign(new Error('Tu script tiene sintaxis que el ofuscador no entiende. Revisa que sea Lua/Luau válido.'), { status: 422 }));
         }
         console.error('[Ofuscador] fallo:', detail);
         return reject(Object.assign(new Error('El ofuscador falló con este script. Inténtalo de nuevo; si sigue, avisa al equipo.'), { status: 500 }));

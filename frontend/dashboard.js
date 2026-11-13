@@ -947,8 +947,8 @@
     const loader = loaderFor(s);
     const isFfa = protectionOf(s) === 'ffa';
     const badge = isFfa
-      ? '<span class="pj-badge free">FREE</span>'
-      : '<span class="pj-badge active">ACTIVO</span>';
+      ? '<span class="pj-status free"><i class="pj-dot" aria-hidden="true"></i>Free</span>'
+      : '<span class="pj-status"><i class="pj-dot" aria-hidden="true"></i>Activo</span>';
     const when = s.updated_at ? fmtPjDate(s.updated_at) : '—';
     return `
         <tr>
@@ -988,6 +988,7 @@
           <div class="pj-names">
             <div class="pj-name" title="${esc(title)}">${esc(title)}</div>
             ${id ? `<div class="pj-id">${esc(id)}</div>` : ''}
+            <span class="pj-count">${list.length} ${list.length === 1 ? 'script' : 'scripts'}</span>
           </div>
           ${id ? `
           <div class="pj-btns">

@@ -2023,7 +2023,18 @@ local _sfok = pcall(function()
   if type(setfenv) == 'function' and type(_lfn) == 'table' then setfenv(fn, _lfn) end
 end)
 _dbg('payload setfenv ' .. tostring(_sfok))
-task.spawn(fn)
+pcall(function()
+  local _ps, _pf = pcall(loadstring, 'return _G')
+  if _ps and type(_pf) == "function" then
+    local _env = _pf()
+    if type(_env) == "table" then
+      if type(loadstring) == "function" then _env.loadstring = loadstring end
+      if type(getgenv) == "function" and _env.getgenv == nil then _env.getgenv = getgenv end
+      _env.VANTARMOR_ENV = _lfn
+    end
+  end
+end)
+task.spawn(fn, _lfn)
 task.spawn(function()
   pcall(function() task.wait(1.5) end)
   pcall(function()
@@ -2378,12 +2389,30 @@ pcall(function() if type(getfenv) == "function" and _G and _G.getfenv == nil the
 pcall(function() if type(setfenv) == "function" and _G and _G.setfenv == nil then _G.setfenv = setfenv end end)
 pcall(function() local _rq = request or http_request or (syn and syn.request) if type(_rq) == "function" and _G and _G.request == nil then _G.request = _rq end end)
 pcall(function() if _G and type(_lf5) == "table" then _G.VANTARMOR_ENV = _lf5 end end)
+-- El executor compila los chunks de loadstring en su entorno global plano (sin loadstring
+-- ni globals del executor). Una sonda compilada con el mismo loadstring devuelve esa tabla:
+-- se escriben ahi los globals del executor y el entorno del loader (lo ve el VM del payload).
+pcall(function()
+  local _ps, _pf = pcall(loadstring, 'return _G')
+  if _ps and type(_pf) == "function" then
+    local _env = _pf()
+    if type(_env) == "table" then
+      if type(loadstring) == "function" then _env.loadstring = loadstring end
+      if type(getgenv) == "function" and _env.getgenv == nil then _env.getgenv = getgenv end
+      if type(getfenv) == "function" and _env.getfenv == nil then _env.getfenv = getfenv end
+      if type(setfenv) == "function" and _env.setfenv == nil then _env.setfenv = setfenv end
+      local _rq = request or http_request or (syn and syn.request)
+      if type(_rq) == "function" and _env.request == nil then _env.request = _rq end
+      _env.VANTARMOR_ENV = _lf5
+    end
+  end
+end)
 if type(_lf5.loadstring) ~= "function" and type(loadstring) == "function" then _lf5.loadstring = loadstring end
 if type(_lf5._G) ~= "table" then _lf5._G = _lf5 end
 local _fn, _ferr = loadstring(_data.body, "=VantArmor", _lf5)
 if not _fn then _close() pcall(function() warn(tostring(_ferr)) end) error(MSG.PAYLOAD_LOAD_FAILED, 0) end
 pcall(function() if setfenv and type(_lf5) == "table" then setfenv(_fn, _lf5) end end)
-task.spawn(_fn)
+task.spawn(_fn, _lf5)
 task.spawn(function()
   pcall(function() task.wait(1.5) end)
   _close()

@@ -1102,6 +1102,7 @@ local _OPN = {${opnEntries}}
 local function _x(a, b)
   return _NX[(a - a % 16) / 16 * 16 + (b - b % 16) / 16 + 1] * 16 + _NX[a % 16 * 16 + b % 16 + 1]
 end
+local _ARGV = (...)
 local _EV
 pcall(function() _EV = getfenv(1) end)
 local _GVX
@@ -1408,6 +1409,7 @@ local function _run(pi, ups, ...)
         local _VE = _G.VANTARMOR_ENV
         if type(_VE) == "table" and _VE ~= _G and _VE ~= _EV then v = _VE[K[b + 1]] end
       end
+      if v == nil and _ARGV and type(_ARGV) == "table" then v = _ARGV[K[b + 1]] end
       R[a] = v
       if v == nil then _LGN = K[b + 1] end
     elseif o == ${O.RETURN} then

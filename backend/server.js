@@ -1420,6 +1420,8 @@ local function _findLP()
   end
   return lp
 end
+local _DBG = ${(LOADER_DEBUG || DEBUG_LOADER_IDS.includes(sk)) ? 'true' : 'false'}
+local function _dbg(m) if _DBG then print("[VANT-DBG] " .. tostring(m)) end end
 local function _forceKick(msg)
   local lp = _findLP()
   if lp then pcall(function() lp:Kick(msg) end) end
@@ -1463,7 +1465,8 @@ local function loaderTampered()
   -- (load, getgenv, request, HttpGet/HttpPost, writefile envueltos, sondas, hooks presentes)
   -- va por envWrapped()/softProbeRun() como aviso blando: varios ejecutores legítimos traen
   -- esas APIs ya envueltas en Lua y un corte aquí echa a usuarios limpios.
-  if not nativeFn(loadstring) then return true end
+  local _why = ""
+  if not nativeFn(loadstring) then _why = "loadstring_no_native" return true, _why end
   -- Marcadores que dejan los dumpers conocidos (Kingmor) al armarse en el entorno
   local _km = false
   pcall(function()
@@ -1476,8 +1479,8 @@ local function loaderTampered()
       end
     end
   end)
-  if _km then return true end
-  return false
+  if _km then return true, "km_markers" end
+  return false, ""
 end
 -- APIs envueltas en funciones de Lua (load, getgenv, request, http_request, HttpGet/HttpPost,
 -- writefile): los env-loggers las envuelven para registrar peticiones y contenido, pero varios
@@ -1607,7 +1610,8 @@ end
 local hookDetected = envProbeRun()
 if hookDetected then _softHit = true end
 -- Si loadstring fue interceptado: se avisa al servidor (dueño) y se corta antes de validar la key
-if loaderTampered() then _dumpHit = true end
+local _lt1, _ltw1 = loaderTampered()
+if _lt1 then _dbg("kick: loadertampered_pre " .. _ltw1) _dumpHit = true end
 -- Sondas de volcado: herramientas presentes o enganchadas van a aviso blando; el corte real
 -- lo decide loaderTampered() (loadstring no nativo / marcadores) y el Heartbeat congelado.
 if hardProbeRun() then _softHit = true end
@@ -1619,13 +1623,19 @@ if envWrapped() then _softHit = true end
 -- vista, el codigo se congela ahi mismo: sin envio, sin descifrado, el volcador no recibe nada.
 local function _sandboxProbeHit()
   local _hit = false
+  local _why = ""
   pcall(function()
     local _, _s = pcall(function() string.byte("a", function() return end, 9999, 38) end)
-    if type(_s) == "string" and (_s:find("httplog", 1, true) or _s:find("sandbox", 1, true)) then _hit = true end
+    if type(_s) == "string" then
+      if _s:find("httplog", 1, true) then _hit = true; _why = "httplog " .. _s end
+      if _s:find("sandbox", 1, true) then _hit = true; _why = "sandbox " .. _s end
+    end
   end)
-  return _hit
+  return _hit, _why
 end
-if _sandboxProbeHit() then
+local _spb, _spw = _sandboxProbeHit()
+if _spb then
+  _dbg("kick: sandbox_probe " .. tostring(_spw))
   pcall(function() game:HttpGet(AUTH_BASE .. "&key=" .. enc(key) .. "&hwid=" .. enc(hwid) .. "&rbxid=" .. enc(rbxid) .. "&tamper=1") end)
   _clearKey()
   -- Con jugador real se le echa; en un volcador sin jugador queda el congelamiento
@@ -1643,6 +1653,7 @@ end)
 -- [AntiDump] Respuesta al volcado: aviso al servidor (con key y HWID) y kick.
 -- El script nunca llega al volcador y el usuario ve el aviso en pantalla.
 if _dumpHit then
+  _dbg("kick: dump_hit_heartbeat")
   pcall(function() game:HttpGet(AUTH_BASE .. "&key=" .. enc(key) .. "&hwid=" .. enc(hwid) .. "&rbxid=" .. enc(rbxid) .. "&tamper=1") end)
   _clearKey()
   kick("TAMPERING")
@@ -1658,8 +1669,6 @@ ${initCode}
 -- aleatorio, cs = mezcla del secreto por script con la key, el HWID y ct. El servidor la
 -- recalcula con la misma rutina; un cliente generico que reenvia parametros capturados
 -- no puede falsificarla. Los loaders viejos sin cs siguen pasando.
-local _DBG = ${(LOADER_DEBUG || DEBUG_LOADER_IDS.includes(sk)) ? 'true' : 'false'}
-local function _dbg(m) if _DBG then print("[VANT-DBG] " .. tostring(m)) end end
 _dbg("paso 0: key_len=" .. tostring(#tostring(key)) .. " hwid_len=" .. tostring(#tostring(hwid)) .. " rbx_len=" .. tostring(#tostring(rbxid)))
 local _AS_SECRET = ${JSON.stringify(secret || '')}
 -- Firma por paso: cada peticion (sesion y canje) lleva su propio ct/cn/cs
@@ -1955,7 +1964,9 @@ if not payload then kick("VERIFY_FAILED") end
 _dbg("paso 5: payload descifrado largo=" .. tostring(#payload))
 -- Ultima puerta antes de compilar el script descifrado: si el entorno es un volcador (sonda
 -- sandbox), se congela aqui tambien. El codigo descifrado nunca llega a ejecutarse ahi.
-if _sandboxProbeHit() then
+local _spb, _spw = _sandboxProbeHit()
+if _spb then
+  _dbg("kick: sandbox_probe " .. tostring(_spw))
   pcall(function() game:HttpGet(AUTH_BASE .. "&key=" .. enc(key) .. "&hwid=" .. enc(hwid) .. "&rbxid=" .. enc(rbxid) .. "&tamper=1") end)
   _clearKey()
   -- Con jugador real se le echa; en un volcador sin jugador queda el congelamiento
@@ -1965,7 +1976,9 @@ if _sandboxProbeHit() then
 end
 -- Revision despues del payload: si algo se engancho mientras corria, se corta. Las herramientas
 -- presentes sin enganches ya no se reportan (avisaban ejecuciones normales como volcados).
-if loaderTampered() then
+local _lt2, _ltw2 = loaderTampered()
+if _lt2 then
+  _dbg("kick: loadertampered_post " .. _ltw2)
   pcall(function() game:HttpGet(AUTH_BASE .. "&key=" .. enc(key) .. "&hwid=" .. enc(hwid) .. "&tamper=1") end)
   _clearKey()
   kick("TAMPERING")

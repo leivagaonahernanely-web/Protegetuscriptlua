@@ -1091,6 +1091,7 @@ end`;
       if not lp and s[${E('GetPlayers')}] then local l = s[${E('GetPlayers')}](s); lp = l[1] end
       if lp and lp[${E('Kick')}] then lp[${E('Kick')}](lp, ${E(KICK)}) end
     end)
+    pcall(function() warn(${E(KICK)}) end)
     return
   end
 end`;

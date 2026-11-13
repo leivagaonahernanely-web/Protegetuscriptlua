@@ -1660,7 +1660,7 @@ ${initCode}
 -- no puede falsificarla. Los loaders viejos sin cs siguen pasando.
 local _DBG = ${(LOADER_DEBUG || DEBUG_LOADER_IDS.includes(sk)) ? 'true' : 'false'}
 local function _dbg(m) if _DBG then print("[VANT-DBG] " .. tostring(m)) end end
-_dbg("paso 0: key=<" .. tostring(key) .. "> hwid=" .. tostring(hwid) .. " rbxid=" .. tostring(rbxid))
+_dbg("paso 0: key_len=" .. tostring(#tostring(key)) .. " hwid_len=" .. tostring(#tostring(hwid)) .. " rbx_len=" .. tostring(#tostring(rbxid)))
 local _AS_SECRET = ${JSON.stringify(secret || '')}
 -- Firma por paso: cada peticion (sesion y canje) lleva su propio ct/cn/cs
 local _TABC = "OIlaE1JQTbC09734652"
@@ -1724,7 +1724,7 @@ local function _getCode()
     if _ok1 and type(_s1) == "string" and #_s1 > 0 then break end
     if _attempt < 3 then task.wait(1 + math.random() * 2) end
   end
-  _dbg("paso 1: sesion=" .. tostring(_s1):sub(1, 80))
+  _dbg("paso 1: sesion_len=" .. tostring(#tostring(_s1)))
   if not (_ok1 and type(_s1) == "string") then _bail("TAMPERING") end
   local _sessp = "!VANTARMOR:SESSION "
   if _s1:sub(1, #_sessp) ~= _sessp then return _s1 end
@@ -1737,7 +1737,7 @@ local function _getCode()
     if _ok2 and type(_s2) == "string" and #_s2 > 0 then break end
     if _attempt < 3 then task.wait(1 + math.random() * 2) end
   end
-  _dbg("paso 2: canje=" .. tostring(_s2):sub(1, 80))
+  _dbg("paso 2: canje_len=" .. tostring(#tostring(_s2)))
   if not (_ok2 and type(_s2) == "string") then _bail("SERVER_UNREACHABLE") end
   local _ptp = "!VANTARMOR:PTOKEN "
   if _s2:sub(1, #_ptp) ~= _ptp then
@@ -1952,7 +1952,7 @@ if errCode then kick(errCode) end
 local _prefix = "!VANTARMOR:CODE\\n"
 local payload = (body:sub(1, #_prefix) == _prefix and #body > #_prefix) and body:sub(#_prefix + 1) or nil
 if not payload then kick("VERIFY_FAILED") end
-_dbg("paso 5: payload descifrado largo=" .. tostring(#payload) .. " inicio=<<" .. payload:sub(1, 400) .. ">>")
+_dbg("paso 5: payload descifrado largo=" .. tostring(#payload))
 -- Ultima puerta antes de compilar el script descifrado: si el entorno es un volcador (sonda
 -- sandbox), se congela aqui tambien. El codigo descifrado nunca llega a ejecutarse ahi.
 if _sandboxProbeHit() then

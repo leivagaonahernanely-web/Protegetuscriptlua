@@ -2538,7 +2538,8 @@ function servedCode(script, { ip, key } = {}) {
   // serve_protected solo controla la vista previa del panel, nunca lo que
   // llega al ejecutor. La fuente en claro nunca sale del servidor.
   const plain = script.source ? stripWebhookMarkers(stripRemoteBlocks(script.source)) : '';
-  const base = protectedBase(script, plain);
+  // DEBUG (solo loader de prueba): entrega el codigo ORIGINAL sin ofuscar para comparar
+  const base = (DEBUG_LOADER_IDS.includes(script.loader_id) && plain) ? plain : protectedBase(script, plain);
   if (base === null) return null;
   const head = runtimeHeader(script, ip, key);
   if (!hasRemoteBlocks(script.source || '')) return head + base;

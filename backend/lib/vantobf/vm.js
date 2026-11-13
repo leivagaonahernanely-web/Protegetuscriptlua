@@ -449,7 +449,7 @@ function writeRef(ctx, ref, srcReg) {
   if (ref.kind === 'local') {
     if (ref.loc.box >= 0) emit(ctx, OP.BOXSET, ref.loc.box, srcReg, 0);
     else emit(ctx, OP.MOVE, ref.loc.reg, srcReg, 0);
-  } else if (ref.kind === 'upval') emit(ctx, OP.SETUPVAL, ref.u, srcReg, 0);
+  } else if (ref.kind === 'upval') emit(ctx, OP.SETUPVAL, srcReg, ref.u, 0);
   else if (ref.kind === 'global') emit(ctx, OP.SETGLOBAL, ctx.addK(ref.name), srcReg, 0);
   else if (ref.kind === 'index') {
     if (ref.isK) emit(ctx, OP.SETTABLEK, ref.objR, ref.kidx, srcReg);

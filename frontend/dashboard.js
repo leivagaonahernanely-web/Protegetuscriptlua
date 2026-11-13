@@ -14,15 +14,13 @@
     luau:       'Ofuscador 3 · Premium Plus · 2 compilaciones por día',
     next:       'Ofuscador 4 · NextOfuscator',
     vantobf:    'Ofuscador 5 · VantVM',
-    none:       'Sin ofuscar (solo key)',
   };
   const NAV = {
     dashboard: { title: 'Dashboard', sub: 'Resumen de tu cuenta' },
     profile:   { title: 'Perfil', sub: 'Foto de perfil y foto del bot en tu servidor' },
     precios:   { title: 'Precios', sub: 'Publica tu tabla de precios en tu servidor (solo planes pagos)' },
     bienvenida: { title: 'Bienvenida', sub: 'Mensaje para nuevos miembros de tu servidor (solo Premium Plus)' },
-    scripts:   { title: 'Scripts',   sub: 'Código, protección y loader de cada script' },
-    projects:  { title: 'Proyectos', sub: 'Agrupa tus scripts. La whitelist por proyecto aplica a todos sus scripts' },
+    scripts:   { title: 'Proyectos', sub: 'Crea un proyecto y dentro de él tus scripts; keys por script o por proyecto' },
     keys:      { title: 'Keys',      sub: 'Licencias generadas' },
     blacklist: { title: 'Blacklist', sub: 'Bloquea usuarios de Discord, IPs o HWID en tus scripts' },
     chat:      { title: 'Chat',      sub: 'Chat de la comunidad de Vantarmor' },
@@ -59,6 +57,7 @@
   }[c]));
   const isMobile = () => window.matchMedia('(max-width: 1023px)').matches;
   const scriptName = id => scripts.find(s => s.id === id)?.name || 'Desconocido';
+  const projectName = id => projects.find(p => String(p.id) === String(id))?.name || '';
   const maskKey = key => key.length > 16 ? `${key.slice(0, 12)}…${key.slice(-4)}` : key;
   const fmtDate = ts => ts
     ? new Date(ts * 1000).toLocaleDateString('es-EC', { day: '2-digit', month: 'short', year: 'numeric' })
@@ -165,7 +164,7 @@
     if (name === 'bienvenida') loadWelcomeForm();
     if (name === 'chat') startChatPolling(); else stopChatPolling();
     if (name === 'blacklist') loadBlacklist();
-    if (name === 'projects') loadProjects();
+    if (name === 'scripts') loadProjects();
     if (isMobile()) setSidebar(false);
   }
 
@@ -452,6 +451,14 @@
             `<option value="${val}" ${val === currentObf ? 'selected' : ''} ${val === 'luau' && !hasPlusPlan() ? 'disabled' : ''}>${label}</option>`).join('')}
         </select>
         <div class="hint">Se aplica en el servidor al guardar el script. Para Roblox (Luau) recomendamos el Ofuscador 1.</div>
+        <div class="input-group" style="margin-top:12px">
+          <label for="fObfApi">Ofuscar con API key</label>
+          <div style="display:flex;gap:10px;align-items:center">
+            <input id="fObfApi" class="field block" value="VNTA-c4d914db-044c92db-fe8e3ba9" disabled aria-label="API key de ofuscación (próximamente)">
+            <span class="badge warn" style="white-space:nowrap">Próximamente</span>
+          </div>
+          <div class="hint">Pronto podrás ofuscar desde tu propio código con esta API key. De momento, usa el ofuscador del panel.</div>
+        </div>
         <div id="obfModeWrap" hidden style="margin-top:10px">
           <span class="label">Modo de protección</span>
           <div class="choice-grid" style="grid-template-columns:repeat(3,1fr);margin-top:6px">
@@ -530,12 +537,19 @@
     sync();
   }
 
-  function openScriptModal() {
+  function openScriptModal(preProject = '') {
     openModal('Nuevo script', `
       <form id="formScript" novalidate>
         <div class="input-group">
           <label for="fName">Nombre</label>
           <input id="fName" name="name" class="field block" required maxlength="60" autocomplete="off">
+        </div>
+        <div class="input-group">
+          <label for="fProject">Proyecto</label>
+          <select id="fProject" name="projectId" class="field block" required>
+            ${projects.map(p => `<option value="${esc(p.id)}" ${String(p.id) === String(preProject) ? 'selected' : ''}>${esc(p.name)}</option>`).join('')}
+          </select>
+          ${projects.length ? '' : '<div class="hint">Crea primero un proyecto: cada script vive dentro de uno.</div>'}
         </div>
         ${codeFieldHtml()}
         ${protectionHtml()}
@@ -572,21 +586,23 @@
     $('formEditScript').addEventListener('submit', e => submitScript(e, s.id));
   }
 
-  function openKeysModal(preselect = '') {
-    if (!scripts.length) { toast('Crea un script primero', 'error'); return; }
+  function openKeysModal(preselect = '', projectMode = null) {
+    if (!projectMode && !scripts.length) { toast('Crea un script primero', 'error'); return; }
     const DUR_OPTS = [['', 'Nunca'], ['3600', '1 hora'], ['21600', '6 horas'], ['86400', '1 día'], ['604800', '7 días'],
       ['1296000', '15 días'], ['2592000', '30 días'], ['7776000', '90 días'], ['31536000', '1 año'], ['custom', 'Personalizado']];
     const UNIT_SECONDS = { horas: 3600, dias: 86400, meses: 2592000, anios: 31536000 };
     const MAX_KEY_SECONDS = 3650 * 86400;
     const AMOUNT_PRESETS = [1, 5, 10, 25, 50];
     openModal('Generar keys', `
-      <p class="card-sub" style="margin:-6px 0 20px">Crea keys vinculadas a un script. Podrás copiarlas al terminar.</p>
+      <p class="card-sub" style="margin:-6px 0 20px">${projectMode ? `Keys de usuario para <strong>${esc(projectMode.name)}</strong>: sirven en todos los scripts del proyecto.` : 'Crea keys vinculadas a un script. Podrás copiarlas al terminar.'}</p>
       <form id="formKeys" novalidate>
         <div class="input-group">
-          <label for="fScript">Script</label>
-          <select id="fScript" name="scriptId" class="field block">
+          <label for="fScript">${projectMode ? 'Proyecto' : 'Script'}</label>
+          ${projectMode
+            ? `<input class="field block" value="${esc(projectMode.name)}" disabled><input type="hidden" name="projectId" value="${esc(projectMode.id)}">`
+            : `<select id="fScript" name="scriptId" class="field block">
             ${scripts.map(s => `<option value="${esc(s.id)}" ${String(s.id) === String(preselect) ? 'selected' : ''}>${esc(s.name)}</option>`).join('')}
-          </select>
+          </select>`}
         </div>
 
         <div class="input-group">
@@ -666,7 +682,8 @@
       const secs = currentSeconds();
       $('customDur').hidden = form.querySelector('input[name="dur"]:checked')?.value !== 'custom';
       const expiry = secs === null ? 'no expiran' : Number.isNaN(secs) ? 'con una duración no válida (de 1 hora a 10 años)' : `expiran en ${humanDur(secs)}`;
-      summary.innerHTML = `Se crearán <strong>${n} ${n === 1 ? 'key' : 'keys'}</strong> para <strong>${esc(scriptName(parseInt(scriptEl.value, 10)))}</strong> que ${expiry}.`;
+      const target = projectMode ? `el proyecto <strong>${esc(projectMode.name)}</strong>` : `<strong>${esc(scriptName(parseInt(scriptEl.value, 10)))}</strong>`;
+      summary.innerHTML = `Se crearán <strong>${n} ${n === 1 ? 'key' : 'keys'}</strong> para ${target} que ${expiry}.`;
       submitBtn.textContent = `Generar ${n} ${n === 1 ? 'key' : 'keys'}`;
       form.querySelectorAll('[data-preset]').forEach(b => b.classList.toggle('on', Number(b.dataset.preset) === n));
       form.querySelector('[data-step="-1"]').disabled = n <= 1;
@@ -681,7 +698,7 @@
     form.querySelectorAll('input[name="dur"]').forEach(r => r.addEventListener('change', refresh));
     $('fCustomN').addEventListener('input', refresh);
     $('fCustomUnit').addEventListener('change', refresh);
-    scriptEl.addEventListener('change', refresh);
+    if (scriptEl) scriptEl.addEventListener('change', refresh);
     form.addEventListener('submit', submitKeys);
     refresh();
   }
@@ -724,7 +741,9 @@
     const obfuscator = fd.get('obfuscator') || 'real';
     const obfMode = fd.get('obfMode') || 'medium';
 
+    const projectId = editId ? null : Number($('fProject')?.value);
     if (!name) { toast('Escribe un nombre', 'error'); return; }
+    if (!editId && !projects.some(p => String(p.id) === String(projectId))) { toast('Crea un proyecto y elige en cuál va el script', 'error'); return; }
     if (!editId && !code.trim()) { toast('Agrega el código del script', 'error'); return; }
     if (code && byteLen(code) > MAX_CODE_BYTES) { toast('El código supera 2 MB', 'error'); return; }
     if (!OBFUSCATORS[obfuscator]) { toast('Elige un ofuscador', 'error'); return; }
@@ -742,6 +761,7 @@
       clydeVm: fd.get('clydeVm') === 'on',
     };
     if (code.trim()) body.code = code;
+    if (!editId) body.projectId = projectId;
     body.initCode = ($('fInit')?.value || '');
 
     const btn = form.querySelector('[type="submit"]');
@@ -784,7 +804,8 @@
     e.preventDefault();
     const form = e.currentTarget;
     const fd = new FormData(form);
-    const scriptId = parseInt(fd.get('scriptId'), 10);
+    const projectId = fd.get('projectId') ? parseInt(fd.get('projectId'), 10) : null;
+    const scriptId = projectId ? null : parseInt(fd.get('scriptId'), 10);
     const amount = Math.min(50, Math.max(1, parseInt(fd.get('amount'), 10) || 1));
     // Misma lógica que currentSeconds() del formulario
     const choice = fd.get('dur') || '';
@@ -803,9 +824,9 @@
     const btn = form.querySelector('[type="submit"]');
     setBusy(btn, true);
     try {
-      const data = await api('/api/keys', { method: 'POST', body: JSON.stringify({ scriptId, amount, seconds: secs, startOnUse: fd.get('startOnUse') === 'on' }) });
+      const data = await api('/api/keys', { method: 'POST', body: JSON.stringify({ scriptId, projectId, amount, seconds: secs, startOnUse: fd.get('startOnUse') === 'on' }) });
       await loadData();
-      showGenerated(data.keys, scriptName(scriptId));
+      showGenerated(data.keys, projectId ? `Proyecto: ${projectName(projectId)}` : scriptName(scriptId));
     } catch (err) {
       toast(err.message, 'error');
       setBusy(btn, false);
@@ -817,6 +838,11 @@
     if (!user) return;
     $('userName').textContent = user.username || 'Usuario';
     $('userPlan').textContent = PLAN_LABELS[planKey(user.plan)];
+    const rankEl = $('userRank');
+    if (rankEl) {
+      rankEl.textContent = user.owner ? 'Owner' : user.admin ? 'Admin' : (user.staff_role ? String(user.staff_role).charAt(0).toUpperCase() + String(user.staff_role).slice(1) : PLAN_LABELS[planKey(user.plan)]);
+      rankEl.hidden = false;
+    }
     const av = $('userAvatar');
     av.innerHTML = '';
     const src = user.custom_avatar
@@ -898,28 +924,14 @@
     }
   }
 
-  function renderScripts() {
-    const grid = $('scriptsGrid');
-    if (!scriptsLoaded && !scriptsError) {
-      grid.innerHTML = Array.from({ length: 3 }, () => `<div class="skel-card"><span class="skel skel-line w60"></span><span class="skel skel-line"></span><span class="skel skel-line w40"></span></div>`).join('');
-      return;
-    }
-    if (scriptsError) {
-      grid.innerHTML = `<div class="empty"><h3>No se pudieron cargar los scripts</h3><p>Revisa tu conexión y pulsa Actualizar.</p></div>`;
-      return;
-    }
-    if (!scripts.length) {
-      grid.innerHTML = `<div class="empty"><h3>Aún no tienes scripts</h3><p>Sube tu primer script para empezar a generar keys.</p><button class="btn" data-open="script">+ Nuevo script</button></div>`;
-      return;
-    }
-    grid.innerHTML = scripts.map(s => {
-      const mine = keysError ? [] : keys.filter(k => k.script_id === s.id);
-      const act = mine.filter(k => keyStatus(k).id === 'active').length;
-      const loader = loaderFor(s);
-      const isFfa = protectionOf(s) === 'ffa';
-      const vmTag = obfuscatorOf(s) === 'clyde' && s.clyde_vm ? ' · VM' : '';
-      const meta = isFfa ? `FFA · sin key · ${OBFUSCATORS[obfuscatorOf(s)] ?? ''}` : `Protegido · ${OBFUSCATORS[obfuscatorOf(s)]}${vmTag}`;
-      return `
+  function scriptCard(s) {
+    const mine = keysError ? [] : keys.filter(k => String(k.script_id) === String(s.id));
+    const act = mine.filter(k => keyStatus(k).id === 'active').length;
+    const loader = loaderFor(s);
+    const isFfa = protectionOf(s) === 'ffa';
+    const vmTag = obfuscatorOf(s) === 'clyde' && s.clyde_vm ? ' · VM' : '';
+    const meta = isFfa ? `FFA · sin key · ${OBFUSCATORS[obfuscatorOf(s)] ?? ''}` : `Protegido · ${OBFUSCATORS[obfuscatorOf(s)] ?? ''}${vmTag}`;
+    return `
         <article class="card script-card">
           <div class="row">
             <h4 class="script-name" title="${esc(s.name)}">${esc(s.name)}</h4>
@@ -945,17 +957,54 @@
             <button class="btn sm" data-gen="${esc(s.id)}">+ Keys</button>
           </div>
         </article>`;
-    }).join('');
+  }
+
+  function renderScripts() {
+    const grid = $('scriptsGrid');
+    if (!scriptsLoaded && !scriptsError) {
+      grid.innerHTML = Array.from({ length: 3 }, () => `<div class="skel-card"><span class="skel skel-line w60"></span><span class="skel skel-line"></span><span class="skel skel-line w40"></span></div>`).join('');
+      return;
+    }
+    if (scriptsError) {
+      grid.innerHTML = `<div class="empty"><h3>No se pudieron cargar los scripts</h3><p>Revisa tu conexión y pulsa Actualizar.</p></div>`;
+      return;
+    }
+    const groups = projects.map(p => ({ p, list: scripts.filter(s => String(s.project_id ?? '') === String(p.id)) }));
+    const loose = scripts.filter(s => !projects.some(p => String(p.id) === String(s.project_id)));
+    if (!groups.length && !loose.length) {
+      grid.innerHTML = `<div class="empty"><h3>Aún no tienes proyectos</h3><p>Crea tu primer proyecto: cada script vive dentro de un proyecto, como en Luarmor.</p><button class="btn" data-open="project">+ Nuevo proyecto</button></div>`;
+      return;
+    }
+    grid.innerHTML = groups.map(({ p, list }) => `
+      <article class="card proj-card proj-panel">
+        <div class="proj-head">
+          <div class="proj-title">
+            <h3>${esc(p.name)}</h3>
+            <span class="badge neutral">${list.length} ${list.length === 1 ? 'script' : 'scripts'}</span>
+            <span class="proj-id">ID ${esc(p.id)}</span>
+          </div>
+          <div class="proj-actions">
+            <button class="btn sm" data-pj-newscript="${esc(p.id)}">+ Script</button>
+            <button class="btn sm" data-pj-adduser="${esc(p.id)}">Añadir usuario</button>
+            <button class="btn ghost sm" data-pj-editusers="${esc(p.id)}">Editar usuarios</button>
+            <button class="btn ghost sm" data-pj-edit="${esc(p.id)}">Ajustes</button>
+            <button class="btn ghost sm" data-pj-del="${esc(p.id)}">Eliminar</button>
+          </div>
+        </div>
+        ${list.length ? `<div class="proj-scripts">${list.map(scriptCard).join('')}</div>` : '<p class="hint" style="margin:0">Este proyecto todavía no tiene scripts: usa “+ Script”.</p>'}
+      </article>`).join('') +
+      (loose.length ? `<article class="card proj-card proj-panel"><div class="proj-title"><h3>Sin proyecto</h3></div><div class="proj-scripts">${loose.map(scriptCard).join('')}</div></article>` : '');
   }
 
   function filteredKeys() {
     const q = $('keySearch').value.trim().toLowerCase();
     const scriptId = $('keyScript').value;
     const filter = $('keyFilter').value;
+    const pjId = scriptId.startsWith('pj:') ? scriptId.slice(3) : null;
     return keys
-      .map(k => ({ k, st: keyStatus(k), script: scriptName(k.script_id) }))
+      .map(k => ({ k, st: keyStatus(k), script: k.script_id ? scriptName(k.script_id) : (projectName(k.project_id) ? `Proyecto: ${projectName(k.project_id)}` : '—') }))
       .filter(r =>
-        (scriptId === 'all' || String(r.k.script_id) === scriptId) &&
+        (pjId ? (r.k.project_id != null && String(r.k.project_id) === pjId) : (scriptId === 'all' || String(r.k.script_id ?? '') === scriptId)) &&
         (filter === 'all' || r.st.id === filter) &&
         (!q || r.script.toLowerCase().includes(q) || r.k.key.toLowerCase().includes(q))
       );
@@ -965,7 +1014,8 @@
     const sel = $('keyScript');
     const current = sel.value || 'all';
     sel.innerHTML = `<option value="all">Todos los scripts</option>` +
-      scripts.map(s => `<option value="${esc(s.id)}">${esc(s.name)}</option>`).join('');
+      scripts.map(s => `<option value="${esc(s.id)}">${esc(s.name)}</option>`).join('') +
+      projects.map(p => `<option value="pj:${esc(p.id)}">Proyecto: ${esc(p.name)}</option>`).join('');
     sel.value = [...sel.options].some(o => o.value === current) ? current : 'all';
   }
 
@@ -2752,88 +2802,88 @@
     const existing = new Set(keys.map(x => x.key));
     selected.forEach(key => { if (!existing.has(key)) selected.delete(key); });
 
+    await loadProjects();
     renderAll();
   }
 
   // ---------- PROYECTOS (agrupan scripts) ----------
   let projects = [];
+  // Los proyectos se pintan dentro de la vista de scripts (renderScripts agrupa por proyecto)
   async function loadProjects() {
     try {
       projects = await api('/api/projects');
     } catch (err) {
-      toast(err.message, 'error');
+      projects = [];
     }
-    renderProjects();
+    if (scriptsLoaded || scriptsError) renderScripts();
   }
-  function renderProjects() {
-    const box = $('pjGroups');
-    if (!box) return;
-    const inProject = pid => scripts.filter(s => String(s.project_id ?? '') === String(pid ?? ''));
-    const groups = [
-      ...projects.map(p => ({ id: p.id, name: p.name, list: inProject(p.id), removable: true })),
-      { id: null, name: 'Sin proyecto', list: inProject(null), removable: false },
-    ];
-    box.innerHTML = groups.map(g => {
-      const options = ['<option value="">Sin proyecto</option>', ...projects.map(p =>
-        `<option value="${esc(p.id)}" ${String(p.id) === String(g.id) ? 'selected' : ''}>${esc(p.name)}</option>`)].join('');
-      return `
-        <article class="card proj-card">
-          <div class="panel-head">
-            <h3>${esc(g.name)} <span class="badge neutral">${g.list.length} ${g.list.length === 1 ? 'script' : 'scripts'}</span></h3>
-            ${g.removable ? `<button type="button" class="btn ghost sm" data-pj-del="${esc(g.id)}">Eliminar proyecto</button>` : ''}
-          </div>
-          ${g.list.length ? g.list.map(s => `
-            <div class="proj-row">
-              <span>${esc(s.name)}</span>
-              <select class="field proj-move" data-pj-move="${esc(s.id)}" aria-label="Mover ${esc(s.name)} a otro proyecto">${options}</select>
-            </div>`).join('') : '<p class="hint">Sin scripts aquí todavía.</p>'}
-        </article>`;
-    }).join('');
-    // Cada select marca su proyecto actual
-    box.querySelectorAll('[data-pj-move]').forEach(sel => {
-      const script = scripts.find(s => String(s.id) === sel.dataset.pjMove);
-      sel.value = script && script.project_id != null ? String(script.project_id) : '';
+
+  // Modal de proyecto: crear o editar (webhooks de logs y alertas, HWID y auto-borrado, estilo Luarmor)
+  function openProjectModal(p = null) {
+    const edit = !!p;
+    openModal(edit ? 'Ajustes del proyecto' : 'Nuevo proyecto', `
+      <form id="formProject" novalidate>
+        <div class="input-group">
+          <label for="pjName">Nombre</label>
+          <input id="pjName" class="field block" maxlength="40" value="${edit ? esc(p.name) : ''}" autocomplete="off" ${edit ? 'disabled' : 'required'}>
+        </div>
+        <div class="input-group">
+          <label for="pjLogs">Webhook de logs (ejecuciones correctas)</label>
+          <input id="pjLogs" class="field block" placeholder="https://discord.com/api/webhooks/..." value="${edit ? esc(p.logs_webhook || '') : ''}" autocomplete="off">
+        </div>
+        <div class="input-group">
+          <label for="pjAlert">Webhook de alertas (crack, baneos y HWID repetido)</label>
+          <input id="pjAlert" class="field block" placeholder="https://discord.com/api/webhooks/..." value="${edit ? esc(p.alert_webhook || '') : ''}" autocomplete="off">
+        </div>
+        <div class="input-group">
+          <label class="chip" style="justify-content:flex-start;gap:8px">
+            <input type="checkbox" name="allowHwidReset" ${!edit || p.allow_hwid_reset !== 0 ? 'checked' : ''}>
+            <span>Permitir que los usuarios reinicien su HWID</span>
+          </label>
+        </div>
+        <div class="input-group">
+          <label for="pjCooldown">Cooldown del reinicio de HWID (días; vacío usa el del script)</label>
+          <input id="pjCooldown" type="number" min="0" max="365" class="field block" value="${edit && p.hwid_reset_cooldown_days != null ? esc(p.hwid_reset_cooldown_days) : ''}">
+        </div>
+        <div class="input-group">
+          <label class="chip" style="justify-content:flex-start;gap:8px">
+            <input type="checkbox" name="autoDeleteExpired" ${edit && p.auto_delete_expired === 1 ? 'checked' : ''}>
+            <span>Auto delete expired users: borra cada 15 min las keys ya expiradas</span>
+          </label>
+        </div>
+        <div class="input-group">
+          <label class="chip" style="justify-content:flex-start;gap:8px">
+            <input type="checkbox" name="allowHwidCloneSharing" ${edit && p.allow_hwid_clone_sharing === 1 ? 'checked' : ''}>
+            <span>Permitir compartir la key entre varios HWID (desactiva el bloqueo de HWID)</span>
+          </label>
+        </div>
+        <div class="form-actions">
+          <button type="button" class="btn ghost" data-close>Cancelar</button>
+          <button type="submit" class="btn">${edit ? 'Guardar cambios' : 'Crear proyecto'}</button>
+        </div>
+      </form>`);
+    $('formProject').addEventListener('submit', async e => {
+      e.preventDefault();
+      const name = $('pjName').value.trim();
+      if (!edit && !name) { toast('Escribe un nombre', 'error'); return; }
+      const body = {
+        name,
+        logsWebhook: $('pjLogs').value.trim(),
+        alertWebhook: $('pjAlert').value.trim(),
+        allowHwidReset: document.querySelector('#formProject [name="allowHwidReset"]').checked,
+        hwidResetCooldownDays: $('pjCooldown').value === '' ? null : Number($('pjCooldown').value),
+        autoDeleteExpired: document.querySelector('#formProject [name="autoDeleteExpired"]').checked,
+        allowHwidCloneSharing: document.querySelector('#formProject [name="allowHwidCloneSharing"]').checked,
+      };
+      try {
+        if (edit) await api(`/api/projects/${encodeURIComponent(p.id)}`, { method: 'PUT', body: JSON.stringify(body) });
+        else await api('/api/projects', { method: 'POST', body: JSON.stringify(body) });
+        toast(edit ? 'Proyecto actualizado' : 'Proyecto creado');
+        closeModal();
+        await loadProjects();
+      } catch (err) { toast(err.message, 'error'); }
     });
   }
-  $('formProject').addEventListener('submit', async e => {
-    e.preventDefault();
-    const name = $('pjName').value.trim();
-    if (!name) return;
-    try {
-      await api('/api/projects', { method: 'POST', body: JSON.stringify({ name }) });
-      $('pjName').value = '';
-      toast('Proyecto creado');
-      await loadProjects();
-    } catch (err) {
-      toast(err.message, 'error');
-    }
-  });
-  $('pjGroups').addEventListener('click', async e => {
-    const del = e.target.closest('[data-pj-del]');
-    if (!del) return;
-    if (!await askConfirm('Eliminar proyecto', '¿Eliminar este proyecto? Sus scripts quedan sin proyecto (no se borran).', { okText: 'Eliminar', danger: true })) return;
-    try {
-      await api(`/api/projects/${encodeURIComponent(del.dataset.pjDel)}/delete`, { method: 'POST' });
-      toast('Proyecto eliminado');
-      await loadData();
-      await loadProjects();
-    } catch (err) {
-      toast(err.message, 'error');
-    }
-  });
-  $('pjGroups').addEventListener('change', async e => {
-    const sel = e.target.closest('[data-pj-move]');
-    if (!sel) return;
-    try {
-      await api(`/api/scripts/${encodeURIComponent(sel.dataset.pjMove)}/project`, { method: 'POST', body: JSON.stringify({ projectId: sel.value || null }) });
-      toast('Script movido');
-      await loadData();
-      await loadProjects();
-    } catch (err) {
-      toast(err.message, 'error');
-      await loadProjects();
-    }
-  });
 
   // ---------- EVENTS ----------
   document.addEventListener('click', e => {
@@ -2848,7 +2898,40 @@
     const open = t.closest('[data-open]');
     if (open) {
       if (open.dataset.open === 'script') openScriptModal();
+      else if (open.dataset.open === 'project') openProjectModal();
       else openKeysModal();
+      return;
+    }
+
+    const pjNew = t.closest('[data-pj-newscript]');
+    if (pjNew) { openScriptModal(pjNew.dataset.pjNewscript); return; }
+
+    const pjUser = t.closest('[data-pj-adduser]');
+    if (pjUser) { openKeysModal('', projects.find(p => String(p.id) === pjUser.dataset.pjAdduser) || null); return; }
+
+    const pjUsers = t.closest('[data-pj-editusers]');
+    if (pjUsers) {
+      showView('keys');
+      $('keyScript').value = `pj:${pjUsers.dataset.pjEditusers}`;
+      $('keySearch').value = '';
+      $('keyFilter').value = 'all';
+      renderKeys();
+      return;
+    }
+
+    const pjEdit = t.closest('[data-pj-edit]');
+    if (pjEdit) { openProjectModal(projects.find(p => String(p.id) === pjEdit.dataset.pjEdit) || null); return; }
+
+    const pjDel = t.closest('[data-pj-del]');
+    if (pjDel) {
+      const p = projects.find(x => String(x.id) === pjDel.dataset.pjDel);
+      askConfirm(`Eliminar proyecto "${p ? p.name : ''}"`, 'Sus scripts y sus keys pasan al proyecto más antiguo que quede. No se borra nada.', { okText: 'Eliminar', danger: true })
+        .then(ok => {
+          if (!ok) return;
+          api(`/api/projects/${encodeURIComponent(pjDel.dataset.pjDel)}/delete`, { method: 'POST' })
+            .then(() => { toast('Proyecto eliminado'); return loadData(); })
+            .catch(err => toast(err.message, 'error'));
+        });
       return;
     }
 

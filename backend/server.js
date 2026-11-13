@@ -985,7 +985,7 @@ function checkLuauSyntax(code) {
 }
 // La caché de ofuscación ya no se guarda en la base: cada salida ya queda en scripts.content y la caché
 // hacía crecer el volumen (hasta 90 días de versiones completas). Al arrancar se vacía; SQLite reutiliza ese espacio.
-try { db.exec('DELETE FROM obf_cache'); } catch (err) { console.warn('[obf_cache] No se pudo vaciar:', err.message); }
+try { db.prepare('DELETE FROM obf_cache').run(); } catch (err) { console.warn('[obf_cache] No se pudo vaciar:', err.message); }
 
 // Retención: el detalle de ejecuciones (script_logs) se poda a 7 dias, en el arranque y cada 6 h.
 // El DELETE reutiliza paginas internas (el archivo deja de crecer); el VACUUM solo corre si hay
@@ -1987,7 +1987,13 @@ if _lt2 then
 end
 ${guard ? `pcall(function() if getgenv then getgenv().VANTARMOR_RUN = ${JSON.stringify(guard)} end end)
 pcall(function() _G.VANTARMOR_RUN = ${JSON.stringify(guard)} end)
-` : ''}local fn, cerr = loadstring(payload)
+` : ''}-- Tercer argumento de loadstring = entorno del loader (Luau lo soporta): asi el payload
+-- nunca hereda el entorno plano aunque el executor no tenga setfenv.
+local _lfn
+pcall(function() if getfenv then _lfn = getfenv(1) end end)
+if type(_lfn) ~= 'table' then pcall(function() if getgenv then _lfn = getgenv() end end) end
+if type(_lfn) ~= 'table' then _lfn = _G end
+local fn, cerr = loadstring(payload, "=VantArmor", _lfn)
 -- El error exacto de compilación queda en la consola del executor (para diagnosticar el script)
 if not fn then
   warn("[VANTARMOR] No se pudo compilar el script: " .. tostring(cerr))
@@ -2387,7 +2393,6 @@ app.get('/scripts/hosted/:slug', async (req, res) => {
     if (!script) return res.status(404).type('text/plain').send('-- script no encontrado');
     return res.set({ ...PAGE_HEADERS, 'Content-Security-Policy': LOADER_CSP }).type('html').send(loaderPage(script));
   }
-  if (isLoaderProbe(req)) return sendLoaderDecoy(req, res);
   const script = stmt.scriptBySlug.get(req.params.slug);
   if (script) logLoaderDownload(script, req.ip);
   await serveLoaderFile(res, script ? script.loader_id : '', !!(script && script.ffa), !!(script && script.secure_fetch));
@@ -2401,7 +2406,6 @@ app.get('/files/v1/loaders/:file', async (req, res) => {
   if (/text\/html/.test(req.get('accept') || '')) {
     return res.set({ ...PAGE_HEADERS, 'Content-Security-Policy': LOADER_CSP }).type('html').send(loaderPage(script));
   }
-  if (isLoaderProbe(req)) return sendLoaderDecoy(req, res);
   logLoaderDownload(script, req.ip);
   await serveLoaderFile(res, script.loader_id, !!script.ffa, !!script.secure_fetch);
 });

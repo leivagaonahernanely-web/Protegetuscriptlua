@@ -1317,8 +1317,18 @@ local function _run(pi, ups, ...)
         for _i = math.max(1, pc - 6), pc - 1 do
           local _o2, _b2, _c2 = CO[_i], CB[_i], CC[_i]
           local _s = _OPN[_o2] or ('op' .. tostring(_o2))
-          if _o2 == ${O.LOADK} or _o2 == ${O.GETGLOBAL} then _s = _s .. '(' .. tostring(K[_b2 + 1]) .. ')'
-          elseif _o2 == ${O.GETTABLEK} or _o2 == ${O.SELF} then _s = _s .. '(' .. tostring(K[_c2 + 1]) .. ')' end
+          -- Nunca imprimir el valor de una constante: podria ser el codigo fuente entero.
+          if _o2 == ${O.GETGLOBAL} or _o2 == ${O.SETGLOBAL} then
+            local _kv = tostring(K[_b2 + 1]); if #_kv > 24 then _kv = _kv:sub(1, 24) end
+            _s = _s .. '(' .. _kv .. ')'
+          elseif _o2 == ${O.LOADK} then
+            local _kv = K[_b2 + 1]
+            if type(_kv) == 'string' then _s = _s .. '(str ' .. tostring(#_kv) .. ')'
+            else _s = _s .. '(' .. tostring(_kv) .. ')' end
+          elseif _o2 == ${O.GETTABLEK} or _o2 == ${O.SELF} then
+            local _kv = tostring(K[_c2 + 1]); if #_kv > 24 then _kv = _kv:sub(1, 24) end
+            _s = _s .. '(' .. _kv .. ')'
+          end
           _tr[#_tr + 1] = _s
         end
         error('[VANT-DBG] nilcall ' .. table.concat(_tr, ' ') .. ' | ' .. table.concat(_tt, ' '), 0)

@@ -10,7 +10,7 @@ export const OP_NAMES = ['MOVE','LOADK','LOADBOOL','LOADNIL','GETGLOBAL','SETGLO
 export const OP = {};
 OP_NAMES.forEach((n, i) => { OP[n] = i; });
 
-class VantError extends Error {}
+export class VantError extends Error {}
 
 class FnCtx {
   constructor(parent, isVararg) {
@@ -31,6 +31,8 @@ class FnCtx {
     this.continues = [];
     this.loopEnd = null;
     this.loopContinue = null;
+    this.labels = new Map(); // nombre -> pc destino
+    this.gotos = []; // {pc, label} pendientes de resolver
   }
   newReg() { const r = this.freeReg; this.freeReg++; if (this.freeReg > (this.maxReg || 0)) this.maxReg = this.freeReg; return r; }
   bump(to) { if (to > this.freeReg) this.freeReg = to; if (this.freeReg > (this.maxReg || 0)) this.maxReg = this.freeReg; }
@@ -91,6 +93,7 @@ export function compile(ast, rootCaps) {
   const root = new FnCtx(null, true);
   root.capturedNames = rootCaps || new Set();
   compileBlock(root, ast, null);
+  resolveGotos(root);
   emit(root, OP.RETURN, 0, 1, 0);
   finishFrame(root);
   return { root, protos: collectProtos(root) };
@@ -112,6 +115,15 @@ function collectProtos(root, count) {
   }
   resolve(root);
   return list;
+}
+
+function resolveGotos(ctx) {
+  for (const g of ctx.gotos) {
+    const t = ctx.labels.get(g.label);
+    if (t === undefined) throw new VantError('goto a etiqueta inexistente: ' + g.label);
+    patchJump(ctx, g.pc, t);
+  }
+  ctx.gotos = [];
 }
 
 function finishFrame(fn) {
@@ -186,6 +198,7 @@ function compileExpr(ctx, e, dst) {
       const child = new FnCtx(ctx, e.isVararg);
       if (e._macroLevel) child._macroLevel = e._macroLevel;
       compileFuncBody(child, e);
+      resolveGotos(child);
       ctx.protos.push(child);
       emit(ctx, OP.CLOSURE, dst, 0, 0);
       ctx.code[ctx.code.length - 1].pRef = child;
@@ -717,6 +730,14 @@ function compileStatInner(ctx, st, loop) {
     }
     case 'Do': {
       compileBlock(ctx, st.body, loop);
+      break;
+    }
+    case 'Label': {
+      if (!ctx.labels.has(st.name)) ctx.labels.set(st.name, ctx.code.length);
+      break;
+    }
+    case 'Goto': {
+      ctx.gotos.push({ pc: emitJump(ctx), label: st.label });
       break;
     }
     case 'Break': {

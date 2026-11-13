@@ -4114,7 +4114,8 @@ function saveErrorResponse(res, err, label) {
   if (code === 'ERR_STRING_TOO_LONG' || err instanceof RangeError) {
     return res.status(413).json({ error: 'El script es demasiado grande para procesarlo. Prueba con un script más corto.' });
   }
-  return res.status(500).json({ error: `Error del servidor al guardar (ref ${ref}). Inténtalo de nuevo; si sigue, avisa con esa referencia.` });
+  const causa = String(err?.message || '').slice(0, 200);
+  return res.status(500).json({ error: `Error del servidor al guardar (ref ${ref}). Inténtalo de nuevo; si sigue, avisa con esa referencia.` + (causa ? ` Causa técnica: ${causa}` : '') });
 }
 
 app.post('/api/scripts', requireAuth, async (req, res) => {

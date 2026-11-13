@@ -38,6 +38,8 @@ export function parse(src) {
       const tok = peek();
       if (checkEnd(tok)) break;
       if (atP(';')) { next(); continue; }
+      if (atP('::')) { const l0 = tok.line; next(); const nm = parseName(); expect('punct', '::'); stats.push({ t: 'Label', name: nm, line: l0 }); continue; }
+      if (tok.type === 'name' && tok.value === 'goto' && toks[p+1] && toks[p+1].type === 'name') { const l1 = tok.line; next(); const lb = parseName(); stats.push({ t: 'Goto', label: lb, line: l1 }); continue; }
       if (atKw('return')) { stats.push(parseReturn()); break; }
       if (atKw('break')) { next(); stats.push({ t: 'Break' }); continue; }
       if (atKw('continue')) { next(); stats.push({ t: 'Continue' }); continue; }

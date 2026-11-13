@@ -1,7 +1,8 @@
 // VantObf - pipeline: macros -> capturas -> parse -> compilar -> serializar -> runtime
 import { preprocess, tokensToSource } from './macros.js';
 import { parse, ParseError } from './parser.js';
-import { compile, emitRuntime, shuffledOps, serializeRoot, OP } from './vm.js';
+import { LexError } from './lexer.js';
+import { compile, emitRuntime, shuffledOps, serializeRoot, OP, VantError } from './vm.js';
 
 export class BuildError extends Error {}
 
@@ -173,38 +174,180 @@ function annotateMacros(ast, wanted) {
   }
 }
 
+// Expande cosas de Luau que el nucleo Lua 5.1 no tiene, antes del lexer:
+//  - strings interpoladas `hola {nombre}` -> ("hola " .. tostring(nombre) .. "")
+//  - atributos @native / @checked -> linea descartada
+function expandLuau(src) {
+  let out = '';
+  let i = 0, line = 1;
+  const n = src.length;
+  const err = (msg) => { throw new LexError(msg, line); };
+  while (i < n) {
+    const c = src[i];
+    if (c === '\n') { line++; out += c; i++; continue; }
+    // comentarios
+    if (c === '-' && src[i+1] === '-') {
+      if (src[i+2] === '[') {
+        let j = i+3, lvl = 0;
+        while (src[j] === '=') { lvl++; j++; }
+        if (src[j] === '[') {
+          const close = ']' + '='.repeat(lvl) + ']';
+          const end = src.indexOf(close, j+1);
+          const stop = end === -1 ? n : end + close.length;
+          for (let k = i; k < stop; k++) if (src[k] === '\n') line++;
+          out += src.slice(i, stop); i = stop; continue;
+        }
+      }
+      let j = src.indexOf('\n', i); if (j === -1) j = n;
+      out += src.slice(i, j); i = j; continue;
+    }
+    // cadenas normales, sin tocar
+    if (c === '"' || c === "'") {
+      let j = i + 1;
+      while (j < n && src[j] !== c) { if (src[j] === '\\') j++; if (src[j] === '\n') break; j++; }
+      const stop = Math.min(j + 1, n);
+      for (let k = i; k < stop; k++) if (src[k] === '\n') line++;
+      out += src.slice(i, stop); i = stop; continue;
+    }
+    // cadenas largas [[..]], sin tocar
+    if (c === '[') {
+      let j = i + 1, lvl = 0;
+      while (src[j] === '=') { lvl++; j++; }
+      if (src[j] === '[') {
+        const close = ']' + '='.repeat(lvl) + ']';
+        const end = src.indexOf(close, i);
+        const stop = end === -1 ? n : end + close.length;
+        for (let k = i; k < stop; k++) if (src[k] === '\n') line++;
+        out += src.slice(i, stop); i = stop; continue;
+      }
+    }
+    // atributos @algo: descartar la linea
+    if (c === '@' && /[A-Za-z_]/.test(src[i+1] || '')) {
+      let j = src.indexOf('\n', i); if (j === -1) j = n;
+      out += ' '; i = j; continue;
+    }
+    // string interpolado
+    if (c === '`') {
+      i++;
+      let lit = '';
+      const parts = [];
+      while (true) {
+        if (i >= n) err('cadena interpolada sin cerrar');
+        const d = src[i];
+        if (d === '\n') { line++; lit += d; i++; continue; }
+        if (d === '`') { i++; break; }
+        if (d === '\\') {
+          i++;
+          const e2 = src[i];
+          if (i >= n) err('escape sin caracter en string interpolada');
+          if (e2 === '`' || e2 === '{' || e2 === '}') { lit += e2; i++; continue; }
+          if (e2 === '\n') { lit += '\n'; i++; line++; continue; }
+          const simple = { n:'\n', t:'\t', r:'\r', a:'\x07', b:'\b', f:'\f', v:'\v', '\\':'\\', '"':'"', "'":"'" };
+          if (simple[e2] !== undefined) { lit += simple[e2]; i++; continue; }
+          if (e2 === 'z') { i++; while (i < n && (src[i] === ' ' || src[i] === '\n' || src[i] === '\t' || src[i] === '\r')) { if (src[i] === '\n') line++; i++; } continue; }
+          if (e2 === 'x' || e2 === 'X') {
+            const m3 = src.slice(i+1).match(/^[0-9a-fA-F]{1,2}/);
+            if (!m3) err('escape \\x mal formado en string interpolada');
+            lit += String.fromCharCode(parseInt(m3[0], 16)); i += 1 + m3[0].length; continue;
+          }
+          if (e2 === 'u' || e2 === 'U') {
+            const m3 = src.slice(i+1).match(/^\{([0-9a-fA-F]+)\}/);
+            if (!m3) err('escape \\u mal formado en string interpolada');
+            const cp = parseInt(m3[1], 16);
+            if (cp < 0x80) lit += String.fromCharCode(cp);
+            else if (cp < 0x800) lit += String.fromCharCode(0xC0 | (cp >> 6)) + String.fromCharCode(0x80 | (cp & 63));
+            else if (cp < 0x10000) lit += String.fromCharCode(0xE0 | (cp >> 12), 0x80 | ((cp >> 6) & 63), 0x80 | (cp & 63));
+            else lit += String.fromCharCode(0xF0 | (cp >> 18), 0x80 | ((cp >> 12) & 63), 0x80 | ((cp >> 6) & 63), 0x80 | (cp & 63));
+            i += 1 + m3[0].length; continue;
+          }
+          if (e2 >= '0' && e2 <= '9') {
+            const m3 = src.slice(i).match(/^\d{1,3}/);
+            lit += String.fromCharCode(parseInt(m3[0], 10)); i += m3[0].length; continue;
+          }
+          err('escape desconocido \\' + e2 + ' en string interpolada');
+        }
+        if (d === '{') {
+          i++;
+          let ex = '', depth = 1, q = false;
+          while (i < n && depth > 0) {
+            const e3 = src[i];
+            if (q) {
+              if (e3 === '\\') { ex += src.slice(i, i + 2); i += 2; continue; }
+              if (e3 === q) q = false;
+              ex += e3; i++; continue;
+            }
+            if (e3 === '\n') { line++; ex += e3; i++; continue; }
+            if (e3 === '"' || e3 === "'") { q = e3; ex += e3; i++; continue; }
+            if (e3 === '{') { depth++; ex += e3; i++; continue; }
+            if (e3 === '}') { depth--; if (depth === 0) { i++; break; } ex += e3; i++; continue; }
+            ex += e3; i++;
+          }
+          if (depth > 0) err('llave sin cerrar en string interpolada');
+          const ex2 = ex.trim();
+          if (!ex2) err('expresion vacia en string interpolada');
+          parts.push({ lit, ex: ex2 }); lit = '';
+          continue;
+        }
+        lit += d; i++;
+      }
+      const enc = (t) => '"' + t.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\n').replace(/\r/g, '\\r').replace(/\t/g, '\\t') + '"';
+      let expr;
+      if (parts.length === 0) expr = enc(lit);
+      else {
+        const segs = [];
+        for (const p of parts) { if (p.lit) segs.push(enc(p.lit)); segs.push('tostring(' + p.ex + ')'); }
+        if (lit) segs.push(enc(lit));
+        expr = '(' + segs.join(' .. ') + ')';
+      }
+      out += expr;
+      continue;
+    }
+    out += c; i++;
+  }
+  return out;
+}
+
 export function buildVantObf(source, seed, opts = {}) {
   if (typeof source !== 'string' || !source.trim()) throw new BuildError('El script esta vacio');
   const mode = opts.mode === 'low' || opts.mode === 'high' ? opts.mode : 'medium';
   const macros = scanVantMacros(source);
-  let pre;
   try {
-    pre = preprocess(source, { fileName: opts.fileName || 'script.lua' });
+    source = expandLuau(source);
+    let pre;
+    try {
+      pre = preprocess(source, { fileName: opts.fileName || 'script.lua' });
+    } catch (err) {
+      if (err instanceof ParseError || err instanceof LexError) throw new BuildError(err.message);
+      throw err;
+    }
+    const srcText = tokensToSource(pre);
+    let ast;
+    try {
+      ast = parse(srcText);
+    } catch (err) {
+      if (err instanceof ParseError || err instanceof LexError) throw new BuildError(err.message);
+      throw err;
+    }
+    annotateMacros(ast, macros);
+    computeCaptures2(ast);
+    const { root } = compile(ast, ast._capNames);
+    const ops = shuffledOps(seed, mode !== 'low');
+    const data = serializeRoot(root, ops, { seed, constFlag: mode === 'low' ? 0 : 3 });
+    const code = emitRuntime(data, seed, ops, {
+      layers: mode === 'high' ? 2 : 1,
+      mangle: true,
+      junk: mode === 'high',
+      guard: typeof opts.guard === 'string' && /^[0-9a-f]{32}$/.test(opts.guard) ? opts.guard : '',
+      antiEnv: opts.antiEnv !== false,
+    });
+    return { code, stats: { protos: countProtos(root), instrs: countInstrs(root), bytes: data.length, mode } };
   } catch (err) {
-    if (err instanceof ParseError) throw new BuildError(err.message);
+    if (err instanceof BuildError) throw err;
+    if (err instanceof LexError || err instanceof ParseError || err instanceof VantError) {
+      throw new BuildError('El ofuscador no soporta esta parte del codigo (' + err.message + ')');
+    }
     throw err;
   }
-  const srcText = tokensToSource(pre);
-  let ast;
-  try {
-    ast = parse(srcText);
-  } catch (err) {
-    if (err instanceof ParseError) throw new BuildError(err.message);
-    throw err;
-  }
-  annotateMacros(ast, macros);
-  computeCaptures2(ast);
-  const { root } = compile(ast, ast._capNames);
-  const ops = shuffledOps(seed, mode !== 'low');
-  const data = serializeRoot(root, ops, { seed, constFlag: mode === 'low' ? 0 : 3 });
-  const code = emitRuntime(data, seed, ops, {
-    layers: mode === 'high' ? 2 : 1,
-    mangle: true,
-    junk: mode === 'high',
-    guard: typeof opts.guard === 'string' && /^[0-9a-f]{32}$/.test(opts.guard) ? opts.guard : '',
-    antiEnv: opts.antiEnv !== false,
-  });
-  return { code, stats: { protos: countProtos(root), instrs: countInstrs(root), bytes: data.length, mode } };
 }
 
 function countProtos(fn) { return 1 + fn.protos.reduce((n, c) => n + countProtos(c), 0); }

@@ -12,6 +12,13 @@ PUNCT.sort((a,b) => b.length - a.length);
 
 const ESC = { a:'\x07', b:'\b', f:'\f', n:'\n', r:'\r', t:'\t', v:'\v', '\\':'\\', '"':'"', "'":"'", '\n':'\n' };
 
+function utf8Bytes(cp) {
+  if (cp < 0x80) return String.fromCharCode(cp);
+  if (cp < 0x800) return String.fromCharCode(0xC0 | (cp >> 6)) + String.fromCharCode(0x80 | (cp & 63));
+  if (cp < 0x10000) return String.fromCharCode(0xE0 | (cp >> 12), 0x80 | ((cp >> 6) & 63), 0x80 | (cp & 63));
+  return String.fromCharCode(0xF0 | (cp >> 18), 0x80 | ((cp >> 12) & 63), 0x80 | ((cp >> 6) & 63), 0x80 | (cp & 63));
+}
+
 export function tokenize(src) {
   const toks = [];
   let i = 0, line = 1;
@@ -88,6 +95,11 @@ export function tokenize(src) {
           if (e === 'z' || e === 'Z') { let k = j + 2; while (src[k] === ' ' || src[k] === '\n' || src[k] === '\t' || src[k] === '\r') { if (src[k] === '\n') line++; k++; } j = k; continue; }
           if (e === 'z') { j += 2; continue; }
           if (e >= '0' && e <= '9') { const m2 = src.slice(j+1).match(/^\d{1,3}/); out += String.fromCharCode(parseInt(m2[0], 10)); j += 1 + m2[0].length; continue; }
+          if (e === 'u' || e === 'U') {
+            const m2 = src.slice(j+2).match(/^\{([0-9a-fA-F]+)\}/);
+            if (!m2) throw new LexError('escape \\u mal formado', line);
+            out += utf8Bytes(parseInt(m2[1], 16)); j += 2 + m2[0].length; continue;
+          }
           const ch = ESC[e]; if (ch === undefined) throw new LexError('escape desconocido \\' + e, line);
           out += ch; j += 2; continue;
         }

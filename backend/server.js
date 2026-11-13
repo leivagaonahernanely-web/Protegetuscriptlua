@@ -1426,8 +1426,9 @@ local function _forceKick(msg)
   local lp = _findLP()
   if lp then pcall(function() lp:Kick(msg) end) end
 end
-local function kick(code)
+local function kick(code, suf)
   local msg = MSG[code] or MSG.VERIFY_FAILED
+  if suf then msg = msg .. "\\n(ref: " .. tostring(suf) .. ")" end
   -- La razon queda en la consola aunque el kick del jugador falle en el ejecutor
   pcall(function() warn(msg) end)
   _forceKick(msg)
@@ -1436,6 +1437,7 @@ end
 -- [AntiDump] Puerta de ejecutores: los ejecutores conocidos pasan limpios; uno desconocido
 -- no se bloquea, entra en modo de baja confianza (sigue la autenticacion, el dueño lo ve en el log).
 local _dumpHit = false
+local _dumpWhy = ""
 local _lowTrust = false
 local _softHit = false
 do
@@ -1573,12 +1575,17 @@ if okr and rid then rbxid = rid end
 -- Detector de dump: solo verifica que el Heartbeat responda (reloj completamente congelado = volcado)
 local detections = 0
 pcall(function()
-  local hits = 0
-  local conn = game:GetService("RunService").Heartbeat:Connect(function() hits += 1 end)
-  local t0 = os.clock()
-  repeat task.wait() until hits >= 2 or os.clock() - t0 > 2
-  conn:Disconnect()
-  if hits < 2 then detections += 1 end
+  -- Dos ventanas seguidas con el reloj congelado antes de marcar: una sola ventana
+  -- se equivocaba con picos de carga en moviles y echaba a usuarios limpios
+  local function _win()
+    local hits = 0
+    local conn = game:GetService("RunService").Heartbeat:Connect(function() hits += 1 end)
+    local t0 = os.clock()
+    repeat task.wait() until hits >= 2 or os.clock() - t0 > 2
+    conn:Disconnect()
+    return hits >= 2
+  end
+  if not _win() and not _win() then detections += 1 end
 end)
 -- Si el propio detector falla no se castiga al jugador (evita falsos positivos)
 local function _clearKey()
@@ -1588,7 +1595,7 @@ local function _clearKey()
   if type(_G) == "table" then pcall(function() _G.script_key = nil end) end
   pcall(function() script_key = nil end)
 end
-if detections > 0 then _dumpHit = true end
+if detections > 0 then _dumpHit = true; _dumpWhy = "heartbeat_congelado" end
 -- Detector de entorno: solo reporta si encuentra funciones de hook activas (hookfunction, etc.)
 -- Las comprobaciones de Tween/FPS se eliminaron porque fallaban en ejecutores legítimos y causaban
 -- kicks falsos. Solo se castiga si se detectan hooks explícitos que indican volcado activo.
@@ -1611,7 +1618,7 @@ local hookDetected = envProbeRun()
 if hookDetected then _softHit = true end
 -- Si loadstring fue interceptado: se avisa al servidor (dueño) y se corta antes de validar la key
 local _lt1, _ltw1 = loaderTampered()
-if _lt1 then _dbg("kick: loadertampered_pre " .. _ltw1) _dumpHit = true end
+if _lt1 then _dbg("kick: loadertampered_pre " .. _ltw1) _dumpHit = true; _dumpWhy = _ltw1 end
 -- Sondas de volcado: herramientas presentes o enganchadas van a aviso blando; el corte real
 -- lo decide loaderTampered() (loadstring no nativo / marcadores) y el Heartbeat congelado.
 if hardProbeRun() then _softHit = true end
@@ -1622,26 +1629,29 @@ if envWrapped() then _softHit = true end
 -- Si el error menciona un entorno de volcado (httplog, sandbox), o hay globals de logger a la
 -- vista, el codigo se congela ahi mismo: sin envio, sin descifrado, el volcador no recibe nada.
 local function _sandboxProbeHit()
-  local _hit = false
+  local _lvl = nil
   local _why = ""
   pcall(function()
     local _, _s = pcall(function() string.byte("a", function() return end, 9999, 38) end)
     if type(_s) == "string" then
-      if _s:find("httplog", 1, true) then _hit = true; _why = "httplog " .. _s end
-      if _s:find("sandbox", 1, true) then _hit = true; _why = "sandbox " .. _s end
+      if _s:find("httplog", 1, true) then _lvl = "hard"; _why = "httplog " .. _s
+      elseif _s:find("sandbox", 1, true) then _lvl = "soft"; _why = "sandbox " .. _s end
     end
   end)
-  return _hit, _why
+  return _lvl, _why
 end
-local _spb, _spw = _sandboxProbeHit()
-if _spb then
+local _spl, _spw = _sandboxProbeHit()
+if _spl == "hard" then
   _dbg("kick: sandbox_probe " .. tostring(_spw))
   pcall(function() game:HttpGet(AUTH_BASE .. "&key=" .. enc(key) .. "&hwid=" .. enc(hwid) .. "&rbxid=" .. enc(rbxid) .. "&tamper=1") end)
   _clearKey()
   -- Con jugador real se le echa; en un volcador sin jugador queda el congelamiento
-  _forceKick(MSG.TAMPERING)
-  warn(MSG.TAMPERING)
+  _forceKick(MSG.TAMPERING .. "\\n(ref: " .. tostring(_spw) .. ")")
+  warn(MSG.TAMPERING .. "\\n(ref: " .. tostring(_spw) .. ")")
   while true do end
+elseif _spl == "soft" then
+  -- El ejecutor nombra su propio envoltorio "sandbox" en errores internos: aviso, no corte
+  _dbg("soft: sandbox_probe " .. tostring(_spw))
 end
 -- [AntiDump] Gancho de depuracion activo: los env-loggers suelen dejar un hook puesto en debug
 pcall(function()
@@ -1653,10 +1663,10 @@ end)
 -- [AntiDump] Respuesta al volcado: aviso al servidor (con key y HWID) y kick.
 -- El script nunca llega al volcador y el usuario ve el aviso en pantalla.
 if _dumpHit then
-  _dbg("kick: dump_hit_heartbeat")
+  _dbg("kick: dump_hit " .. tostring(_dumpWhy))
   pcall(function() game:HttpGet(AUTH_BASE .. "&key=" .. enc(key) .. "&hwid=" .. enc(hwid) .. "&rbxid=" .. enc(rbxid) .. "&tamper=1") end)
   _clearKey()
-  kick("TAMPERING")
+  kick("TAMPERING", _dumpWhy)
 end
 -- Aviso blando: ya no se reporta. Los ejecutores legitimos traen APIs envueltas de fabrica y
 -- cada aviso blandaba una ejecucion normal como intento de volcado en el registro del dueño.
@@ -1964,15 +1974,18 @@ if not payload then kick("VERIFY_FAILED") end
 _dbg("paso 5: payload descifrado largo=" .. tostring(#payload))
 -- Ultima puerta antes de compilar el script descifrado: si el entorno es un volcador (sonda
 -- sandbox), se congela aqui tambien. El codigo descifrado nunca llega a ejecutarse ahi.
-local _spb, _spw = _sandboxProbeHit()
-if _spb then
+local _spl, _spw = _sandboxProbeHit()
+if _spl == "hard" then
   _dbg("kick: sandbox_probe " .. tostring(_spw))
   pcall(function() game:HttpGet(AUTH_BASE .. "&key=" .. enc(key) .. "&hwid=" .. enc(hwid) .. "&rbxid=" .. enc(rbxid) .. "&tamper=1") end)
   _clearKey()
   -- Con jugador real se le echa; en un volcador sin jugador queda el congelamiento
-  _forceKick(MSG.TAMPERING)
-  warn(MSG.TAMPERING)
+  _forceKick(MSG.TAMPERING .. "\\n(ref: " .. tostring(_spw) .. ")")
+  warn(MSG.TAMPERING .. "\\n(ref: " .. tostring(_spw) .. ")")
   while true do end
+elseif _spl == "soft" then
+  -- El ejecutor nombra su propio envoltorio "sandbox" en errores internos: aviso, no corte
+  _dbg("soft: sandbox_probe " .. tostring(_spw))
 end
 -- Revision despues del payload: si algo se engancho mientras corria, se corta. Las herramientas
 -- presentes sin enganches ya no se reportan (avisaban ejecuciones normales como volcados).
@@ -1981,7 +1994,7 @@ if _lt2 then
   _dbg("kick: loadertampered_post " .. _ltw2)
   pcall(function() game:HttpGet(AUTH_BASE .. "&key=" .. enc(key) .. "&hwid=" .. enc(hwid) .. "&tamper=1") end)
   _clearKey()
-  kick("TAMPERING")
+  kick("TAMPERING", _ltw2)
 end
 ${guard ? `pcall(function() if getgenv then getgenv().VANTARMOR_RUN = ${JSON.stringify(guard)} end end)
 pcall(function() _G.VANTARMOR_RUN = ${JSON.stringify(guard)} end)

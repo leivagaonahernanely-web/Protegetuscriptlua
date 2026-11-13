@@ -1373,7 +1373,7 @@ pre{margin:0;padding:16px;background:#040407;font-family:ui-monospace,SFMono-Reg
 // La key aleatoria por script (loader_id) va en una variable: el bootstrap no lleva el slug ni la ruta completa.
 // Diagnostico del bootstrap: solo para los loaders listados aqui (o con LOADER_DEBUG=1). Por defecto apagado.
 const LOADER_DEBUG = process.env.LOADER_DEBUG === '1';
-const DEBUG_LOADER_IDS = ['8d7860430a8b8709e5f8657e2cf1ccc135a4ec68'];
+const DEBUG_LOADER_IDS = [];
 function loaderBootstrap(loaderId, ffa, secure = false, secret = '', initCode = '', guard = '') {
   const sk = /^[0-9a-f]{40}$/.test(String(loaderId || '')) ? String(loaderId) : '';
   return `local SK = ${JSON.stringify(sk)}
@@ -2538,8 +2538,7 @@ function servedCode(script, { ip, key } = {}) {
   // serve_protected solo controla la vista previa del panel, nunca lo que
   // llega al ejecutor. La fuente en claro nunca sale del servidor.
   const plain = script.source ? stripWebhookMarkers(stripRemoteBlocks(script.source)) : '';
-  // DEBUG (solo loader de prueba): entrega el codigo ORIGINAL sin ofuscar para comparar
-  const base = (DEBUG_LOADER_IDS.includes(script.loader_id) && plain) ? plain : protectedBase(script, plain);
+  const base = protectedBase(script, plain);
   if (base === null) return null;
   const head = runtimeHeader(script, ip, key);
   if (!hasRemoteBlocks(script.source || '')) return head + base;

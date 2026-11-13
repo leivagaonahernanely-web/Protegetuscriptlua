@@ -1308,7 +1308,7 @@ local function _run(pi, ups, ...)
       R[a] = R[b][R[c]]
     elseif o == ${O.CALL} then
       local f = R[a]
-      if f == nil then error('[VANT-DBG] nilcall g=' .. tostring(_LGN) .. ' fld=' .. tostring(_LGF), 0) end
+      if f == nil then error('[VANT-DBG] nilcall op=' .. o .. ' pc=' .. (pc - 1) .. ' g=' .. tostring(_LGN) .. ' fld=' .. tostring(_LGF), 0) end
       local res
       if b == 0 then res = _pack(f(_unpack(R, a + 1, top)))
       else res = _pack(f(_unpack(R, a + 1, a + b - 1))) end
@@ -1385,6 +1385,7 @@ local function _run(pi, ups, ...)
       elseif b == 1 then return
       else return _unpack(R, a, a + b - 2) end
     elseif o == ${O.TFORCALL} then
+      if R[a] == nil then error('[VANT-DBG] nilcall op=' .. o .. ' pc=' .. (pc - 1) .. ' g=' .. tostring(_LGN) .. ' fld=' .. tostring(_LGF), 0) end
       local res = _pack(R[a](R[a + 1], R[a + 2]))
       local m = res.n or #res
       for i = 1, b do R[a + 1 + i] = res[i] end

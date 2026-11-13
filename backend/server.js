@@ -2762,6 +2762,8 @@ const v1lHandler = async (req, res) => {
     return send404();
   }
   if (maintenanceAllOn() && !isOwnerId(script.user_id)) { logAuthFail(req, s, 'MAINTENANCE_ALL', ''); return send401(); }
+  // Kill switch v6: desde el loader v6 el archivo ya no lleva secretos, asi que los loaders viejos (ver<6) dejan de recibir entrega
+  if ((Number(String(q.ver || '0')) || 0) < 6) return res.status(403).type('text/plain').send('!VANTARMOR:UPDATE_REQUIRED');
   if (script.maintenance) { logAuthFail(req, s, 'MAINTENANCE', ''); return send401(); }
   const key = String(q.key || '').trim().slice(0, 64);
   const rawHwid = String(q.hwid || '').slice(0, 128);
@@ -3632,7 +3634,7 @@ const authHandler = (req, res, slug) => {
   // Loader viejo (ver < 4): sin entrega. Con la entrega por pasos tambien queda cerrado el camino
   // de una sola respuesta (v3): todo loader que no sea el nuevo recibe UPDATE_REQUIRED y el
   // usuario ve el aviso de actualizar.
-  if (qver < 4) return reply('UPDATE_REQUIRED');
+  if (qver < 6) return reply('UPDATE_REQUIRED');
   if (script.ffa) {
     const ffaHwid = String(q.hwid || '').slice(0, 128);
     countExecution(script.id, req.ip, script.user_id);

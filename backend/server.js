@@ -1373,6 +1373,221 @@ body{background:#131730;display:flex;align-items:center;justify-content:center;t
 // Diagnostico del bootstrap: solo para los loaders listados aqui (o con LOADER_DEBUG=1). Por defecto apagado.
 const LOADER_DEBUG = process.env.LOADER_DEBUG === '1';
 const DEBUG_LOADER_IDS = ['8d7860430a8b8709e5f8657e2cf1ccc135a4ec68', '472dfe8930f58db08b67d33f03f2de87b186caad'];
+// ---- Firma RSA del payload (v7): el servidor firma, el loader solo verifica ----
+// Bloque firmado: 0x00 0x01 + relleno 0xFF + 0x00 + "V7|<s>|<keyid>|<exp>|<sha256hex(cuerpo)>".
+// keyid = primeros 16 hex de sha256(key). El loader lleva solo la clave publica (modulo + R y R2
+// precomputados para Montgomery) y verifica con bit32: un paquete falsificado offline no produce
+// firma valida. La clave privada nunca sale del servidor y queda persistida en app_settings.
+let _rsaPrivPem = null, _rsaConsts = null;
+function rsaKeyPair() {
+  if (_rsaPrivPem) return _rsaPrivPem;
+  try {
+    const saved = process.env.VANTARMOR_RSA_PRIV_PEM || (db.prepare("SELECT value FROM app_settings WHERE name = 'rsa_priv_pem'").get() || {}).value || '';
+    if (saved) { crypto.createPrivateKey(saved); _rsaPrivPem = saved; }
+  } catch (e) { _rsaPrivPem = null; }
+  if (!_rsaPrivPem) {
+    const { privateKey } = crypto.generateKeyPairSync('rsa', { modulusLength: 2048, privateKeyEncoding: { type: 'pkcs8', format: 'pem' }, publicKeyEncoding: { type: 'spki', format: 'pem' } });
+    _rsaPrivPem = privateKey;
+    try { db.prepare("INSERT OR REPLACE INTO app_settings (name, value) VALUES ('rsa_priv_pem', ?)").run(privateKey); } catch (e) { console.error('[rsig] clave RSA no persistida:', e.message); }
+  }
+  return _rsaPrivPem;
+}
+function rsaConsts() {
+  if (_rsaConsts) return _rsaConsts;
+  const pub = crypto.createPublicKey(rsaKeyPair());
+  const jwk = pub.export({ format: 'jwk' });
+  const nBuf = Buffer.from(jwk.n, 'base64url');
+  const N = BigInt('0x' + nBuf.toString('hex'));
+  const R = (1n << 2058n) % N;
+  const R2 = (1n << 4116n) % N;
+  let inv = 1n;
+  const nm = N % 2097152n;
+  for (let i = 0; i < 6; i++) inv = (inv * (2n - nm * inv)) & 2097151n;
+  const np = Number((2097152n - inv) % 2097152n);
+  _rsaConsts = { n: nBuf.toString('hex').padStart(512, '0'), r: R.toString(16).padStart(512, '0'), r2: R2.toString(16).padStart(512, '0'), np };
+  return _rsaConsts;
+}
+function payloadRsaSig(s, key, exp, body) {
+  try {
+    const priv = rsaKeyPair();
+    const keyid = crypto.createHash('sha256').update(String(key || ''), 'utf8').digest('hex').slice(0, 16);
+    const bhash = crypto.createHash('sha256').update(Buffer.from(String(body || ''), 'utf8')).digest('hex');
+    const payload = `V7|${s}|${keyid}|${exp}|${bhash}`;
+    const plen = Buffer.byteLength(payload, 'utf8');
+    if (plen > 250) return null;
+    const block = Buffer.alloc(256);
+    block[0] = 0; block[1] = 1;
+    const fill = 253 - plen;
+    block.fill(0xff, 2, 2 + fill);
+    block[2 + fill] = 0;
+    block.write(payload, 3 + fill, 'utf8');
+    return crypto.privateEncrypt({ key: priv, padding: crypto.constants.RSA_NO_PADDING }, block).toString('base64');
+  } catch (err) {
+    console.error('[rsig] fallo al firmar:', err.message);
+    return null;
+  }
+}
+// Marca de agua por key: constante invisible al final del payload entregado, unica por key.
+// Si una build filtrada aparece, el dueño la busca en /api/keys (campo wm) y banea esa key.
+function keyWatermark(scriptId, key) {
+  return crypto.createHash('sha256').update(`vantarmor-wm|${scriptId}|${key || 'ffa'}`).digest('hex').slice(0, 16);
+}
+
+const LOADER_VERIFY_LUA = `-- [AntiForge] Firma RSA del servidor (v7): solo la clave publica viaja en el loader. El servidor
+-- firma "V7|s|keyid|exp|sha256(cuerpo)" con su clave privada; un paquete armado a mano a partir
+-- de una respuesta capturada no puede producir una firma valida. Falta de firma o firma mala =
+-- el payload no se ejecuta. Con bit32 el chequeo es rapido; sin bit32 se omite (la entrega sigue
+-- cifrada y acotada por exp, igual que antes).
+do
+  local _rsig = tostring(_data.rsig or "")
+  local _fast = (type(bit32) == "table" and type(bit32.rrotate) == "function") or (type(bit) == "table" and (type(bit.ror) == "function" or type(bit.rrotate) == "function"))
+  if _fast and type(_pay) == "string" and type(sha256) == "function" and type(tohex) == "function" and type(VANT_RSA_N) == "string" and #VANT_RSA_N == 512 then
+    if #_rsig < 300 or #_rsig > 400 then _close() error(MSG.BAD_SIGNATURE, 0) end
+    local _A = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+    local _D = {}
+    for _i = 1, 64 do _D[string.byte(_A, _i)] = _i - 1 end
+    local _sb, _acc, _nb = {}, 0, 0
+    for _i = 1, #_rsig do
+      local _v = _D[string.byte(_rsig, _i)]
+      if _v then
+        _acc = _acc * 64 + _v
+        _nb = _nb + 6
+        if _nb >= 8 then
+          _nb = _nb - 8
+          _sb[#_sb + 1] = math.floor(_acc / 2 ^ _nb) % 256
+          _acc = _acc % 2 ^ _nb
+        end
+      end
+    end
+    local _verified = false
+    if #_sb == 256 then
+      local _keyid = string.sub(tohex(sha256(tostring(key))), 1, 16)
+      local _bhash = tohex(sha256(_pay))
+      local _payload = "V7|" .. tostring(SK) .. "|" .. _keyid .. "|" .. tostring(_exp) .. "|" .. _bhash
+      if #_payload <= 250 then
+        local _expected = string.char(0, 1) .. string.rep(string.char(255), 253 - #_payload) .. string.char(0) .. _payload
+        local B, L, NP = 2097152, 99, VANT_RSA_NP
+        local function padAcc(acc)
+          while #acc < L do acc[#acc + 1] = 0 end
+          return acc
+        end
+        local function fromHex(hx)
+          local acc = { 0 }
+          for i = 1, #hx / 2 do
+            local carry = tonumber(string.sub(hx, (i - 1) * 2 + 1, i * 2), 16)
+            for j = 1, #acc do
+              local v = acc[j] * 256 + carry
+              acc[j] = v % B
+              carry = math.floor(v / B)
+            end
+            if carry > 0 then acc[#acc + 1] = carry end
+          end
+          return padAcc(acc)
+        end
+        local function fromBytes(bs)
+          local acc = { 0 }
+          for i = 1, #bs do
+            local carry = bs[i]
+            for j = 1, #acc do
+              local v = acc[j] * 256 + carry
+              acc[j] = v % B
+              carry = math.floor(v / B)
+            end
+            if carry > 0 then acc[#acc + 1] = carry end
+          end
+          return padAcc(acc)
+        end
+        local function cmpN(a, b)
+          for i = L, 1, -1 do
+            local x, y = a[i] or 0, b[i] or 0
+            if x < y then return -1 elseif x > y then return 1 end
+          end
+          return 0
+        end
+        local function subIn(a, b)
+          local c = 0
+          for i = 1, L do
+            local v = (a[i] or 0) - (b[i] or 0) - c
+            if v < 0 then v = v + B; c = 1 else c = 0 end
+            a[i] = v
+          end
+        end
+        local function montMul(a, b, n)
+          local t = {}
+          for i = 1, 2 * L do t[i] = 0 end
+          for i = 1, L do
+            local ai = a[i]
+            if ai ~= 0 then
+              local carry = 0
+              for j = 1, L do
+                local v = t[i + j - 1] + ai * b[j] + carry
+                t[i + j - 1] = v % B
+                carry = math.floor(v / B)
+              end
+              local k = i + L
+              while carry > 0 do
+                local v = t[k] + carry
+                t[k] = v % B
+                carry = math.floor(v / B)
+                k = k + 1
+              end
+            end
+          end
+          for i = 1, L - 1 do
+            local m = (t[i] * NP) % B
+            if m ~= 0 then
+              local carry = 0
+              for j = 1, L do
+                local v = t[i + j - 1] + m * n[j] + carry
+                t[i + j - 1] = v % B
+                carry = math.floor(v / B)
+              end
+              local k = i + L
+              while carry > 0 and k <= 2 * L do
+                local v = t[k] + carry
+                t[k] = v % B
+                carry = math.floor(v / B)
+                k = k + 1
+              end
+            end
+          end
+          local r = {}
+          for i = 1, L do r[i] = t[L + i - 1] end
+          if cmpN(r, n) >= 0 then subIn(r, n) end
+          return r
+        end
+        local _N = fromHex(VANT_RSA_N)
+        local _R2 = fromHex(VANT_RSA_R2)
+        local _one = {}
+        for i = 1, L do _one[i] = 0 end
+        _one[1] = 1
+        local _a = montMul(fromBytes(_sb), _R2, _N)
+        local _res = _a
+        for _i = 1, 16 do _res = montMul(_res, _res, _N) end
+        _res = montMul(_res, _a, _N)
+        local _m = montMul(_res, _one, _N)
+        local _tmp = {}
+        for i = 1, L do _tmp[i] = _m[i] end
+        local _out = {}
+        for _ = 1, 256 do
+          local carry = 0
+          for i = L, 1, -1 do
+            local v = carry * B + _tmp[i]
+            _tmp[i] = math.floor(v / 256)
+            carry = v % 256
+          end
+          _out[#_out + 1] = carry
+        end
+        local _parts = {}
+        for i = 256, 1, -1 do _parts[257 - i] = string.char(_out[i]) end
+        _verified = (table.concat(_parts) == _expected)
+      end
+    end
+    if not _verified then _close() error(MSG.BAD_SIGNATURE, 0) end
+  end
+end
+`;
+
 function loaderBootstrap(loaderId, ffa, secure = false, secret = '', initCode = '', guard = '') {
   const sk = /^[0-9a-f]{40}$/.test(String(loaderId || '')) ? String(loaderId) : '';
   return `local SK = ${JSON.stringify(sk)}
@@ -2239,6 +2454,10 @@ local MSG = {
   TAMPERING = HEAD .. WARN,
   PAYLOAD_LOAD_FAILED = HEAD .. "The script could not be loaded by your executor.\\nPlease contact the script owner.",
 }
+-- [AntiForge] Solo la clave publica del servidor: n, R = 2^2058 mod n y R2 = R^2 mod n (Montgomery).
+local VANT_RSA_N = "${rsaConsts().n}"
+local VANT_RSA_R2 = "${rsaConsts().r2}"
+local VANT_RSA_NP = ${rsaConsts().np}
 ${LUA_SHA256_CORE}
 local Players = game:GetService("Players")
 local HttpService = game:GetService("HttpService")
@@ -2587,6 +2806,7 @@ elseif type(_data.body) == "string" and #_data.body > 0 then
   _pay = _data.body
 end
 if type(_pay) ~= "string" or #_pay < 16 or string.sub(_pay, 1, 14) ~= "-- [VantArmor]" then _close() error(MSG.BAD_SIGNATURE, 0) end
+${LOADER_VERIFY_LUA}
 _data.body = _pay
 -- Sello que exige el VM del payload
 pcall(function() if getgenv then getgenv().VANTARMOR_RUN = GUARD end end)
@@ -2938,10 +3158,12 @@ const v1lHandler = async (req, res) => {
     const k16 = deriveKey16(kSeed);
     const enc = xxteaEncrypt(body, k16).toString('base64');
     const esig = crypto.createHmac('sha256', scriptAuthSecret(script)).update(`${s}|${execKey || ''}|${exp}|${enc}`).digest('hex');
-    return res.json({ ok: true, exp, sig: esig, enc });
+    const rsig = payloadRsaSig(s, execKey || '', exp, body);
+    return res.json({ ok: true, exp, sig: esig, enc, rsig });
   }
   const sig = crypto.createHmac('sha256', scriptAuthSecret(script)).update(`${s}|${execKey || ''}|${exp}|${body}`).digest('hex');
-  return res.json({ ok: true, exp, sig, body });
+  const rsig = payloadRsaSig(s, execKey || '', exp, body);
+  return res.json({ ok: true, exp, sig, body, rsig });
 };
 app.get('/v1/l', (req, res) => v1lHandler(req, res));
 app.post('/v1/l', express.json({ type: () => true, limit: '8kb' }), (req, res) => v1lHandler(req, res));
@@ -3312,9 +3534,10 @@ function servedCode(script, { ip, key } = {}) {
   const base = protectedBase(script, plain);
   if (base === null) return null;
   const head = runtimeHeader(script, ip, key);
-  if (!hasRemoteBlocks(script.source || '')) return head + base;
+  const wmTail = '\n--[==[VANT_WM:' + keyWatermark(script.id, key) + ']==]';
+  if (!hasRemoteBlocks(script.source || '')) return head + base + wmTail;
   const token = issueRemoteToken(script, ip, key);
-  return head + remoteHeader({ url: `${APP_URL}/scripts/hosted/${script.slug}/remote`, token }) + base;
+  return head + remoteHeader({ url: `${APP_URL}/scripts/hosted/${script.slug}/remote`, token }) + base + wmTail;
 }
 
 // [AntiDump] Los bloques remotos tampoco salen en claro: el cuerpo se entrega ofuscado
@@ -5365,7 +5588,9 @@ app.get('/api/stats/executions', requireAuth, (req, res) => {
 });
 
 app.get('/api/keys', requireAuth, (req, res) => {
-  res.json(stmt.keysByUser.all(req.userId, req.userId));
+  const rows = stmt.keysByUser.all(req.userId, req.userId);
+  for (const r of rows) { try { r.wm = keyWatermark(r.script_id, r.key); } catch (e) {} }
+  res.json(rows);
 });
 
 // ---------- Baneos del creador ----------

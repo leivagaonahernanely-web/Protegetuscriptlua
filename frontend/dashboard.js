@@ -1369,7 +1369,9 @@
       const bs = $('botServers');
       if (bs) {
         bs.hidden = typeof st.servers !== 'number';
-        bs.textContent = `Bot en ${st.servers} ${st.servers === 1 ? 'servidor' : 'servidores'}`;
+        const vmTmpl = st.servers === 1 ? 'Bot en %N% servidor' : 'Bot en %N% servidores';
+        const vmDict = window.VM_LANGS && window.VM_LANGS[document.documentElement.lang || 'es'];
+        bs.textContent = ((vmDict && vmDict[vmTmpl]) || `Bot en ${st.servers} ${st.servers === 1 ? 'servidor' : 'servidores'}`).replace('%N%', st.servers);
       }
       const box = $('siteNotice');
       // Mantenimiento: pantalla completa para los usuarios; el dueño sigue entrando y ve el aviso normal
@@ -3062,7 +3064,7 @@
       if (!r.checked) return;
       try { localStorage.setItem(THEME_KEY, r.value); } catch (_) {}
       applyTheme();
-      toast(r.value === 'basic' ? 'Basic Mode activado: plata y negro' : 'Christmas Mode activado');
+      location.reload();
     });
   });
   $('userAvatar').title = 'Mi perfil';

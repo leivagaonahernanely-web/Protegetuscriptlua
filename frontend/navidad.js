@@ -10,6 +10,9 @@
  */
 (function () {
   try {
+    var vmTheme = null;
+    try { vmTheme = localStorage.getItem('vm_theme'); } catch (e2) {}
+    if (vmTheme === 'basic') return; // Basic Mode: sin decoracion navidena
     var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     var fine = window.matchMedia && window.matchMedia('(hover: hover)').matches; // escritorio, no táctil
 

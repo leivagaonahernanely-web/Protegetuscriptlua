@@ -1,28 +1,13 @@
-// Idioma del sitio. El español es el original de la página.
-// Los demás idiomas se traducen automáticamente con Google Translate.
-// El idioma se detecta solo del navegador (región del visitante) en la primera
-// visita y queda guardado (localStorage + cookie vm-lang + cookie googtrans);
-// no hay selector: la elección se vuelve a aplicar sola al entrar.
-// Si la versión del sitio cambió desde la última visita, avisa con un aviso
-// para recargar la página (traducido a cada idioma).
+// Idioma del sitio. Traducciones REALES incluidas en langs.js: sin widget externo,
+// sin parpadeo y sin depende de terceros. El espanol es el idioma original de la pagina.
+// El idioma se detecta del navegador en la primera visita y queda guardado
+// (localStorage + cookie vm-lang); no hay selector: la eleccion se vuelve a aplicar sola.
+// Si la version del sitio cambio desde la ultima visita, avisa con un aviso para recargar.
 (function () {
   const LANGS = ['es', 'en', 'pt', 'fr', 'de', 'it', 'ru', 'ja', 'zh-CN'];
   const LS_KEY = 'vm-lang';
   const SUPPORTED = new Set(LANGS);
 
-  const current = () => {
-    // Puede haber varias cookies googtrans (host-only, de dominio y la que escribe el propio
-    // traductor): gana la primera con valor real, no la vacia.
-    let out = '';
-    try {
-      for (const part of document.cookie.split(/;\s*/)) {
-        const m = part.match(/^googtrans=\/es\/([^;]+)$/);
-        if (m && m[1]) { out = decodeURIComponent(m[1]); break; }
-      }
-    } catch (e) { out = ''; }
-    return out || 'es';
-  };
-  // Eleccion guardada: localStorage o la cookie vm-lang (por si borran uno de los dos).
   const readVmCookie = () => {
     try {
       const m = document.cookie.match(/(?:^|;\s*)vm-lang=([^;]*)/);
@@ -35,22 +20,14 @@
     return v || readVmCookie();
   };
   const saveCookie = code => {
-    const value = code === 'es' ? '' : `/es/${code}`;
-    const age = code === 'es' ? 'max-age=0' : 'max-age=31536000';
-    document.cookie = `googtrans=${value}; path=/; ${age}`;
-    document.cookie = `googtrans=${value}; path=/; domain=${location.hostname}; ${age}`;
-    // La eleccion tambien vive aqui: si el navegador borra localStorage o la cookie googtrans,
-    // el idioma elegido no se pierde y no vuelve a saltar la deteccion automatica.
-    document.cookie = `vm-lang=${code}; path=/; max-age=31536000; SameSite=Lax`;
+    try { document.cookie = `vm-lang=${code}; path=/; max-age=31536000; SameSite=Lax`; } catch (e) {}
   };
-
   const mapLang = c => {
     const l = String(c || '').toLowerCase();
     const t = l.indexOf('-') > -1 ? l.slice(0, l.indexOf('-')) : l;
-    if (t === 'zh') return 'zh-CN'; // cualquier variante china va a chino simplificado
+    if (t === 'zh') return 'zh-CN';
     return SUPPORTED.has(t) ? t : '';
   };
-  // Deteccion del idioma del navegador (region del visitante), ordenada por preferencia.
   const detectLang = () => {
     const cand = (navigator.languages && navigator.languages.length
       ? navigator.languages : [navigator.language || '']).filter(Boolean);
@@ -61,164 +38,26 @@
     return '';
   };
 
-  // Primera visita (sin idioma guardado): se detecta el idioma del navegador y queda guardado
-  // como si lo hubiera elegido. Un idioma guardado que ya no se soporta se re-detecta.
   let savedVal = saved();
   if (savedVal && !SUPPORTED.has(savedVal)) savedVal = '';
   if (!savedVal) {
     const pick = detectLang();
     if (pick) {
-      try { localStorage.setItem(LS_KEY, pick); } catch (e) { /* sin localStorage: queda la cookie */ }
+      try { localStorage.setItem(LS_KEY, pick); } catch (e) {}
       saveCookie(pick);
       savedVal = pick;
     }
   }
-  // Anulacion manual sin selector: ?lang=en (o #lang=en). Solo si el idioma existe.
   try {
     const q = new URLSearchParams(location.search).get('lang') || (location.hash.match(/^#lang=([\w-]+)$/) || [])[1] || '';
     if (q && SUPPORTED.has(q)) { savedVal = q; try { localStorage.setItem(LS_KEY, q); } catch (e) {} saveCookie(q); }
-  } catch (e) { /* sin URLSearchParams: no pasa nada */ }
+  } catch (e) {}
 
-  // Idioma deseado: lo que el usuario eligio antes, o el de la cookie.
-  const want = savedVal || current();
-  if (want && want !== current()) saveCookie(want); // sincroniza la cookie para la proxima carga
+  const want = savedVal || 'es';
+  const DICT = (want === 'es') ? null : ((window.VM_LANGS && window.VM_LANGS[want]) || null);
+  try { document.documentElement.lang = want === 'zh-CN' ? 'zh-CN' : (want || 'es'); } catch (e) {}
 
-  let translating = false;
-  const busy = () => { translating = true; setTimeout(() => { translating = false; }, 2500); };
-
-  let gtInstance = null;
-
-  // Aplica un idioma con el combo interno de Google Translate. Devuelve true si existia el combo.
-  const applyCombo = code => {
-    const combo = document.querySelector('.goog-te-combo');
-    if (!combo) return false;
-    busy();
-    combo.value = code;
-    combo.dispatchEvent(new Event('change'));
-    return true;
-  };
-  // Traduce un bloque (o toda la pagina) sin volver al espanol: Google Translate recuerda
-  // el original de lo ya traducido, asi que solo procesa el contenido nuevo. Evita el
-  // parpadeo espanol que se veia cada vez que el panel actualizaba datos.
-  const applySection = node => {
-    try {
-      if (gtInstance && typeof gtInstance.translateSection === 'function') {
-        gtInstance.translateSection(node, want);
-        return true;
-      }
-    } catch (e) { /* si no existe el metodo, combo de reserva */ }
-    return false;
-  };
-  // Re-traducir el contenido nuevo del panel: primero por seccion (sin parpadeo) y, si el
-  // traductor no lo permite, vuelve al espanol y vuelve a aplicar como antes.
-  const retranslate = () => {
-    if (applySection(document.body)) { busy(); return; }
-    const combo = document.querySelector('.goog-te-combo');
-    if (!combo) return;
-    busy();
-    combo.value = 'es';
-    combo.dispatchEvent(new Event('change'));
-    setTimeout(() => {
-      busy();
-      combo.value = want;
-      combo.dispatchEvent(new Event('change'));
-    }, 120);
-  };
-
-  const css = `
-    #google_translate_element { display: none; }
-    .goog-te-banner-frame, .skiptranslate { display: none !important; }
-    body { top: 0 !important; }`;
-  const style = document.createElement('style');
-  style.textContent = css;
-  document.head.appendChild(style);
-
-  const hidden = document.createElement('div');
-  hidden.id = 'google_translate_element';
-  document.body.appendChild(hidden);
-
-  // Placeholders y comentarios dentro de <pre>/<code>: el traductor de Google no los toca.
-  // Espejos: cada texto se copia a un nodo oculto que el traductor si procesa, y el resultado
-  // vuelve al placeholder o al span marcado con vm-mirror-src.
-  const mirrorBox = document.createElement('div');
-  mirrorBox.style.cssText = 'position:fixed;left:-9999px;top:0;width:1px;height:1px;overflow:hidden';
-  document.body.appendChild(mirrorBox);
-  const mirrors = [];
-  const collectMirrors = () => {
-    document.querySelectorAll('[placeholder]').forEach(el => {
-      if (el._vmPh) return;
-      const m = document.createElement('span');
-      m.textContent = el.getAttribute('placeholder') || '';
-      mirrorBox.appendChild(m);
-      el._vmPh = m;
-      mirrors.push({ el, m, attr: 'placeholder' });
-    });
-    document.querySelectorAll('.vm-mirror-src').forEach(el => {
-      if (el._vmSrc) return;
-      const m = document.createElement('span');
-      m.textContent = el.textContent;
-      mirrorBox.appendChild(m);
-      el._vmSrc = m;
-      mirrors.push({ el, m, attr: null });
-    });
-  };
-  const syncMirrors = () => {
-    mirrors.forEach(({ el, m, attr }) => {
-      if (!m.isConnected || !el.isConnected) return;
-      const t = m.textContent;
-      if (!t || !t.trim()) return;
-      if (attr) { if (el.getAttribute(attr) !== t) el.setAttribute(attr, t); }
-      else if (el.textContent !== t) el.textContent = t;
-    });
-  };
-  if (want && want !== 'es') {
-    collectMirrors();
-    setInterval(collectMirrors, 1200);
-    setInterval(syncMirrors, 700);
-  }
-
-  // Contenido dinamico: el panel crea HTML despues de cargar; Google Translate no
-  // traduce lo nuevo por si solo, asi que se vuelve a aplicar cuando aparece.
-  if (want && want !== 'es') {
-    let t = null;
-    const isGoogleEdit = muts => muts.every(m =>
-      Array.from(m.addedNodes).every(n => n.nodeType === 1 && /^FONT$/i.test(n.tagName)));
-    const isMine = muts => muts.every(m => {
-      if (mirrorBox.contains(m.target)) return true;
-      if (m.target.nodeType === 1 && m.target._vmSrc) return true;
-      if (m.target.parentElement && m.target.parentElement._vmSrc) return true;
-      return false;
-    });
-    new MutationObserver(muts => {
-      if (translating || isGoogleEdit(muts) || isMine(muts)) return;
-      clearTimeout(t);
-      collectMirrors();
-      t = setTimeout(retranslate, 700);
-    }).observe(document.body, { childList: true, subtree: true, characterData: false });
-  }
-
-  window.vmGtInit = () => {
-    if (!window.google || !google.translate) return;
-    gtInstance = new google.translate.TranslateElement({
-      pageLanguage: 'es',
-      includedLanguages: LANGS.join(','),
-      autoDisplay: false,
-    }, 'google_translate_element');
-    // Aplica el idioma guardado en cuanto el combo exista (hasta ~6 s de espera)
-    if (want && want !== 'es') {
-      let n = 0;
-      const iv = setInterval(() => {
-        if (applyCombo(want) || ++n >= 20) clearInterval(iv);
-      }, 300);
-    }
-  };
-  const s = document.createElement('script');
-  s.src = 'https://translate.google.com/translate_a/element.js?cb=vmGtInit';
-  s.async = true;
-  document.body.appendChild(s);
-
-  // ---- Sitio desactualizado: aviso para recargar (traducido) ----
-  // Compara el commit del despliegue con el guardado de la ultima visita.
+  // ---- Aviso de version nueva (sin cambiar) ----
   const UPDATE_TEXTS = {
     es: 'VantArmor se actualizó. Toca aquí para recargar la página.',
     en: 'VantArmor was updated. Tap here to refresh the page.',
@@ -244,24 +83,95 @@
       bar.addEventListener('click', () => location.reload());
       document.body.appendChild(bar);
       document.body.style.paddingBottom = '48px';
-    } catch (e) { /* sin banner: la recarga manual sigue valiendo */ }
+    } catch (e) {}
   };
   const VER_KEY = 'vm-build';
   const buildFetch = (typeof fetch === 'function')
     ? fetch('/api/version', { cache: 'no-store' }).then(r => (r.ok ? r.json() : null)).catch(() => null)
     : Promise.resolve(null);
   buildFetch.then(v => {
-    if (!v || !v.commitFull) return; // sin dato de version: nada que comparar
+    if (!v || !v.commitFull) return;
     const id = String(v.commitFull);
     let prev = null;
     try { prev = localStorage.getItem(VER_KEY); } catch (e) { prev = null; }
-    try { localStorage.setItem(VER_KEY, id); } catch (e) { /* sin localStorage */ }
-    if (!prev) return;          // primera visita: solo se guarda el punto de partida
-    if (prev === id) return;    // misma version
+    try { localStorage.setItem(VER_KEY, id); } catch (e) {}
+    if (!prev) return;
+    if (prev === id) return;
     let seen = false;
     try { seen = sessionStorage.getItem('vm-build-seen') === id; } catch (e) { seen = false; }
-    if (seen) return;           // ya se aviso en esta sesion
-    try { sessionStorage.setItem('vm-build-seen', id); } catch (e) { /* sin sessionStorage */ }
+    if (seen) return;
+    try { sessionStorage.setItem('vm-build-seen', id); } catch (e) {}
     showUpdateBar();
   });
+
+  if (!DICT) return; // espanol: la pagina ya esta en su idioma
+
+  // ---- Aplicacion del diccionario ----
+  const norm = s => String(s).replace(/\s+/g, ' ').trim();
+  const SKIP = { SCRIPT: 1, STYLE: 1, PRE: 1, CODE: 1, NOSCRIPT: 1, TEXTAREA: 1 };
+  let fragList = null;
+  const getFragList = () => {
+    if (!fragList) {
+      fragList = Object.keys(DICT).filter(k => k.length >= 4)
+        .sort((a, b) => b.length - a.length)
+        .map(k => [new RegExp(k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\s+/g, '\\s+'), 'g'), DICT[k]]);
+    }
+    return fragList;
+  };
+  let running = false;
+  const apply = root => {
+    if (!DICT || running) return;
+    running = true;
+    try {
+      const w = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+        acceptNode: n => {
+          const p = n.parentNode;
+          if (!p || SKIP[p.nodeName]) return NodeFilter.FILTER_REJECT;
+          if (!n.nodeValue || !n.nodeValue.trim()) return NodeFilter.FILTER_REJECT;
+          return NodeFilter.FILTER_ACCEPT;
+        }
+      });
+      const ns = [];
+      while (w.nextNode()) ns.push(w.currentNode);
+      ns.forEach(n => {
+        const key = norm(n.nodeValue);
+        if (!key) return;
+        if (DICT[key] !== undefined) {
+          if (n.nodeValue !== DICT[key]) n.nodeValue = DICT[key];
+          return;
+        }
+        let out = n.nodeValue, hit = false;
+        for (const pair of getFragList()) {
+          if (pair[0].test(out)) { out = out.replace(pair[0], pair[1]); hit = true; }
+          pair[0].lastIndex = 0;
+        }
+        if (hit) n.nodeValue = out;
+      });
+      if (root.querySelectorAll) {
+        const els = root.querySelectorAll('[placeholder],[title],[alt],[aria-label]');
+        for (let i = 0; i < els.length; i++) {
+          const el = els[i];
+          for (const a of ['placeholder', 'title', 'alt', 'aria-label']) {
+            const val = el.getAttribute(a);
+            if (!val) continue;
+            const t = DICT[norm(val)];
+            if (t !== undefined && val !== t) el.setAttribute(a, t);
+          }
+        }
+      }
+      const tt = norm(document.title);
+      if (DICT[tt] !== undefined) document.title = DICT[tt];
+    } catch (e) {}
+    running = false;
+  };
+
+  apply(document.body);
+  if (typeof MutationObserver === 'function') {
+    let t = null;
+    new MutationObserver(() => {
+      if (running) return;
+      clearTimeout(t);
+      t = setTimeout(() => apply(document.body), 150);
+    }).observe(document.body, { childList: true, subtree: true, characterData: true });
+  }
 })();

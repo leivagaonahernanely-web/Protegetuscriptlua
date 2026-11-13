@@ -955,6 +955,7 @@ export function emitRuntime(data, seed, ops, opts = {}) {
   // ops: array nombreIdx -> opcode real
   const O = {};
   OP_NAMES.forEach((n, i) => { O[n] = ops[i]; });
+  const opnEntries = Object.keys(O).map(k => '[' + O[k] + ']=\'' + k + '\'').join(',');
   const layers = opts.layers === 2 ? 2 : 1;
   const ks = keystreamBytes(seed, data.length);
   let enc = '';
@@ -1097,6 +1098,7 @@ end`;
 end`;
   const lua = `
 local _NX = {${nibbleTableLiteral()}}
+local _OPN = {${opnEntries}}
 local function _x(a, b)
   return _NX[(a - a % 16) / 16 * 16 + (b - b % 16) / 16 + 1] * 16 + _NX[a % 16 * 16 + b % 16 + 1]
 end
@@ -1308,7 +1310,19 @@ local function _run(pi, ups, ...)
       R[a] = R[b][R[c]]
     elseif o == ${O.CALL} then
       local f = R[a]
-      if f == nil then error('[VANT-DBG] nilcall op=' .. o .. ' pc=' .. (pc - 1) .. ' g=' .. tostring(_LGN) .. ' fld=' .. tostring(_LGF), 0) end
+      if f == nil then
+        local _tt = {}
+        for _i = 0, math.max(top, a + 4) do if R[_i] ~= nil then _tt[#_tt + 1] = 'R' .. _i .. '=' .. type(R[_i]) end end
+        local _tr = {}
+        for _i = math.max(1, pc - 6), pc - 1 do
+          local _o2, _b2, _c2 = CO[_i], CB[_i], CC[_i]
+          local _s = _OPN[_o2] or ('op' .. tostring(_o2))
+          if _o2 == ${O.LOADK} or _o2 == ${O.GETGLOBAL} then _s = _s .. '(' .. tostring(K[_b2 + 1]) .. ')'
+          elseif _o2 == ${O.GETTABLEK} or _o2 == ${O.SELF} then _s = _s .. '(' .. tostring(K[_c2 + 1]) .. ')' end
+          _tr[#_tr + 1] = _s
+        end
+        error('[VANT-DBG] nilcall ' .. table.concat(_tr, ' ') .. ' | ' .. table.concat(_tt, ' '), 0)
+      end
       local res
       if b == 0 then res = _pack(f(_unpack(R, a + 1, top)))
       else res = _pack(f(_unpack(R, a + 1, a + b - 1))) end
@@ -1317,7 +1331,9 @@ local function _run(pi, ups, ...)
         for i = 1, m do R[a + i - 1] = res[i] end
         top = a + m - 1
       else
-        for i = 1, c - 1 do R[a + i - 1] = res[i] end
+        local n2 = c - 1
+        if n2 < 1 then n2 = 1 end
+        for i = 1, n2 do R[a + i - 1] = res[i] end
       end
     elseif o == ${O.ADD} then R[a] = R[b] + R[c]
     elseif o == ${O.LOADK} then

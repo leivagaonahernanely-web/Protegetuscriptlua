@@ -2326,7 +2326,7 @@ for _i = 1, 3 do
   do
     local _r = request or http_request or (syn and syn.request)
     if _r then
-      local _okp, _resp = pcall(_r, { Url = LURL, Method = "POST", Headers = { ["Content-Type"] = "application/json" }, Body = HttpService:JSONEncode({ s = SK, key = key, hwid = hwid, rbxid = rbxid, ver = 5, lt = _lowTrust and "1" or nil }) })
+      local _okp, _resp = pcall(_r, { Url = LURL, Method = "POST", Headers = { ["Content-Type"] = "application/json" }, Body = HttpService:JSONEncode({ s = SK, key = key, hwid = hwid, rbxid = rbxid, ver = 5, lt = _lowTrust and "1" or nil, ee = 1 }) })
       if _okp and type(_resp) == "table" then
         local _b = _resp.Body or _resp.body
         if type(_b) == "string" and #_b > 0 then _raw = _b end
@@ -2334,7 +2334,7 @@ for _i = 1, 3 do
     end
   end
   if not _raw then
-    local _okg, _gr = pcall(function() return game:HttpGet(LURL .. "?s=" .. enc(SK) .. "&key=" .. enc(key) .. "&hwid=" .. enc(hwid) .. "&rbxid=" .. enc(rbxid)) end)
+    local _okg, _gr = pcall(function() return game:HttpGet(LURL .. "?s=" .. enc(SK) .. "&key=" .. enc(key) .. "&hwid=" .. enc(hwid) .. "&rbxid=" .. enc(rbxid) .. "&ee=1") end)
     if _okg and type(_gr) == "string" and #_gr > 0 then _raw = _gr end
   end
   if _raw then
@@ -2358,12 +2358,157 @@ end
 -- Vigencia: exp en segundos Unix, maximo 10 minutos desde la emision
 local _exp = tonumber(_data.exp) or 0
 if os.time() > _exp then _close() error(MSG.EXPIRED, 0) end
--- Firma: HMAC-SHA256(secreto del script, s|key|exp|body) recalculada aqui con sha puro Lua
-local _sigOk = false
-if type(_data.sig) == "string" and type(_data.body) == "string" and #_data.body > 0 then
-  _sigOk = hmac_sha256(SEC, SK .. "|" .. key .. "|" .. string.format("%.0f", _exp) .. "|" .. _data.body) == string.lower(_data.sig)
+-- Descifrado v5: la entrega cifrada (ee=1) manda ciphertext; la clave se deriva en ambos
+-- lados de datos que ya viajan (secreto, key, hwid, exp). Rutina identica a la del servidor.
+local function _vantDec5(_b64, _ckey, _chwid, _cexp)
+  local _M = 4294967296
+  local _XN = {}
+  for _a = 0, 15 do
+    for _b = 0, 15 do
+      local _x, _p, _aa, _bb = 0, 1, _a, _b
+      for _ = 1, 4 do
+        if _aa % 2 ~= _bb % 2 then _x = _x + _p end
+        _p = _p * 2
+        _aa = math.floor(_aa / 2)
+        _bb = math.floor(_bb / 2)
+      end
+      _XN[_a * 16 + _b] = _x
+    end
+  end
+  local _bits = nil
+  do
+    local _ok, _bt = pcall(function() return bit32 end)
+    if _ok and type(_bt) == "table" and type(_bt.bxor) == "function" then _bits = _bt end
+  end
+  if not _bits then
+    local _ok, _bt = pcall(function() return bit end)
+    if _ok and type(_bt) == "table" and type(_bt.bxor) == "function" and type(_bt.band) == "function" then _bits = _bt end
+  end
+  local function _xor(a, b)
+    if _bits then
+      local r = _bits.bxor(math.floor(a) % 4294967296, math.floor(b) % 4294967296)
+      if r < 0 then r = r + 4294967296 end
+      return r
+    end
+    local _r, _p = 0, 1
+    for _ = 1, 8 do
+      _r = _r + _XN[(a % 16) * 16 + (b % 16)] * _p
+      a = math.floor(a / 16)
+      b = math.floor(b / 16)
+      _p = _p * 16
+    end
+    return _r
+  end
+  local function _xs(h)
+    h = (h * 8192) % _M
+    h = _xor(h, math.floor(h / 131072))
+    h = (h * 32) % _M
+    return h
+  end
+  local function _mix(_seed)
+    local _h1, _h2 = 374761393, 668265263
+    for _i = 1, #_seed do
+      _h1 = (_h1 + _seed:byte(_i) * 31 + 7) % _M
+      _h1 = _xs(_h1)
+      _h2 = (_h2 + _h1) % _M
+      _h2 = _xs(_h2)
+    end
+    local _kb = {}
+    for _i = 1, 16 do
+      _h1 = _xs(_h1)
+      _h2 = _xs(_h2)
+      _kb[_i] = _xor(_h1, _h2) % 256
+    end
+    return _kb
+  end
+  local _seed = tostring(SEC or ""):sub(1, 64) .. "|" .. tostring(_ckey or ""):sub(1, 64) .. "|" .. tostring(_chwid or ""):sub(1, 128) .. "|" .. string.format("%.0f", _cexp or 0) .. "|v5"
+  local _kb = _mix(_seed)
+  local _b = (_b64 or ""):gsub("%s+", "")
+  if #_b == 0 then return nil end
+  local _AL = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+  local _im = {}
+  for _i = 1, 64 do _im[_AL:byte(_i)] = _i - 1 end
+  local _bytes = {}
+  local _bn = 0
+  local _acc, _bts = 0, 0
+  for _i = 1, #_b do
+    local _d = _im[_b:byte(_i)]
+    if _d then
+      _acc = _acc * 64 + _d
+      _bts = _bts + 6
+      if _bts >= 8 then
+        _bts = _bts - 8
+        _bn = _bn + 1
+        _bytes[_bn] = math.floor(_acc / 2 ^ _bts) % 256
+        _acc = _acc % 2 ^ _bts
+      end
+    end
+  end
+  if _bn == 0 or _bn % 4 ~= 0 then return nil end
+  local _DL = 2654435769
+  local _m = _bn / 4
+  if _m < 2 then return nil end
+  local _k = {}
+  for _j = 0, 3 do
+    local _w = 0
+    for _i = 0, 3 do
+      local _p = _j * 4 + _i
+      _w = _w + _kb[_p + 1] * 256 ^ _i
+    end
+    _k[_j + 1] = _w
+  end
+  local _v = {}
+  for _i = 1, _m do
+    local _o = (_i - 1) * 4
+    _v[_i] = _bytes[_o + 1] + _bytes[_o + 2] * 256 + _bytes[_o + 3] * 65536 + _bytes[_o + 4] * 16777216
+  end
+  local function _mx(sum, y, z, p0, e, k)
+    local _t1 = _xor(math.floor(z / 32), (y * 4) % _M)
+    local _t2 = _xor(math.floor(y / 8), (z * 16) % _M)
+    local _s1 = (_t1 + _t2) % _M
+    local _t3 = _xor(sum, y)
+    local _t4 = _xor(k[_xor(p0 % 4, e) + 1], z)
+    local _s2 = (_t3 + _t4) % _M
+    return _xor(_s1, _s2)
+  end
+  local _rounds = 6 + math.floor(52 / _m)
+  local _sum = (_DL * _rounds) % _M
+  local _y = _v[1]
+  repeat
+    local _e = math.floor(_sum / 4) % 4
+    for _p = _m, 2, -1 do
+      local _z = _v[_p - 1]
+      _y = (_v[_p] - _mx(_sum, _y, _z, _p - 1, _e, _k)) % _M
+      _v[_p] = _y
+    end
+    local _z2 = _v[_m]
+    _y = (_v[1] - _mx(_sum, _y, _z2, 0, _e, _k)) % _M
+    _v[1] = _y
+    _sum = (_sum - _DL) % _M
+  until _sum == 0
+  local _parts = {}
+  for _i = 1, _m do
+    local _w = _v[_i]
+    _parts[_i] = string.char(_w % 256, math.floor(_w / 256) % 256, math.floor(_w / 65536) % 256, math.floor(_w / 16777216) % 256)
+  end
+  local _pt = table.concat(_parts)
+  local _len = #_pt
+  while _len > 0 and _pt:byte(_len) == 0 do _len = _len - 1 end
+  return _pt:sub(1, _len)
 end
-if not _sigOk then _close() error(MSG.BAD_SIGNATURE, 0) end
+-- Firma: HMAC-SHA256(secreto del script, s|key|exp|payload). Con entrega cifrada el payload
+-- es el ciphertext (enc): la firma verifica al servidor antes de descifrar.
+local _sigOk = false
+local _pay = nil
+if type(_data.sig) == "string" and type(_data.body) == "string" and #_data.body > 0 then
+  _pay = _data.body
+  _sigOk = hmac_sha256(SEC, SK .. "|" .. key .. "|" .. string.format("%.0f", _exp) .. "|" .. _data.body) == string.lower(_data.sig)
+elseif type(_data.sig) == "string" and type(_data.enc) == "string" and #_data.enc > 0 then
+  _sigOk = hmac_sha256(SEC, SK .. "|" .. key .. "|" .. string.format("%.0f", _exp) .. "|" .. _data.enc) == string.lower(_data.sig)
+  if _sigOk then _pay = _vantDec5(_data.enc, key, hwid, _exp) end
+end
+if not _sigOk or type(_pay) ~= "string" or #_pay == 0 then _close() error(MSG.BAD_SIGNATURE, 0) end
+_data.body = _pay
 -- Sello que exige el VM del payload
 pcall(function() if getgenv then getgenv().VANTARMOR_RUN = GUARD end end)
 pcall(function() _G.VANTARMOR_RUN = GUARD end)
@@ -2625,6 +2770,15 @@ const v1lHandler = async (req, res) => {
     return res.status(503).json({ ok: false, error: 'unavailable' });
   }
   const exp = Math.floor(Date.now() / 1000) + L_TTL_S;
+  if (String(q.ee || '') === '1') {
+    // Entrega cifrada: la respuesta solo lleva ciphertext. La clave se deriva en ambos lados
+    // de datos que ya viajan (secreto del script, key, hwid, exp); una respuesta capturada
+    // es ciphertext sin clave. La firma cubre el ciphertext.
+    const k16 = deriveKey16(`${scriptAuthSecret(script)}|${execKey || ''}|${rawHwid}|${exp}|v5`);
+    const enc = xxteaEncrypt(body, k16).toString('base64');
+    const esig = crypto.createHmac('sha256', scriptAuthSecret(script)).update(`${s}|${execKey || ''}|${exp}|${enc}`).digest('hex');
+    return res.json({ ok: true, exp, sig: esig, enc });
+  }
   const sig = crypto.createHmac('sha256', scriptAuthSecret(script)).update(`${s}|${execKey || ''}|${exp}|${body}`).digest('hex');
   return res.json({ ok: true, exp, sig, body });
 };

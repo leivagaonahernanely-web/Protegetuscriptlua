@@ -96,7 +96,7 @@ const jsonLimit = rateLimit({
 // 0. CONSTANTES Y CONFIGURACIÓN
 // ==========================================
 const MAX_CODE_BYTES = 2 * 1024 * 1024;           // 2 MB por script
-const OBFUSCATORS = ['real', 'obscura', 'luau', 'next', 'vantobf', 'none'];   // 'next' = Ofuscador 4 (NextOfuscator, lib/nextofuscator, todos los planes);    // RealObfuscator (predeterminado, modo VM), Obscura, Ofuscador 3 (LuaUObfuscator, solo Premium Plus); 'none' = sin ofuscar. Clyde se quitó.
+const OBFUSCATORS = ['real', 'obscura', 'luau', 'next', 'vantobf'];   // 'next' = Ofuscador 4 (NextOfuscator, lib/nextofuscator, todos los planes);    // RealObfuscator (predeterminado, modo VM), Obscura, Ofuscador 3 (LuaUObfuscator, solo Premium Plus); 'none' = sin ofuscar. Clyde se quitó.
 const KEY_ALPHABET = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
 // Un error suelto no debe tirar el servidor ni dejar al bot a medias: se registra y el proceso sigue
 process.on('unhandledRejection', err => console.error('[Proceso] Promesa sin manejar:', err));
@@ -392,7 +392,24 @@ db.exec(`
 ensureBotSchema(db);
 
 // Proyectos: agrupan scripts. La whitelist por proyecto aplica a todos sus scripts.
-db.exec(`CREATE TABLE IF NOT EXISTS projects (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id TEXT NOT NULL, name TEXT NOT NULL, created_at INTEGER)`);
+db.exec(`CREATE TABLE IF NOT EXISTS projects (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id TEXT NOT NULL, name TEXT NOT NULL, created_at INTEGER,
+  logs_webhook TEXT, alert_webhook TEXT, allow_hwid_reset INTEGER DEFAULT 1, hwid_reset_cooldown_days INTEGER, auto_delete_expired INTEGER DEFAULT 0, allow_hwid_clone_sharing INTEGER DEFAULT 0)`);
+// Migracion: proyectos existentes ganan los campos nuevos; keys ganan project_id (key de proyecto)
+for (const [col, def] of [['logs_webhook','TEXT'],['alert_webhook','TEXT'],['allow_hwid_reset','INTEGER DEFAULT 1'],['hwid_reset_cooldown_days','INTEGER'],['auto_delete_expired','INTEGER DEFAULT 0'],['allow_hwid_clone_sharing','INTEGER DEFAULT 0']]) {
+  if (!db.prepare(`SELECT 1 FROM pragma_table_info('projects') WHERE name = ?`).get(col)) db.exec(`ALTER TABLE projects ADD COLUMN ${col} ${def}`);
+}
+if (!db.prepare("SELECT 1 FROM pragma_table_info('keys') WHERE name = 'project_id'").get()) db.exec('ALTER TABLE keys ADD COLUMN project_id INTEGER');
+// Todo script sin proyecto va al primer proyecto de su dueno (se crea uno si no tiene): el panel ya no deja scripts sueltos
+(function ensureDefaultProjects() {
+  for (const row of db.prepare('SELECT DISTINCT user_id FROM scripts WHERE project_id IS NULL').all()) {
+    let p = db.prepare('SELECT id FROM projects WHERE user_id = ? ORDER BY id ASC LIMIT 1').get(row.user_id);
+    if (!p) {
+      const info = db.prepare('INSERT INTO projects (user_id, name, created_at) VALUES (?, ?, ?)').run(row.user_id, 'Proyecto 1', Math.floor(Date.now() / 1000));
+      p = { id: Number(info.lastInsertRowid) };
+    }
+    db.prepare('UPDATE scripts SET project_id = ? WHERE user_id = ? AND project_id IS NULL').run(p.id, row.user_id);
+  }
+})();
 db.exec(`CREATE TABLE IF NOT EXISTS bot_project_rules (project_id INTEGER NOT NULL, kind TEXT NOT NULL, discord_id TEXT NOT NULL, label TEXT, expires_at INTEGER, PRIMARY KEY (project_id, kind, discord_id))`);
 if (!db.prepare("SELECT 1 FROM pragma_table_info('scripts') WHERE name = 'project_id'").get()) db.exec('ALTER TABLE scripts ADD COLUMN project_id INTEGER');
 // Planes con vencimiento: días de cada key y fecha de vencimiento del plan del usuario
@@ -540,24 +557,24 @@ const stmt = {
   `),
   scriptOwned: db.prepare('SELECT * FROM scripts WHERE id = ? AND user_id = ?'),
   scriptInsert: db.prepare(`
-    INSERT INTO scripts (user_id, name, slug, ffa, obfuscator, obf_mode, guard_secret, source, content, hwid_reset_hours, share_detection, clyde_vm, auto_revoke_dump, hwid_lock)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO scripts (user_id, project_id, name, slug, ffa, obfuscator, obf_mode, guard_secret, source, content, hwid_reset_hours, share_detection, clyde_vm, auto_revoke_dump, hwid_lock)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `),
   scriptUpdate: db.prepare(`
     UPDATE scripts SET name = ?, ffa = ?, obfuscator = ?, obf_mode = ?, guard_secret = ?, source = ?, content = ?, hwid_reset_hours = ?, share_detection = ?, clyde_vm = ?, auto_revoke_dump = ?, hwid_lock = ?
     WHERE id = ? AND user_id = ?
   `),
   keysByUser: db.prepare(`
-    SELECT k.key, k.script_id, k.expires_at, k.banned, k.hwid, k.discord_id, k.last_ip,
+    SELECT k.key, k.script_id, k.project_id, k.expires_at, k.banned, k.hwid, k.discord_id, k.last_ip,
            k.key_days, k.exec_count, k.exec_limit, k.hwid_resets, k.hwid_reset_at,
            CASE WHEN k.banned = 1 THEN 'banned'
                 WHEN k.hwid IS NULL OR k.hwid = '' THEN 'reset'
                 ELSE 'active' END AS status
     FROM keys k
-    JOIN scripts s ON s.id = k.script_id
-    WHERE s.user_id = ?
+    LEFT JOIN scripts s ON s.id = k.script_id
+    WHERE s.user_id = ? OR EXISTS (SELECT 1 FROM projects p WHERE p.id = k.project_id AND p.user_id = ?)
   `),
-  keyInsert: db.prepare('INSERT INTO keys (key, script_id, expires_at, key_days) VALUES (?, ?, ?, ?)'),
+  keyInsert: db.prepare('INSERT INTO keys (key, script_id, expires_at, key_days, project_id) VALUES (?, ?, ?, ?, ?)'),
   slugExists: db.prepare('SELECT 1 FROM scripts WHERE slug = ?'),
   scriptBySlug: db.prepare('SELECT * FROM scripts WHERE slug = ?'),
   scriptByLoaderId: db.prepare('SELECT * FROM scripts WHERE loader_id = ?'),
@@ -1016,6 +1033,12 @@ function compactDbIfRoom(reason) {
 pruneScriptLogs();
 compactDbIfRoom('arranque');
 setInterval(() => { pruneScriptLogs(); compactDbIfRoom('programado'); }, 6 * 3600_000).unref();
+// Auto delete expired users (por proyecto): cada 15 min se borran las keys ya expiradas de esos proyectos
+setInterval(() => {
+  try {
+    db.prepare('DELETE FROM keys WHERE expires_at IS NOT NULL AND expires_at < ? AND project_id IN (SELECT id FROM projects WHERE auto_delete_expired = 1)').run(Math.floor(Date.now() / 1000));
+  } catch { }
+}, 15 * 60_000).unref();
 
 async function obfuscate(source, obfuscator, opts = {}) {
   source = normalizeLuaSource(source); // BOM y línea #! fuera antes de ofuscar
@@ -2727,10 +2750,33 @@ db.exec(`CREATE TABLE IF NOT EXISTS auth_fail_log (
   reason TEXT,
   key_hint TEXT
 )`);
+// Keys de proyecto: una key puede ser de script (script_id) o de proyecto (project_id); una key de
+// proyecto sirve para todos los scripts de ese proyecto (estilo Luarmor: usuarios por aplicacion).
+const keyByKeyStmt = db.prepare('SELECT * FROM keys WHERE key = ?');
+const keyForScript = (key, script) => {
+  if (!key || !script) return null;
+  const k = keyByKeyStmt.get(String(key));
+  if (!k) return null;
+  if (k.script_id === script.id) return k;
+  if (k.project_id != null && k.project_id === script.project_id) return k;
+  return null;
+};
+const projectOfKey = db.prepare('SELECT allow_hwid_clone_sharing, allow_hwid_reset, hwid_reset_cooldown_days, auto_delete_expired, logs_webhook, alert_webhook FROM projects WHERE id = ?');
+const ownerOfKey = key => {
+  try {
+    const r = db.prepare('SELECT s.user_id AS su, p.user_id AS pu FROM keys k LEFT JOIN scripts s ON s.id = k.script_id LEFT JOIN projects p ON p.id = k.project_id WHERE k.key = ?').get(key);
+    return (r && (r.su || r.pu)) || null;
+  } catch { return null; }
+};
 function logAuthFail(req, s, reason, key) {
   try {
     db.prepare('INSERT INTO auth_fail_log (ts, ip, s, reason, key_hint) VALUES (?, ?, ?, ?, ?)')
       .run(Math.floor(Date.now() / 1000), req.ip || null, s ? String(s).slice(0, 64) : null, reason || 'UNKNOWN', key ? String(key).slice(0, 4) + '..(' + String(key).length + ')' : null);
+    // Webhook de alertas del proyecto: intentos de crack y baneos
+    if (['KEY_INVALID', 'KEY_BANNED', 'KEY_EXPIRED', 'BLACKLISTED', 'HWID_MISMATCH', 'VERIFY_FAILED', 'EXEC_LIMIT', 'TAMPERING'].includes(reason)) {
+      const _scr = /^[0-9a-f]{40}$/.test(String(s)) ? stmt.scriptByLoaderId.get(s) : null;
+      if (_scr && _scr.project_id != null) fireProjectWebhook(_scr.project_id, 'alert', { evento: reason, key: key || 'FFA (sin key)', ip: req.ip || 'sin dato' });
+    }
   } catch { /* el registro nunca rompe la respuesta */ }
   console.warn('[v1/l] auth fail ip=%s s=%s reason=%s', req.ip, s, reason);
 }
@@ -2786,14 +2832,15 @@ const v1lHandler = async (req, res) => {
   let execKey = null;
   let hwid = /^[\x21-\x7E]{8,128}$/.test(rawHwid) ? rawHwid : '';
   if (!script.ffa) {
-    const k = db.prepare('SELECT * FROM keys WHERE key = ? AND script_id = ?').get(key, script.id);
+    const k = keyForScript(key, script);
+    const cloneSharing = k && k.project_id != null && (projectOfKey.get(k.project_id) || {}).allow_hwid_clone_sharing === 1;
     if (!k) { noteAuthFail(req.ip); logAuthFail(req, s, 'KEY_INVALID', key); return send401(); }
     if (k.banned) { logAuthFail(req, s, 'KEY_BANNED', key); return send401(); }
     if (k.expires_at && k.expires_at * 1000 < Date.now()) { logAuthFail(req, s, 'KEY_EXPIRED', key); return send401(); }
     if (k.discord_id && db.prepare('SELECT 1 FROM bot_blacklist WHERE script_id = ? AND discord_id = ?').get(script.id, k.discord_id)) { logAuthFail(req, s, 'BLACKLISTED', key); return send401(); }
     // Si GetClientId() fallo en el ejecutor, la IP hace de identificador de equipo (igual que en /v1/a)
     if (!hwid && req.ip) hwid = `ip:${req.ip}`;
-    if (script.hwid_lock !== 0) {
+    if (script.hwid_lock !== 0 && !cloneSharing) {
       const shareReply = code => { logAuthFail(req, s, 'HWID_MISMATCH', key); return send401(); };
       if (!hwid) { logAuthFail(req, s, 'VERIFY_FAILED', key); return send401(); }
       if (!k.hwid && k.last_hwid && k.last_hwid !== hwid && script.share_detection !== 0) return reportKeyShare(script, k, hwid, shareReply);
@@ -2996,6 +3043,17 @@ async function robloxInfo(userId) {
 // Registro de ejecución con la línea de Roblox (nombre + ID) y la foto de avatar como miniatura.
 // No espera a Roblox para responderle al loader.
 function logWithRoblox(scriptId, lines, userId, rbxid) {
+  // Webhook de logs del proyecto: solo ejecuciones correctas (la primera linea lleva la marca verde)
+  try {
+    if (Array.isArray(lines) && typeof lines[0] === 'string' && lines[0].startsWith('🟢')) {
+      const _scr = db.prepare('SELECT project_id FROM scripts WHERE id = ?').get(scriptId);
+      if (_scr && _scr.project_id != null) fireProjectWebhook(_scr.project_id, 'logs', {
+        evento: 'Ejecución correcta',
+        key: userId ? String(userId) : 'FFA (sin key)',
+        detalle: lines.slice(1).map(l => String(l).replace(/[`*]/g, '')).join(' · ').slice(0, 900),
+      });
+    }
+  } catch { }
   if (!rbxid) return logUse(scriptId, [...lines, '• Roblox: sin dato'].join('\n'), userId);
   robloxInfo(rbxid)
     .then(rbx => logUse(scriptId, [...lines, `• Roblox: ${rbx.name ? `${rbx.name} · ` : ''}\`${rbxid}\``].join('\n'), userId, { thumbnail: rbx.avatar }))
@@ -3134,10 +3192,10 @@ const WEBHOOK_SESSION_TTL = 6 * 3600_000;
 setInterval(() => { const t = Date.now(); for (const [k, v] of webhookSessions) if (v.expires < t) webhookSessions.delete(k); }, 300_000).unref();
 const webhookRate = new Map(); // ip -> marcas de tiempo de la última ventana
 setInterval(() => { const cut = Date.now() - 60_000; for (const [k, arr] of webhookRate) { const keep = arr.filter(x => x > cut); if (keep.length) webhookRate.set(k, keep); else webhookRate.delete(k); } }, 60_000).unref();
-const keyInfoStmt = db.prepare('SELECT discord_id, exec_count, expires_at FROM keys WHERE key = ? AND script_id = ?');
+// keyInfoStmt retirado: keyForScript cubre keys de script y de proyecto
 
 function runtimeHeader(script, ip, key) {
-  const info = key ? keyInfoStmt.get(key, script.id) : null;
+  const info = key ? keyForScript(key, script) : null;
   const esc = s => String(s).replace(/[\\"]/g, '\\$&');
   const secondsLeft = info && info.expires_at ? Math.max(0, Math.floor(info.expires_at - Date.now() / 1000)) : 'math.huge';
   let head = `-- [VantArmor] Variables de entorno fijadas por el servidor\n`
@@ -3589,7 +3647,7 @@ const authHandler = (req, res, slug) => {
     const soft = String(q.soft || '') === '1';
     const tKey = String(q.key || '').trim().slice(0, 64);
     const tHwid = /^[\x21-\x7E]{8,128}$/.test(String(q.hwid || '')) ? String(q.hwid) : '';
-    const keyRow = tKey ? db.prepare('SELECT discord_id, hwid FROM keys WHERE key = ? AND script_id = ?').get(tKey, script.id) : null;
+    const keyRow = tKey ? keyForScript(tKey, script) : null;
     const tDiscord = keyRow?.discord_id || null;
     const nowS = Math.floor(Date.now() / 1000);
     try {
@@ -3653,7 +3711,8 @@ const authHandler = (req, res, slug) => {
   let hwid = /^[\x21-\x7E]{8,128}$/.test(rawHwid) ? rawHwid : '';
   if (!key) return reply('KEY_REQUIRED');
   if (scriptBanned(script.id, 'ip', req.ip)) return reply('BLACKLISTED');
-  const k = db.prepare('SELECT * FROM keys WHERE key = ? AND script_id = ?').get(key, script.id);
+  const k = keyForScript(key, script);
+  const cloneSharing = k && k.project_id != null && (projectOfKey.get(k.project_id) || {}).allow_hwid_clone_sharing === 1;
   if (!k) return reply('KEY_INVALID');
   if (k.banned) return reply('BLACKLISTED');
   if (k.expires_at && k.expires_at * 1000 < Date.now()) return reply('KEY_EXPIRED');
@@ -3665,7 +3724,7 @@ const authHandler = (req, res, slug) => {
   // para evitar rechazar al jugador con VERIFY_FAILED cuando el HWID no llegó por error del ejecutor
   if (!hwid && req.ip) hwid = `ip:${req.ip}`;
   // Bloqueo de equipo apagado: la key sirve en cualquier equipo, sin vincularla ni avisar de compartida
-  if (script.hwid_lock !== 0) {
+  if (script.hwid_lock !== 0 && !cloneSharing) {
   if (!hwid) return reply('VERIFY_FAILED');
   // Tras reiniciar el HWID la key queda sin equipo: si el HWID nuevo no es el último vinculado, cuenta como compartida
   if (!k.hwid && k.last_hwid && k.last_hwid !== hwid && script.share_detection !== 0) return reportKeyShare(script, k, hwid, reply);
@@ -3734,7 +3793,8 @@ app.get('/v1/k', (req, res) => {
   }
   const key = String(req.query.key || '').trim().slice(0, 64);
   if (!key || key.length < 8) return replyK('KEY_INVALID');
-  const k = db.prepare('SELECT * FROM keys WHERE key = ? AND script_id = ?').get(key, script.id);
+  const k = keyForScript(key, script);
+  const cloneSharing = k && k.project_id != null && (projectOfKey.get(k.project_id) || {}).allow_hwid_clone_sharing === 1;
   if (!k) {
     if (authBlocked(req.ip)) return replyK('RATE_LIMITED');
     noteAuthFail(req.ip);
@@ -3743,7 +3803,7 @@ app.get('/v1/k', (req, res) => {
   if (k.banned) return replyK('KEY_BANNED');
   if (k.expires_at && k.expires_at * 1000 < Date.now()) return replyK('KEY_EXPIRED');
   if (k.exec_limit && (k.exec_count || 0) >= k.exec_limit) return replyK('KEY_EXEC_LIMIT');
-  if (script.hwid_lock !== 0) {
+  if (script.hwid_lock !== 0 && !cloneSharing) {
     const hwid = /^[\x21-\x7E]{8,128}$/.test(String(req.query.hwid || '')) ? String(req.query.hwid) : '';
     if (k.hwid && hwid && k.hwid !== hwid) return replyK('KEY_HWID_LOCKED');
     if (!k.hwid && k.last_hwid && hwid && k.last_hwid !== hwid && script.share_detection !== 0) return replyK('KEY_HWID_LOCKED');
@@ -4547,7 +4607,7 @@ app.post('/v1/w', express.json({ type: () => true, limit: '12kb' }), async (req,
   const script = db.prepare('SELECT id FROM scripts WHERE id = ?').get(entry.scriptId);
   if (!script) return deny();
   if (entry.key) {
-    const k = db.prepare('SELECT banned, expires_at FROM keys WHERE key = ? AND script_id = ?').get(entry.key, script.id);
+    const k = keyForScript(entry.key, script);
     if (!k || k.banned || (k.expires_at && k.expires_at * 1000 < Date.now())) return deny();
   }
   // 30 envíos por minuto por IP (igual que la referencia)
@@ -4565,7 +4625,7 @@ app.post('/v1/w', express.json({ type: () => true, limit: '12kb' }), async (req,
   try { json = JSON.stringify(payload); } catch { return res.status(400).json({ ok: false }); }
   if (json.length > 7000) return res.status(413).json({ ok: false });
   // Variables del servidor: el cliente no puede falsearlas
-  const info = entry.key ? keyInfoStmt.get(entry.key, script.id) : null;
+  const info = entry.key ? keyForScript(entry.key, script) : null;
   let country = '';
   try { country = countryOf(req.ip) || ''; } catch { /* país desconocido no rompe el envío */ }
   json = json
@@ -4589,7 +4649,7 @@ app.get('/scripts/hosted/:slug/remote', (req, res) => {
   if (!script || script.id !== entry.scriptId) return deny();
   // La key se vuelve a revisar en cada pedido: si la banean o expira, deja de servir de inmediato
   if (entry.key) {
-    const k = db.prepare('SELECT banned, expires_at FROM keys WHERE key = ? AND script_id = ?').get(entry.key, script.id);
+    const k = keyForScript(entry.key, script);
     if (!k || k.banned || (k.expires_at && k.expires_at * 1000 < Date.now())) return deny();
   }
   const body = remoteBlocks(script.source || '').get(String(req.query.name || ''));
@@ -4837,9 +4897,32 @@ app.get('/api/scripts', requireAuth, (req, res) => {
 // ---------- Proyectos (agrupan scripts) ----------
 const PROJECT_LIMIT = 30;
 app.get('/api/projects', requireAuth, (req, res) => {
-  res.json(db.prepare(`SELECT p.id, p.name, (SELECT COUNT(*) FROM scripts s WHERE s.project_id = p.id) AS scripts
+  res.json(db.prepare(`SELECT p.id, p.name, p.logs_webhook, p.alert_webhook, p.allow_hwid_reset, p.hwid_reset_cooldown_days, p.auto_delete_expired, p.allow_hwid_clone_sharing,
+    (SELECT COUNT(*) FROM scripts s WHERE s.project_id = p.id) AS scripts
     FROM projects p WHERE p.user_id = ? ORDER BY p.id DESC`).all(req.userId));
 });
+
+// Valida y limpia los ajustes de un proyecto (webhooks de Discord)
+function projectFields(body) {
+  const cleanUrl = v => {
+    const s = String(v ?? '').trim();
+    if (!s) return null;
+    return /^https:\/\/(canary\.|ptb\.)?discord(app)?\.com\/api\/webhooks\//.test(s) ? s.slice(0, 300) : undefined;
+  };
+  const logs = cleanUrl(body?.logsWebhook);
+  if (logs === undefined) return { error: 'El webhook de logs debe ser una URL de webhook de Discord' };
+  const alert = cleanUrl(body?.alertWebhook);
+  if (alert === undefined) return { error: 'El webhook de alertas debe ser una URL de webhook de Discord' };
+  const cooldown = (body?.hwidResetCooldownDays === undefined || body?.hwidResetCooldownDays === null || body?.hwidResetCooldownDays === '') ? null : Number(body.hwidResetCooldownDays);
+  if (cooldown !== null && (!Number.isInteger(cooldown) || cooldown < 0 || cooldown > 365)) return { error: 'El cooldown debe estar entre 0 y 365 días' };
+  return {
+    logs_webhook: logs, alert_webhook: alert,
+    allow_hwid_reset: body?.allowHwidReset === false ? 0 : 1,
+    hwid_reset_cooldown_days: cooldown,
+    auto_delete_expired: body?.autoDeleteExpired === true ? 1 : 0,
+    allow_hwid_clone_sharing: body?.allowHwidCloneSharing === true ? 1 : 0,
+  };
+}
 
 app.post('/api/projects', requireAuth, (req, res) => {
   if (maintenanceBlock(req, res)) return;
@@ -4847,16 +4930,37 @@ app.post('/api/projects', requireAuth, (req, res) => {
   if (!name || name.length > 40) return res.status(400).json({ error: 'El nombre debe tener entre 1 y 40 caracteres' });
   const count = db.prepare('SELECT COUNT(*) AS n FROM projects WHERE user_id = ?').get(req.userId).n;
   if (count >= PROJECT_LIMIT) return res.status(403).json({ error: `Máximo ${PROJECT_LIMIT} proyectos` });
-  const info = db.prepare('INSERT INTO projects (user_id, name, created_at) VALUES (?, ?, ?)').run(req.userId, name, Math.floor(Date.now() / 1000));
+  const f = projectFields(req.body);
+  if (f.error) return res.status(400).json({ error: f.error });
+  const info = db.prepare(`INSERT INTO projects (user_id, name, created_at, logs_webhook, alert_webhook, allow_hwid_reset, hwid_reset_cooldown_days, auto_delete_expired, allow_hwid_clone_sharing)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(req.userId, name, Math.floor(Date.now() / 1000), f.logs_webhook, f.alert_webhook, f.allow_hwid_reset, f.hwid_reset_cooldown_days, f.auto_delete_expired, f.allow_hwid_clone_sharing);
   res.json({ id: Number(info.lastInsertRowid), name, scripts: 0 });
 });
 
-// Borrar un proyecto no borra sus scripts: quedan sin proyecto
+// Editar los ajustes de un proyecto
+app.put('/api/projects/:id', requireAuth, (req, res) => {
+  const id = Number(req.params.id);
+  if (!db.prepare('SELECT id FROM projects WHERE id = ? AND user_id = ?').get(id, req.userId)) return res.status(404).json({ error: 'Proyecto no encontrado' });
+  const f = projectFields(req.body);
+  if (f.error) return res.status(400).json({ error: f.error });
+  db.prepare(`UPDATE projects SET logs_webhook = ?, alert_webhook = ?, allow_hwid_reset = ?, hwid_reset_cooldown_days = ?, auto_delete_expired = ?, allow_hwid_clone_sharing = ? WHERE id = ? AND user_id = ?`)
+    .run(f.logs_webhook, f.alert_webhook, f.allow_hwid_reset, f.hwid_reset_cooldown_days, f.auto_delete_expired, f.allow_hwid_clone_sharing, id, req.userId);
+  res.json({ ok: true });
+});
+
+// Borrar un proyecto: sus scripts y sus keys pasan al proyecto mas viejo que quede (nunca quedan sueltos)
 app.post('/api/projects/:id/delete', requireAuth, (req, res) => {
   const id = Number(req.params.id);
   if (!db.prepare('SELECT id FROM projects WHERE id = ? AND user_id = ?').get(id, req.userId)) return res.status(404).json({ error: 'Proyecto no encontrado' });
+  const other = db.prepare('SELECT id FROM projects WHERE user_id = ? AND id != ? ORDER BY id ASC LIMIT 1').get(req.userId, id);
+  const scriptCount = db.prepare('SELECT COUNT(*) AS n FROM scripts WHERE project_id = ?').get(id).n;
+  const keyCount = db.prepare('SELECT COUNT(*) AS n FROM keys WHERE project_id = ?').get(id).n;
+  if (!other && (scriptCount > 0 || keyCount > 0)) return res.status(400).json({ error: 'Este proyecto tiene scripts o keys: crea otro proyecto o vacíalo primero' });
   db.transaction(() => {
-    db.prepare('UPDATE scripts SET project_id = NULL WHERE project_id = ? AND user_id = ?').run(id, req.userId);
+    if (other) {
+      db.prepare('UPDATE scripts SET project_id = ? WHERE project_id = ? AND user_id = ?').run(other.id, id, req.userId);
+      db.prepare('UPDATE keys SET project_id = ? WHERE project_id = ?').run(other.id, id);
+    }
     db.prepare('DELETE FROM bot_project_rules WHERE project_id = ?').run(id);
     db.prepare('DELETE FROM projects WHERE id = ? AND user_id = ?').run(id, req.userId);
   })();
@@ -4924,6 +5028,11 @@ app.post('/api/scripts', requireAuth, async (req, res) => {
   if (maintenanceBlock(req, res)) return;
   const input = validateScriptInput(req.body || {});
   if (input.error) return res.status(400).json({ error: input.error });
+  // Un script siempre vive dentro de un proyecto (estilo Luarmor): hay que crearlo primero
+  const _pjId = Number(req.body?.projectId);
+  if (!Number.isInteger(_pjId) || !db.prepare('SELECT 1 FROM projects WHERE id = ? AND user_id = ?').get(_pjId, req.userId)) {
+    return res.status(400).json({ error: 'Elige un proyecto: crea uno primero si no tienes ninguno.' });
+  }
   if (input.obfuscator === 'luau' && !isPlusPlanId(req.userId)) return res.status(403).json({ error: 'El Ofuscador 3 es solo para Premium Plus' });
   if (!discordJoinDone(req.userId)) {
     return res.status(403).json({ error: 'Para crear scripts debes estar en nuestro servidor de Discord.', code: 'DISCORD_REQUIRED', invite: DISCORD_JOIN_URL });
@@ -4950,7 +5059,7 @@ app.post('/api/scripts', requireAuth, async (req, res) => {
     const outErr = input.obfuscator === 'none' ? null : await checkLuauSyntax(content);
     if (outErr) return res.status(422).json({ error: `La versión ofuscada no compila. Avisa al equipo con este mensaje: ${outErr}` });
     const info = stmt.scriptInsert.run(
-      req.userId, input.name, uniqueSlug(input.name), input.isFfa ? 1 : 0,
+      req.userId, _pjId, input.name, uniqueSlug(input.name), input.isFfa ? 1 : 0,
       input.obfuscator, input.obfMode, guardSecret, input.source, content, input.hwidResetHours, input.shareDetection, input.clydeVm, input.autoRevokeDump, input.hwidLock,
     );
     db.prepare('UPDATE scripts SET loader_id = ? WHERE id = ?').run(crypto.randomBytes(20).toString('hex'), info.lastInsertRowid);
@@ -5138,7 +5247,7 @@ app.get('/api/scripts/:id/protected', requireAuth, (req, res) => {
   res.json({ name: script.name, obfuscator: script.obfuscator, content: script.content || '' });
 });
 // Borrar keys propias (una o varias, máximo 100 por petición)
-const ownedKeyStmt = db.prepare('SELECT k.key FROM keys k JOIN scripts s ON s.id = k.script_id WHERE k.key = ? AND s.user_id = ?');
+const ownedKeyStmt = db.prepare('SELECT k.key FROM keys k LEFT JOIN scripts s ON s.id = k.script_id LEFT JOIN projects p ON p.id = k.project_id WHERE k.key = ? AND (s.user_id = ? OR p.user_id = ?)');
 const deleteKeyStmt = db.prepare('DELETE FROM keys WHERE key = ?');
 app.post('/api/keys/delete', requireAuth, (req, res) => {
   const list = Array.isArray(req.body?.keys) ? req.body.keys.map(String).slice(0, 100) : [];
@@ -5146,7 +5255,7 @@ app.post('/api/keys/delete', requireAuth, (req, res) => {
   let deleted = 0;
   db.transaction(() => {
     for (const k of list) {
-      if (ownedKeyStmt.get(k, req.userId)) { deleteKeyStmt.run(k); deleted++; }
+      if (ownedKeyStmt.get(k, req.userId, req.userId)) { deleteKeyStmt.run(k); deleted++; }
     }
   })();
   res.json({ deleted });
@@ -5213,12 +5322,12 @@ app.get('/api/stats/executions', requireAuth, (req, res) => {
 });
 
 app.get('/api/keys', requireAuth, (req, res) => {
-  res.json(stmt.keysByUser.all(req.userId));
+  res.json(stmt.keysByUser.all(req.userId, req.userId));
 });
 
 // ---------- Baneos del creador ----------
 // Se puede banear por HWID, IP o usuario de Discord (solo en ese script)
-const ownedKey = db.prepare('SELECT k.* FROM keys k JOIN scripts s ON s.id = k.script_id WHERE k.key = ? AND s.user_id = ?');
+const ownedKey = db.prepare('SELECT k.* FROM keys k LEFT JOIN scripts s ON s.id = k.script_id LEFT JOIN projects p ON p.id = k.project_id WHERE k.key = ? AND (s.user_id = ? OR p.user_id = ?)');
 function applyBan(k, kind, reason, userId, on) {
   const now = Math.floor(Date.now() / 1000);
   if (kind === 'user') {
@@ -5242,14 +5351,14 @@ function applyBan(k, kind, reason, userId, on) {
 }
 function banRoute(on) {
   return (req, res) => {
-    const k = ownedKey.get(req.params.key, req.userId);
+    const k = ownedKey.get(req.params.key, req.userId, req.userId);
     if (!k) return res.status(404).json({ error: 'Key no encontrada' });
     const kind = String(req.body?.kind || '');
     if (!['hwid', 'ip', 'user'].includes(kind)) return res.status(400).json({ error: 'Tipo de baneo inválido' });
     const reason = String(req.body?.reason || 'Baneado por el creador').slice(0, 200);
     const out = applyBan(k, kind, reason, req.userId, on);
     if (out.error) return res.status(out.status).json({ error: out.error });
-    if (on) fireWebhooks(ownerOfScript(k.script_id), 'key.banned', { key: k.key, scriptId: k.script_id, kind, reason });
+    if (on) fireWebhooks(ownerOfKey(k.key), 'key.banned', { key: k.key, scriptId: k.script_id, projectId: k.project_id ?? null, kind, reason });
     res.json({ ok: true });
   };
 }
@@ -5271,12 +5380,19 @@ function resetKeyHwid(k, script, { force = false } = {}) {
 }
 app.post('/api/keys/:key/reset-hwid', requireAuth, (req, res) => {
   if (maintenanceBlock(req, res)) return;
-  const k = ownedKey.get(req.params.key, req.userId);
+  const k = ownedKey.get(req.params.key, req.userId, req.userId);
   if (!k) return res.status(404).json({ error: 'Key no encontrada' });
-  const script = db.prepare('SELECT hwid_reset_hours, hwid_reset_limit FROM scripts WHERE id = ?').get(k.script_id);
+  let script;
+  if (k.project_id != null) {
+    const p = projectOfKey.get(k.project_id);
+    if (p && p.allow_hwid_reset === 0) return res.status(403).json({ error: 'Este proyecto tiene el reinicio de HWID desactivado' });
+    script = { hwid_reset_hours: p && p.hwid_reset_cooldown_days ? p.hwid_reset_cooldown_days * 24 : 24, hwid_reset_limit: null };
+  } else {
+    script = db.prepare('SELECT hwid_reset_hours, hwid_reset_limit FROM scripts WHERE id = ?').get(k.script_id);
+  }
   const out = resetKeyHwid(k, script, { force: req.body?.force === true });
   if (out.error) return res.status(out.status).json({ error: out.error });
-  fireWebhooks(ownerOfScript(k.script_id), 'key.hwid_reset', { key: k.key, scriptId: k.script_id, resets: out.resets });
+  fireWebhooks(ownerOfKey(k.key), 'key.hwid_reset', { key: k.key, scriptId: k.script_id, projectId: k.project_id ?? null, resets: out.resets });
   res.json({ ok: true, resets: out.resets });
 });
 app.post('/api/keys/:key/ban', requireAuth, banRoute(true));
@@ -5409,6 +5525,19 @@ async function deliverWebhook(w, event, data) {
 }
 
 // Envía el evento a todos los webhooks activos del dueño que escuchan ese evento (en segundo plano)
+// Webhooks del proyecto (estilo Luarmor): 'logs' recibe ejecuciones correctas, 'alert' intentos de crack y baneos
+function fireProjectWebhook(projectId, kind, data) {
+  if (projectId == null) return;
+  try {
+    const p = projectOfKey.get(projectId);
+    if (!p) return;
+    const url = String((kind === 'logs' ? p.logs_webhook : p.alert_webhook) || '').trim();
+    if (!/^https:\/\/(canary\.|ptb\.)?discord(app)?\.com\/api\/webhooks\//.test(url)) return;
+    const fields = Object.entries(data || {}).map(([name, value]) => ({ name, value: String(value).slice(0, 1000) || 'sin dato' }));
+    const embed = { title: 'VantArmor', color: kind === 'logs' ? 0x22c55e : 0xef4444, fields, timestamp: new Date().toISOString() };
+    fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: 'VantArmor', embeds: [embed] }) }).catch(() => {});
+  } catch { /* nunca rompe la accion principal */ }
+}
 function fireWebhooks(userId, event, data) {
   if (!userId) return;
   try {
@@ -5455,21 +5584,35 @@ app.post('/api/webhooks/:id/test', requireAuth, async (req, res) => {
 
 app.post('/api/keys', requireAuth, (req, res) => {
   if (maintenanceBlock(req, res)) return;
-  const scriptId = Number(req.body?.scriptId);
+  // Las keys se crean para un script o para un proyecto (key de proyecto: sirve en todos sus scripts)
+  const rawScript = req.body?.scriptId;
+  const rawProject = req.body?.projectId;
+  const scriptId = (rawScript === undefined || rawScript === null || rawScript === '') ? null : Number(rawScript);
+  const projectId = (rawProject === undefined || rawProject === null || rawProject === '') ? null : Number(rawProject);
   const amount = req.body?.amount === undefined ? 1 : Number(req.body.amount);
   const days = req.body?.days === undefined || req.body.days === null ? null : Number(req.body.days);
   // Duración exacta en segundos (de 1 hora a 10 años). Si viene, tiene prioridad sobre days.
   const seconds = req.body?.seconds === undefined || req.body.seconds === null ? null : Number(req.body.seconds);
 
-  if (!Number.isInteger(scriptId)) return res.status(400).json({ error: 'scriptId inválido' });
+  if ((scriptId === null) === (projectId === null)) return res.status(400).json({ error: 'Indica un script o un proyecto (no ambos)' });
+  if (scriptId !== null && !Number.isInteger(scriptId)) return res.status(400).json({ error: 'scriptId inválido' });
+  if (projectId !== null && !Number.isInteger(projectId)) return res.status(400).json({ error: 'projectId inválido' });
   if (!Number.isInteger(amount) || amount < 1 || amount > 50) return res.status(400).json({ error: 'La cantidad debe estar entre 1 y 50' });
   if (days !== null && (!Number.isInteger(days) || days < 1 || days > 3650)) return res.status(400).json({ error: 'Días inválidos' });
   if (seconds !== null && (!Number.isInteger(seconds) || seconds < 3600 || seconds > 3650 * 86400)) {
     return res.status(400).json({ error: 'La duración debe estar entre 1 hora y 10 años' });
   }
 
-  const script = stmt.scriptOwned.get(scriptId, req.userId);
-  if (!script) return res.status(403).json({ error: 'No autorizado' });
+  let target = null;
+  if (scriptId !== null) {
+    const script = stmt.scriptOwned.get(scriptId, req.userId);
+    if (!script) return res.status(403).json({ error: 'No autorizado' });
+    target = { scriptId: script.id, projectId: null };
+  } else {
+    const project = db.prepare('SELECT id FROM projects WHERE id = ? AND user_id = ?').get(projectId, req.userId);
+    if (!project) return res.status(403).json({ error: 'No autorizado' });
+    target = { scriptId: null, projectId: project.id };
+  }
 
   // startOnUse (equivalente a key_days de la referencia): key en stock, el reloj arranca en la primera ejecucion
   const startOnUse = req.body?.startOnUse === true && !!(seconds || days);
@@ -5488,12 +5631,12 @@ app.post('/api/keys', requireAuth, (req, res) => {
         do {
           k = Array.from(crypto.randomBytes(32), b => KEY_ALPHABET[b % KEY_ALPHABET.length]).join('');
         } while (db.prepare('SELECT 1 FROM keys WHERE key = ?').get(k));
-        stmt.keyInsert.run(k, script.id, expiresAt, keyDays);
+        stmt.keyInsert.run(k, target.scriptId, expiresAt, keyDays, target.projectId);
         list.push(k);
       }
       return list;
     })();
-    fireWebhooks(req.userId, 'key.created', { scriptId: script.id, count: generated.length, keys: generated });
+    fireWebhooks(req.userId, 'key.created', { scriptId: target.scriptId, projectId: target.projectId, count: generated.length, keys: generated });
     res.json({ keys: generated });
   } catch (err) {
     console.error('Create keys error:', err);

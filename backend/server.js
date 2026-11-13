@@ -1896,6 +1896,7 @@ if body:sub(1, #_encp) == _encp then
   local _bn = 0
   local _acc, _bits = 0, 0
   for _i = 1, #_b64 do
+    if _i % 4096 == 0 and task then task.wait() end
     local _d = _im[_b64:byte(_i)]
     if _d then
       _acc = _acc * 64 + _d
@@ -1935,6 +1936,7 @@ if body:sub(1, #_encp) == _encp then
       local _z = _v[_p - 1]
       _y = (_v[_p] - _mx(_sum, _y, _z, _p - 1, _e, _k)) % _M
       _v[_p] = _y
+      if _p % 1024 == 0 and task then task.wait() end
     end
     local _z2 = _v[_m]
     _y = (_v[1] - _mx(_sum, _y, _z2, 0, _e, _k)) % _M
@@ -2080,7 +2082,7 @@ function loaderEncodedBlob(plain) {
 function loaderStubFromPlain(plain) {
   const blob = loaderEncodedBlob(plain);
   const key = loaderEncodeKey(plain);
-  return `-- VANTARMOR\nlocal _b = ${blob}\nlocal _k = {${key.join(',')}}\nlocal _t = {}\nfor _i = 1, #_b do _t[_i] = string.char((string.byte(_b, _i) - _k[(_i - 1) % 8 + 1] - (_i - 1) % 251) % 256) end\nlocal _fn = loadstring(table.concat(_t))\nif not _fn then error("[VANTARMOR] loader invalido", 0) end\n_fn()\n`;
+  return `-- VANTARMOR\nlocal _b = ${blob}\nlocal _k = {${key.join(',')}}\nlocal _t = {}\nfor _i = 1, #_b do _t[_i] = string.char((string.byte(_b, _i) - _k[(_i - 1) % 8 + 1] - (_i - 1) % 251) % 256) if _i % 2048 == 0 and task then task.wait() end end\nlocal _fn = loadstring(table.concat(_t))\nif not _fn then error("[VANTARMOR] loader invalido", 0) end\n_fn()\n`;
 }
 // Sello anti-dump: el loader lo pone en el entorno y el script ofuscado (Ofuscador 5) lo exige.
 // Si alguien ejecuta el payload solo, sin el loader, el script lo echa con kick.
@@ -2525,6 +2527,7 @@ local function _vantDec5(_b64, _ckey, _chwid, _cexp)
       local _z = _v[_p - 1]
       _y = (_v[_p] - _mx(_sum, _y, _z, _p - 1, _e, _k)) % _M
       _v[_p] = _y
+      if _p % 1024 == 0 and task then task.wait() end
     end
     local _z2 = _v[_m]
     _y = (_v[1] - _mx(_sum, _y, _z2, 0, _e, _k)) % _M

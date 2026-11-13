@@ -1995,6 +1995,16 @@ if type(_lfn) ~= 'table' then pcall(function() if getgenv then _lfn = getgenv() 
 if type(_lfn) ~= 'table' then pcall(function() if getfenv then _lfn = getfenv(1) end end) end
 if type(_lfn) ~= 'table' then _lfn = _G end
 if type(_lfn) ~= 'table' then _lfn = {} end
+-- Si el loadstring del executor compila el payload en el entorno global de Roblox
+-- (ignora el 3er argumento y no hay setfenv), el VM no ve loadstring ni los globals del
+-- executor. Se publican en _G (misma tabla que usa ese entorno) y se deja el entorno
+-- completo en _G.VANTARMOR_ENV como ultima reserva del VM.
+pcall(function() if type(loadstring) == "function" and _G then _G.loadstring = loadstring end end)
+pcall(function() if type(getgenv) == "function" and _G and _G.getgenv == nil then _G.getgenv = getgenv end end)
+pcall(function() if type(getfenv) == "function" and _G and _G.getfenv == nil then _G.getfenv = getfenv end end)
+pcall(function() if type(setfenv) == "function" and _G and _G.setfenv == nil then _G.setfenv = setfenv end end)
+pcall(function() local _rq = request or http_request or (syn and syn.request) if type(_rq) == "function" and _G and _G.request == nil then _G.request = _rq end end)
+pcall(function() if _G and type(_lfn) == "table" then _G.VANTARMOR_ENV = _lfn end end)
 if type(_lfn.loadstring) ~= 'function' and type(loadstring) == 'function' then _lfn.loadstring = loadstring end
 if type(_lfn._G) ~= 'table' then _lfn._G = _lfn end
 local fn, cerr = loadstring(payload, "=VantArmor", _lfn)
@@ -2358,6 +2368,16 @@ pcall(function()
     for _k, _v in pairs(_le) do if _lf5[_k] == nil then _lf5[_k] = _v end end
   end
 end)
+-- Si el loadstring del executor compila el payload en el entorno global de Roblox
+-- (ignora el 3er argumento y no hay setfenv), el VM no ve loadstring ni los globals del
+-- executor. Se publican en _G (misma tabla que usa ese entorno) y se deja el entorno
+-- completo en _G.VANTARMOR_ENV como ultima reserva del VM.
+pcall(function() if type(loadstring) == "function" and _G then _G.loadstring = loadstring end end)
+pcall(function() if type(getgenv) == "function" and _G and _G.getgenv == nil then _G.getgenv = getgenv end end)
+pcall(function() if type(getfenv) == "function" and _G and _G.getfenv == nil then _G.getfenv = getfenv end end)
+pcall(function() if type(setfenv) == "function" and _G and _G.setfenv == nil then _G.setfenv = setfenv end end)
+pcall(function() local _rq = request or http_request or (syn and syn.request) if type(_rq) == "function" and _G and _G.request == nil then _G.request = _rq end end)
+pcall(function() if _G and type(_lf5) == "table" then _G.VANTARMOR_ENV = _lf5 end end)
 if type(_lf5.loadstring) ~= "function" and type(loadstring) == "function" then _lf5.loadstring = loadstring end
 if type(_lf5._G) ~= "table" then _lf5._G = _lf5 end
 local _fn, _ferr = loadstring(_data.body, "=VantArmor", _lf5)

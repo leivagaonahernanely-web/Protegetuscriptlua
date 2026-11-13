@@ -1404,6 +1404,10 @@ local function _run(pi, ups, ...)
       local v = _G[K[b + 1]]
       if v == nil and _EV then v = _EV[K[b + 1]] end
       if v == nil and _GVX and _GVX ~= _EV then v = _GVX[K[b + 1]] end
+      if v == nil and _G then
+        local _VE = _G.VANTARMOR_ENV
+        if type(_VE) == "table" and _VE ~= _G and _VE ~= _EV then v = _VE[K[b + 1]] end
+      end
       R[a] = v
       if v == nil then _LGN = K[b + 1] end
     elseif o == ${O.RETURN} then

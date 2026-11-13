@@ -1990,9 +1990,13 @@ pcall(function() _G.VANTARMOR_RUN = ${JSON.stringify(guard)} end)
 ` : ''}-- Tercer argumento de loadstring = entorno del loader (Luau lo soporta): asi el payload
 -- nunca hereda el entorno plano aunque el executor no tenga setfenv.
 local _lfn
-pcall(function() if getfenv then _lfn = getfenv(1) end end)
+pcall(function() if getfenv then _lfn = getfenv(0) end end)
 if type(_lfn) ~= 'table' then pcall(function() if getgenv then _lfn = getgenv() end end) end
+if type(_lfn) ~= 'table' then pcall(function() if getfenv then _lfn = getfenv(1) end end) end
 if type(_lfn) ~= 'table' then _lfn = _G end
+if type(_lfn) ~= 'table' then _lfn = {} end
+if type(_lfn.loadstring) ~= 'function' and type(loadstring) == 'function' then _lfn.loadstring = loadstring end
+if type(_lfn._G) ~= 'table' then _lfn._G = _lfn end
 local fn, cerr = loadstring(payload, "=VantArmor", _lfn)
 -- El error exacto de compilación queda en la consola del executor (para diagnosticar el script)
 if not fn then
@@ -2006,8 +2010,7 @@ end
 -- y ahi el VM del Ofuscador 5 no resuelve los globals del script del usuario. Se lo cambia
 -- al entorno real del loader (con game, workspace y los globals del executor).
 local _sfok = pcall(function()
-  local _le = getfenv(1)
-  if type(_le) == 'table' and type(setfenv) == 'function' then setfenv(fn, _le) end
+  if type(setfenv) == 'function' and type(_lfn) == 'table' then setfenv(fn, _lfn) end
 end)
 _dbg('payload setfenv ' .. tostring(_sfok))
 task.spawn(fn)
@@ -2340,8 +2343,26 @@ if not _sigOk then _close() error(MSG.BAD_SIGNATURE, 0) end
 -- Sello que exige el VM del payload
 pcall(function() if getgenv then getgenv().VANTARMOR_RUN = GUARD end end)
 pcall(function() _G.VANTARMOR_RUN = GUARD end)
-local _fn = loadstring(_data.body)
-if not _fn then _close() error(MSG.PAYLOAD_LOAD_FAILED, 0) end
+-- Entorno para el payload: el 3er argumento de loadstring le pasa el entorno del loader,
+-- asi el payload ve los globals del executor (loadstring, game, task, getgenv). Sin esto,
+-- un executor Luau compila el payload en el entorno global de Roblox, donde loadstring no
+-- existe y el VM no puede resolver los globals del script (nilcall).
+local _lf5
+pcall(function() _lf5 = getfenv(1) end)
+if type(_lf5) ~= "table" then pcall(function() if getgenv then _lf5 = getgenv() end end) end
+if type(_lf5) ~= "table" then _lf5 = _G end
+if type(_lf5) ~= "table" then _lf5 = {} end
+pcall(function()
+  local _le = getfenv and getfenv(1)
+  if type(_le) == "table" and _le ~= _lf5 then
+    for _k, _v in pairs(_le) do if _lf5[_k] == nil then _lf5[_k] = _v end end
+  end
+end)
+if type(_lf5.loadstring) ~= "function" and type(loadstring) == "function" then _lf5.loadstring = loadstring end
+if type(_lf5._G) ~= "table" then _lf5._G = _lf5 end
+local _fn, _ferr = loadstring(_data.body, "=VantArmor", _lf5)
+if not _fn then _close() pcall(function() warn(tostring(_ferr)) end) error(MSG.PAYLOAD_LOAD_FAILED, 0) end
+pcall(function() if setfenv and type(_lf5) == "table" then setfenv(_fn, _lf5) end end)
 task.spawn(_fn)
 task.spawn(function()
   pcall(function() task.wait(1.5) end)

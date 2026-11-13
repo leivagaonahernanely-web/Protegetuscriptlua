@@ -9,7 +9,7 @@
   };
   const PLAN_LABELS = { free: 'Free', premium: 'Premium', plus: 'Premium Plus', custom: 'Custom' };
   const OBFUSCATORS = {
-    luau:       'Ofuscador 3 · Premium Plus · 2 compilaciones por día',
+    luau:       'Ofuscador 3 · API · 2 compilaciones por día',
     next:       'Ofuscador 4 · NextOfuscator · recomendado',
     vantobf:    'Ofuscador 5 · VantVM',
     none:       'No obf',
@@ -145,6 +145,7 @@
 
   const OWNER_VIEWS = new Set(['ownerpanel', 'planskeys', 'publisher', 'users']);
   function showView(name) {
+    if (name === 'precios' || name === 'bienvenida') name = 'scripts';
     if (OWNER_VIEWS.has(name) && !(user && user.owner)) name = 'dashboard';
     try { localStorage.setItem('vm_view', name); } catch (_) {}
     document.querySelectorAll('.nav-item[data-nav]').forEach(b => {
@@ -448,17 +449,9 @@
         <label for="fObf">Ofuscador</label>
         <select id="fObf" name="obfuscator" class="field block">
           ${Object.entries(OBFUSCATORS).map(([val, label]) =>
-            `<option value="${val}" ${val === currentObf ? 'selected' : ''} ${val === 'luau' && !hasPlusPlan() ? 'disabled' : ''}>${label}</option>`).join('')}
+            `<option value="${val}" ${val === currentObf ? 'selected' : ''}>${label}</option>`).join('')}
         </select>
         <div class="hint">Se aplica en el servidor al guardar el script. Para Roblox (Luau) recomendamos el Ofuscador 4.</div>
-        <div class="input-group" style="margin-top:12px">
-          <label for="fObfApi">Ofuscación por API key</label>
-          <div style="display:flex;gap:10px;align-items:center">
-            <input id="fObfApi" class="field block" value="New Protection" disabled aria-label="Nueva protección (próximamente)">
-            <span class="badge warn" style="white-space:nowrap">Coming soon</span>
-          </div>
-          <div class="hint">Pronto podrás ofuscar desde tu propio código con esta API key. De momento, usa el ofuscador del panel.</div>
-        </div>
         <div id="obfModeWrap" hidden style="margin-top:10px">
           <span class="label">Modo de protección</span>
           <div class="choice-grid" style="grid-template-columns:repeat(3,1fr);margin-top:6px">
@@ -924,39 +917,40 @@
     }
   }
 
-  function scriptCard(s) {
-    const mine = keysError ? [] : keys.filter(k => String(k.script_id) === String(s.id));
-    const act = mine.filter(k => keyStatus(k).id === 'active').length;
+  // Fila de script al estilo Luarmor: estado, versión, última edición y acciones (loader/editar/eliminar)
+  const PJ_MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  function fmtPjDate(ts) {
+    const d = new Date(Number(ts) * 1000);
+    if (isNaN(d.getTime())) return '—';
+    const pad = n => String(n).padStart(2, '0');
+    return `${d.getDate()} ${PJ_MONTHS[d.getMonth()]} ${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  }
+  const PJ_GEAR_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h.01a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v.01a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>';
+  const PJ_SCRIPT_SVG = '<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M6.4 2 2 17.6 17.6 22 22 6.4 6.4 2Zm4.2 6.6 4.7 1.3-1.3 4.7-4.7-1.3 1.3-4.7Z"/></svg>';
+  const PJ_DOWN_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"/><path d="m6 11 6 6 6-6"/><path d="M5 21h14"/></svg>';
+  const PJ_PENCIL_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 3a2.8 2.8 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg>';
+  const PJ_TRASH_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="m19 6-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/></svg>';
+
+  function pjRow(s) {
     const loader = loaderFor(s);
     const isFfa = protectionOf(s) === 'ffa';
-    const vmTag = obfuscatorOf(s) === 'clyde' && s.clyde_vm ? ' · VM' : '';
-    const meta = isFfa ? `FFA · sin key · ${OBFUSCATORS[obfuscatorOf(s)] ?? ''}` : `Protegido · ${OBFUSCATORS[obfuscatorOf(s)] ?? ''}${vmTag}`;
+    const badge = isFfa
+      ? '<span class="pj-badge free">FREE</span>'
+      : '<span class="pj-badge active">ACTIVO</span>';
+    const when = s.updated_at ? fmtPjDate(s.updated_at) : '—';
     return `
-        <article class="card script-card">
-          <div class="row">
-            <h4 class="script-name" title="${esc(s.name)}">${esc(s.name)}</h4>
-            <span class="badge ${isFfa ? 'bad' : 'ok'}">${isFfa ? 'FFA' : 'Protegido'}</span>
-            ${s.perf_level ? `<span class="badge ${perfClass(s.perf_level)}">Rendimiento ${PERF_LABEL[s.perf_level] ?? ''}</span>` : ''}
-            ${Number(s.dump_attempts) > 0 ? `<span class="badge warn" title="Intentos de volcado detectados">🚨 ${s.dump_attempts} intento${s.dump_attempts === 1 ? '' : 's'} de dump</span>` : ''}
-            ${s.maintenance ? '<span class="badge bad">En mantenimiento</span>' : ''}
-          </div>
-          <div class="script-meta">${esc(meta)}</div>
-          <div class="script-stats">
-            <div><b>${mine.length}</b>keys</div>
-            <div><b>${act}</b>activas</div>
-          </div>
-          <button class="loader-box" type="button" data-copy="${esc(loader)}" data-msg="Loader copiado" aria-label="Copiar loader de ${esc(s.name)}">
-            <span class="loader-text">${esc(loader)}</span>${ICON_COPY}
-          </button>
-          <div class="row">
-            <button class="btn ghost sm" data-edit="${esc(s.id)}">Editar</button>
-            <button class="btn ghost sm" data-protected="${esc(s.id)}">Ver código protegido</button>
-            <button class="btn ghost sm" data-maint="${esc(s.id)}" data-on="${s.maintenance ? 1 : 0}">${s.maintenance ? 'Quitar mantenimiento' : 'Poner en mantenimiento'}</button>
-            <button class="btn ghost sm" data-delete="${esc(s.id)}" data-name="${esc(s.name)}">Eliminar</button>
-            <button class="btn ghost sm" data-view-keys="${esc(s.id)}">Ver keys</button>
-            <button class="btn sm" data-gen="${esc(s.id)}">+ Keys</button>
-          </div>
-        </article>`;
+        <tr>
+          <td>${badge}</td>
+          <td class="pj-ver">v0.0.0.0</td>
+          <td class="pj-when">${esc(when)}</td>
+          <td>
+            <div class="pj-acts">
+              <button class="pj-act loader" type="button" data-copy="${esc(loader)}" data-msg="Loader copiado" title="Copiar loader">${PJ_DOWN_SVG}<span>LOADER</span></button>
+              <button class="pj-act edit" type="button" data-edit="${esc(s.id)}" title="Editar">${PJ_PENCIL_SVG}<span>Editar</span></button>
+              <button class="pj-act del" type="button" data-delete="${esc(s.id)}" data-name="${esc(s.name)}" title="Eliminar">${PJ_TRASH_SVG}<span>Eliminar</span></button>
+            </div>
+          </td>
+        </tr>`;
   }
 
   function renderScripts() {
@@ -975,25 +969,28 @@
       grid.innerHTML = `<div class="empty"><h3>Aún no tienes proyectos</h3><p>Crea tu primer proyecto: cada script vive dentro de un proyecto.</p><button class="btn" data-open="project">+ Nuevo proyecto</button></div>`;
       return;
     }
-    grid.innerHTML = groups.map(({ p, list }) => `
-      <article class="card proj-card proj-panel">
-        <div class="proj-head">
-          <div class="proj-title">
-            <h3>${esc(p.name)}</h3>
-            <span class="badge neutral">${list.length} ${list.length === 1 ? 'script' : 'scripts'}</span>
-            <span class="proj-id">ID ${esc(p.id)}</span>
+    const pjCard = (title, id, list) => `
+      <article class="card pj-card">
+        <div class="pj-head">
+          <div class="pj-icon" aria-hidden="true">${PJ_SCRIPT_SVG}</div>
+          <div class="pj-names">
+            <div class="pj-name" title="${esc(title)}">${esc(title)}</div>
+            ${id ? `<div class="pj-id">${esc(id)}</div>` : ''}
           </div>
-          <div class="proj-actions">
-            <button class="btn sm" data-pj-newscript="${esc(p.id)}">+ Script</button>
-            <button class="btn sm" data-pj-adduser="${esc(p.id)}">Añadir usuario</button>
-            <button class="btn ghost sm" data-pj-editusers="${esc(p.id)}">Editar usuarios</button>
-            <button class="btn ghost sm" data-pj-edit="${esc(p.id)}">Ajustes</button>
-            <button class="btn ghost sm" data-pj-del="${esc(p.id)}">Eliminar</button>
-          </div>
+          ${id ? `
+          <div class="pj-btns">
+            <button class="pj-add" type="button" data-pj-newscript="${esc(id)}"><span class="pj-plus">+</span><span class="pj-add-txt">Añadir script</span></button>
+            <button class="pj-gear" type="button" data-pj-edit="${esc(id)}" title="Ajustes" aria-label="Ajustes del proyecto">${PJ_GEAR_SVG}</button>
+          </div>` : ''}
         </div>
-        ${list.length ? `<div class="proj-scripts">${list.map(scriptCard).join('')}</div>` : '<p class="hint" style="margin:0">Este proyecto todavía no tiene scripts: usa “+ Script”.</p>'}
-      </article>`).join('') +
-      (loose.length ? `<article class="card proj-card proj-panel"><div class="proj-title"><h3>Sin proyecto</h3></div><div class="proj-scripts">${loose.map(scriptCard).join('')}</div></article>` : '');
+        ${list.length ? `
+        <table class="pj-table">
+          <thead><tr><th>Estado</th><th>Versión</th><th>Última edición</th><th>Acciones</th></tr></thead>
+          <tbody>${list.map(pjRow).join('')}</tbody>
+        </table>` : `<p class="hint pj-empty">Este proyecto todavía no tiene scripts: usa “Añadir script”.</p>`}
+      </article>`;
+    grid.innerHTML = groups.map(({ p, list }) => pjCard(p.name, p.id, list)).join('') +
+      (loose.length ? pjCard('Sin proyecto', '', loose) : '');
   }
 
   function filteredKeys() {
@@ -2875,44 +2872,54 @@
   function openProjectModal(p = null) {
     const edit = !!p;
     openModal(edit ? 'Ajustes del proyecto' : 'Nuevo proyecto', `
-      <form id="formProject" novalidate>
-        <div class="input-group">
-          <label for="pjName">Nombre</label>
-          <input id="pjName" class="field block" maxlength="40" value="${edit ? esc(p.name) : ''}" autocomplete="off" ${edit ? 'disabled' : 'required'}>
-        </div>
-        <div class="input-group">
-          <label for="pjLogs">Webhook de logs (ejecuciones correctas)</label>
-          <input id="pjLogs" class="field block" placeholder="https://discord.com/api/webhooks/..." value="${edit ? esc(p.logs_webhook || '') : ''}" autocomplete="off">
-        </div>
-        <div class="input-group">
-          <label for="pjAlert">Webhook de alertas (crack, baneos y HWID repetido)</label>
-          <input id="pjAlert" class="field block" placeholder="https://discord.com/api/webhooks/..." value="${edit ? esc(p.alert_webhook || '') : ''}" autocomplete="off">
-        </div>
-        <div class="input-group">
-          <label class="chip" style="justify-content:flex-start;gap:8px">
-            <input type="checkbox" name="allowHwidReset" ${!edit || p.allow_hwid_reset !== 0 ? 'checked' : ''}>
-            <span>Permitir que los usuarios reinicien su HWID</span>
-          </label>
-        </div>
-        <div class="input-group">
-          <label for="pjCooldown">Cooldown del reinicio de HWID (días; vacío usa el del script)</label>
-          <input id="pjCooldown" type="number" min="0" max="365" class="field block" value="${edit && p.hwid_reset_cooldown_days != null ? esc(p.hwid_reset_cooldown_days) : ''}">
-        </div>
-        <div class="input-group">
-          <label class="chip" style="justify-content:flex-start;gap:8px">
-            <input type="checkbox" name="autoDeleteExpired" ${edit && p.auto_delete_expired === 1 ? 'checked' : ''}>
-            <span>Auto delete expired users: borra cada 15 min las keys ya expiradas</span>
-          </label>
-        </div>
-        <div class="input-group">
-          <label class="chip" style="justify-content:flex-start;gap:8px">
-            <input type="checkbox" name="allowHwidCloneSharing" ${edit && p.allow_hwid_clone_sharing === 1 ? 'checked' : ''}>
-            <span>Permitir compartir la key entre varios HWID (desactiva el bloqueo de HWID)</span>
-          </label>
-        </div>
-        <div class="form-actions">
-          <button type="button" class="btn ghost" data-close>Cancelar</button>
-          <button type="submit" class="btn">${edit ? 'Guardar cambios' : 'Crear proyecto'}</button>
+      <form id="formProject" class="pj-form" novalidate>
+        <div class="pj-modal-grid">
+          <div class="pj-fields">
+            <div class="input-group">
+              <label for="pjName">Nombre</label>
+              <input id="pjName" class="field block" maxlength="40" value="${edit ? esc(p.name) : ''}" autocomplete="off" ${edit ? 'disabled' : 'required'}>
+            </div>
+            <div class="input-group">
+              <label for="pjLogs">Webhook de logs</label>
+              <input id="pjLogs" class="field block" placeholder="https://discord.com/api/webhooks/..." value="${edit ? esc(p.logs_webhook || '') : ''}" autocomplete="off">
+              <div class="hint">* Las ejecuciones correctas se enviarán a este webhook</div>
+            </div>
+            <div class="input-group">
+              <label for="pjAlert">Webhook de alertas</label>
+              <input id="pjAlert" class="field block" placeholder="https://discord.com/api/webhooks/..." value="${edit ? esc(p.alert_webhook || '') : ''}" autocomplete="off">
+              <div class="hint">* Los intentos de crack y los baneos se reportarán a este webhook</div>
+            </div>
+            <div class="input-group">
+              <label class="chip" style="justify-content:flex-start;gap:8px">
+                <input type="checkbox" name="allowHwidReset" ${!edit || p.allow_hwid_reset !== 0 ? 'checked' : ''}>
+                <span>Permitir que los usuarios reinicien su HWID</span>
+              </label>
+              <div class="hint">* Cuando está activo, los usuarios pueden reiniciar su HWID</div>
+            </div>
+            <div class="input-group">
+              <label for="pjCooldown">Cooldown</label>
+              <input id="pjCooldown" type="number" min="0" max="365" class="field block" value="${edit && p.hwid_reset_cooldown_days != null ? esc(p.hwid_reset_cooldown_days) : ''}">
+              <div class="hint">* Días que el usuario debe esperar antes de reiniciar su HWID</div>
+            </div>
+            <div class="input-group">
+              <label class="chip" style="justify-content:flex-start;gap:8px">
+                <input type="checkbox" name="autoDeleteExpired" ${edit && p.auto_delete_expired === 1 ? 'checked' : ''}>
+                <span>Auto delete expired users</span>
+              </label>
+              <div class="hint">* Cuando está activo, las keys expiradas se borran automáticamente cada 15 minutos</div>
+            </div>
+            <div class="input-group">
+              <label class="chip" style="justify-content:flex-start;gap:8px">
+                <input type="checkbox" name="allowHwidCloneSharing" ${edit && p.allow_hwid_clone_sharing === 1 ? 'checked' : ''}>
+                <span>Permitir compartir la key entre varios HWID (desactiva el bloqueo de HWID)</span>
+              </label>
+            </div>
+          </div>
+          <div class="pj-modal-btns">
+            <button type="submit" class="pj-ok" title="${edit ? 'Guardar cambios' : 'Crear proyecto'}" aria-label="${edit ? 'Guardar cambios' : 'Crear proyecto'}">✓</button>
+            <button type="button" class="pj-no" data-close title="Cerrar" aria-label="Cerrar">✕</button>
+            ${edit ? `<button type="button" class="pj-del-link" data-pj-del="${esc(p.id)}">Eliminar</button>` : ''}
+          </div>
         </div>
       </form>`);
     $('formProject').addEventListener('submit', async e => {

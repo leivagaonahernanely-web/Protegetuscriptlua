@@ -378,6 +378,7 @@ db.exec(`
   // Detección de keys compartidas (1 = activa)
   if (!cols.includes('share_detection')) db.exec('ALTER TABLE scripts ADD COLUMN share_detection INTEGER DEFAULT 1');
   if (!cols.includes('auto_revoke_dump')) db.exec('ALTER TABLE scripts ADD COLUMN auto_revoke_dump INTEGER DEFAULT 0');
+  if (!cols.includes('updated_at')) db.exec('ALTER TABLE scripts ADD COLUMN updated_at INTEGER');
   if (!cols.includes('maintenance')) db.exec('ALTER TABLE scripts ADD COLUMN maintenance INTEGER DEFAULT 0');
 
   // Columnas de keys para el bot y el control de HWID
@@ -554,16 +555,16 @@ const stmt = {
   `),
   // Nunca se seleccionan source ni content aquí
   scriptsByUser: db.prepare(`
-    SELECT id, user_id, name, slug, loader_id, ffa, obfuscator, obf_mode, hwid_reset_hours, share_detection, auto_revoke_dump, maintenance, clyde_vm, perf_level, project_id, hwid_lock, COALESCE(dump_attempts, 0) AS dump_attempts, last_dump_at FROM scripts
+    SELECT id, user_id, name, slug, loader_id, ffa, obfuscator, obf_mode, hwid_reset_hours, share_detection, auto_revoke_dump, maintenance, clyde_vm, perf_level, project_id, hwid_lock, COALESCE(dump_attempts, 0) AS dump_attempts, last_dump_at, updated_at FROM scripts
     WHERE user_id = ? ORDER BY id DESC
   `),
   scriptOwned: db.prepare('SELECT * FROM scripts WHERE id = ? AND user_id = ?'),
   scriptInsert: db.prepare(`
-    INSERT INTO scripts (user_id, project_id, name, slug, ffa, obfuscator, obf_mode, guard_secret, source, content, hwid_reset_hours, share_detection, clyde_vm, auto_revoke_dump, hwid_lock)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO scripts (user_id, project_id, name, slug, ffa, obfuscator, obf_mode, guard_secret, source, content, hwid_reset_hours, share_detection, clyde_vm, auto_revoke_dump, hwid_lock, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `),
   scriptUpdate: db.prepare(`
-    UPDATE scripts SET name = ?, ffa = ?, obfuscator = ?, obf_mode = ?, guard_secret = ?, source = ?, content = ?, hwid_reset_hours = ?, share_detection = ?, clyde_vm = ?, auto_revoke_dump = ?, hwid_lock = ?
+    UPDATE scripts SET name = ?, ffa = ?, obfuscator = ?, obf_mode = ?, guard_secret = ?, source = ?, content = ?, hwid_reset_hours = ?, share_detection = ?, clyde_vm = ?, auto_revoke_dump = ?, hwid_lock = ?, updated_at = ?
     WHERE id = ? AND user_id = ?
   `),
   keysByUser: db.prepare(`
@@ -5299,7 +5300,6 @@ app.post('/api/scripts', requireAuth, async (req, res) => {
   if (!Number.isInteger(_pjId) || !db.prepare('SELECT 1 FROM projects WHERE id = ? AND user_id = ?').get(_pjId, req.userId)) {
     return res.status(400).json({ error: 'Elige un proyecto: crea uno primero si no tienes ninguno.' });
   }
-  if (input.obfuscator === 'luau' && !isPlusPlanId(req.userId)) return res.status(403).json({ error: 'El Ofuscador 3 es solo para Premium Plus' });
   if (!discordJoinDone(req.userId)) {
     return res.status(403).json({ error: 'Para crear scripts debes estar en nuestro servidor de Discord.', code: 'DISCORD_REQUIRED', invite: DISCORD_JOIN_URL });
   }
@@ -5326,7 +5326,7 @@ app.post('/api/scripts', requireAuth, async (req, res) => {
     if (outErr) return res.status(422).json({ error: `La versión ofuscada no compila. Avisa al equipo con este mensaje: ${outErr}` });
     const info = stmt.scriptInsert.run(
       req.userId, _pjId, input.name, uniqueSlug(input.name), input.isFfa ? 1 : 0,
-      input.obfuscator, input.obfMode, guardSecret, input.source, content, input.hwidResetHours, input.shareDetection, input.clydeVm, input.autoRevokeDump, input.hwidLock,
+      input.obfuscator, input.obfMode, guardSecret, input.source, content, input.hwidResetHours, input.shareDetection, input.clydeVm, input.autoRevokeDump, input.hwidLock, Math.floor(Date.now() / 1000),
     );
     db.prepare('UPDATE scripts SET loader_id = ? WHERE id = ?').run(crypto.randomBytes(20).toString('hex'), info.lastInsertRowid);
     db.prepare('UPDATE scripts SET perf_level = ? WHERE id = ?').run(analyzePerf(input.source, { obfuscator: input.obfuscator, vm: input.clydeVm === 1 }).level, info.lastInsertRowid);
@@ -5363,7 +5363,6 @@ app.put('/api/scripts/:id', requireAuth, async (req, res) => {
 
   const input = validateScriptInput(req.body || {}, script);
   if (input.error) return res.status(400).json({ error: input.error });
-  if (input.obfuscator === 'luau' && !isPlusPlanId(req.userId)) return res.status(403).json({ error: 'El Ofuscador 3 es solo para Premium Plus' });
   if (!isPaidPlanId(req.userId) && input.hwidResetHours === 0) input.hwidResetHours = 24;
   const quotaMsg = quotaError(req.userId, { isNewScript: false, isFfa: input.isFfa });
   if (quotaMsg) return res.status(403).json({ error: quotaMsg });
@@ -5386,7 +5385,7 @@ app.put('/api/scripts/:id', requireAuth, async (req, res) => {
     const outErr = input.obfuscator === 'none' ? null : await checkLuauSyntax(content);
     if (outErr) return res.status(422).json({ error: `La versión ofuscada no compila. Avisa al equipo con este mensaje: ${outErr}` });
     stmt.scriptUpdate.run(
-      input.name, input.isFfa ? 1 : 0, input.obfuscator, input.obfMode, guardSecret, input.source, content, input.hwidResetHours, input.shareDetection, input.clydeVm, input.autoRevokeDump, input.hwidLock,
+      input.name, input.isFfa ? 1 : 0, input.obfuscator, input.obfMode, guardSecret, input.source, content, input.hwidResetHours, input.shareDetection, input.clydeVm, input.autoRevokeDump, input.hwidLock, Math.floor(Date.now() / 1000),
       script.id, req.userId,
     );
     db.prepare('UPDATE scripts SET perf_level = ? WHERE id = ?').run(analyzePerf(input.source, { obfuscator: input.obfuscator, vm: input.clydeVm === 1 }).level, script.id);

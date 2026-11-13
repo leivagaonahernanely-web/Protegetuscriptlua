@@ -1099,6 +1099,10 @@ local _NX = {${nibbleTableLiteral()}}
 local function _x(a, b)
   return _NX[(a - a % 16) / 16 * 16 + (b - b % 16) / 16 + 1] * 16 + _NX[a % 16 * 16 + b % 16 + 1]
 end
+local _EV
+pcall(function() _EV = getfenv(1) end)
+local _GVX
+pcall(function() if type(getgenv) == 'function' then _GVX = getgenv() end end)
 local b32 = bit32
 local function _band(x, y)
   if b32 then return b32.band(x, y) end
@@ -1357,7 +1361,10 @@ local function _run(pi, ups, ...)
       for i = b + 1, c do s = s .. R[i] end
       R[a] = s
     elseif o == ${O.GETGLOBAL} then
-      R[a] = _G[K[b + 1]]
+      local v = _G[K[b + 1]]
+      if v == nil and _EV then v = _EV[K[b + 1]] end
+      if v == nil and _GVX and _GVX ~= _EV then v = _GVX[K[b + 1]] end
+      R[a] = v
     elseif o == ${O.RETURN} then
       if b == 0 then return _unpack(R, a, top)
       elseif b == 1 then return
@@ -1401,7 +1408,10 @@ local function _run(pi, ups, ...)
     elseif o == ${O.SETUPVAL} then
       ups[b + 1][1] = R[a]
     elseif o == ${O.SETGLOBAL} then
-      _G[K[b + 1]] = R[a]
+      local k = K[b + 1]
+      _G[k] = R[a]
+      if _EV then _EV[k] = R[a] end
+      if _GVX and _GVX ~= _G and _GVX ~= _EV then _GVX[k] = R[a] end
     elseif o == ${O.BOXNEW} then
       B[a] = { R[b] }
     elseif o == ${O.BOXGET} then

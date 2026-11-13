@@ -1409,6 +1409,7 @@ local function _findLP()
 end
 local _DBG = ${(LOADER_DEBUG || DEBUG_LOADER_IDS.includes(sk)) ? 'true' : 'false'}
 local function _dbg(m) if _DBG then print("[VANT-DBG] " .. tostring(m)) end end
+if _DBG then pcall(function() if getgenv then getgenv().VANTARMOR_DEBUG = true end end) end
 local function _forceKick(msg)
   local lp = _findLP()
   if lp then pcall(function() lp:Kick(msg) end) end

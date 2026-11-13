@@ -1104,6 +1104,14 @@ local _EV
 pcall(function() _EV = getfenv(1) end)
 local _GVX
 pcall(function() if type(getgenv) == 'function' then _GVX = getgenv() end end)
+local _LGN
+local _LGF
+pcall(function()
+  if _GVX and _GVX.VANTARMOR_DEBUG then
+    local function _p(x) if x then return 'Y' end return '-' end
+    warn('[VANT-DBG] vmenv G=' .. _p(_G) .. ' E=' .. _p(_EV) .. ' V=' .. _p(_GVX) .. ' game=' .. _p(_EV and _EV.game) .. _p(_GVX and _GVX.game) .. ' unpack=' .. _p(_EV and _EV.unpack) .. _p(_GVX and _GVX.unpack) .. ' task=' .. _p(_EV and _EV.task) .. _p(_GVX and _GVX.task))
+  end
+end)
 local b32 = bit32
 local function _band(x, y)
   if b32 then return b32.band(x, y) end
@@ -1293,11 +1301,14 @@ local function _run(pi, ups, ...)
     if o == ${O.MOVE} then
       R[a] = R[b]
     elseif o == ${O.GETTABLEK} then
-      R[a] = R[b][K[c + 1]]
+      local v = R[b][K[c + 1]]
+      if v == nil then _LGF = K[c + 1] end
+      R[a] = v
     elseif o == ${O.GETTABLE} then
       R[a] = R[b][R[c]]
     elseif o == ${O.CALL} then
       local f = R[a]
+      if f == nil then error('[VANT-DBG] nilcall g=' .. tostring(_LGN) .. ' fld=' .. tostring(_LGF), 0) end
       local res
       if b == 0 then res = _pack(f(_unpack(R, a + 1, top)))
       else res = _pack(f(_unpack(R, a + 1, a + b - 1))) end
@@ -1352,7 +1363,9 @@ local function _run(pi, ups, ...)
       if tv ~= (c == 1) then pc = pc + 1 end
     elseif o == ${O.SELF} then
       R[a + 1] = R[b]
-      R[a] = R[b][K[c + 1]]
+      local v = R[b][K[c + 1]]
+      if v == nil then _LGF = K[c + 1] end
+      R[a] = v
     elseif o == ${O.SETTABLEK} then
       R[a][K[b + 1]] = R[c]
     elseif o == ${O.SETTABLE} then
@@ -1366,6 +1379,7 @@ local function _run(pi, ups, ...)
       if v == nil and _EV then v = _EV[K[b + 1]] end
       if v == nil and _GVX and _GVX ~= _EV then v = _GVX[K[b + 1]] end
       R[a] = v
+      if v == nil then _LGN = K[b + 1] end
     elseif o == ${O.RETURN} then
       if b == 0 then return _unpack(R, a, top)
       elseif b == 1 then return

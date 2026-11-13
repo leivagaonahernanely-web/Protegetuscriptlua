@@ -2448,7 +2448,13 @@ const v1lHandler = async (req, res) => {
   const send401 = () => res.status(401).json({ ok: false, error: 'unauthorized' });
   const send404 = () => res.status(404).type('text/plain').send('-- script no encontrado');
   const send429 = () => res.status(429).json({ ok: false, error: 'rate_limited' });
-  if (/text\/html/.test(req.get('accept') || '') && !isRobloxAuthRequest(req)) return res.status(403).type('text/plain').send('!VANTARMOR:FORBIDDEN');
+  const _acc = String(req.get('accept') || '');
+  const _uaL = String(req.get('user-agent') || '');
+  // Navegador real: los navegadores modernos siempre mandan cabeceras Sec-Fetch / Sec-CH-UA,
+  // y los UAs de navegador clasico tambien se detectan. Los ejecutores no las mandan.
+  const _browser = req.get('sec-fetch-site') || req.get('sec-fetch-mode') || req.get('sec-fetch-dest') || req.get('sec-ch-ua')
+    || /Mozilla\/5\.0 \(.*(Chrome|CriOS|Firefox|FxiOS|Safari|Edge|Edg|OPR|SamsungBrowser)/.test(_uaL);
+  if (/text\/html/.test(_acc) && (_browser || !isRobloxAuthRequest(req))) return res.status(403).type('text/plain').send('!VANTARMOR:FORBIDDEN');
   const b = (req.body && typeof req.body === 'object' && !Buffer.isBuffer(req.body)) ? req.body : {};
   const q = { ...req.query, ...b };
   const s = String(q.s || '');

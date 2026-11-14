@@ -2915,10 +2915,12 @@ local function _vantDec5(_b64, _ckey, _chwid, _cexp)
   end
   -- misma mezcla XXTEA; con bit32 nativo se evitan las funciones auxiliares (mismo resultado)
   local _mxf = _mx
+  local _fast = nil
   local _b32 = nil
   pcall(function() _b32 = bit32 end)
   if type(_b32) == "table" and type(_b32.bxor) == "function" and type(_b32.rshift) == "function" and type(_b32.lshift) == "function" then
     local _bx, _rs, _ls = _b32.bxor, _b32.rshift, _b32.lshift
+    _fast = { _bx, _rs, _ls }
     _mxf = function(sum, y, z, p0, e, k)
       local _s1 = (_bx(_rs(z, 5), _ls(y, 2)) + _bx(_rs(y, 3), _ls(z, 4))) % _M
       local _s2 = (_bx(sum, y) + _bx(k[_bx(p0 % 4, e) + 1], z)) % _M
@@ -2933,12 +2935,26 @@ local function _vantDec5(_b64, _ckey, _chwid, _cexp)
     _rd = _rd + 1
     _vd("D3 ronda " .. _rd .. " de " .. _rounds .. " inicio")
     local _e = math.floor(_sum / 4) % 4
-    for _p = _m, 2, -1 do
-      local _z = _v[_p - 1]
-      _y = (_v[_p] - _mxf(_sum, _y, _z, _p - 1, _e, _k)) % _M
-      _v[_p] = _y
-      if _p % 65536 == 0 then _vd("D3 ronda " .. _rd .. " p=" .. _p) end
-      if _p % 2048 == 0 then _brk() end
+    if _fast then
+      -- ruta rapida: la mezcla va en linea (sin llamada por palabra), mismo calculo que _mx
+      local _bx, _rs, _ls = _fast[1], _fast[2], _fast[3]
+      for _p = _m, 2, -1 do
+        local _z = _v[_p - 1]
+        local _s1 = (_bx(_rs(_z, 5), _ls(_y, 2)) + _bx(_rs(_y, 3), _ls(_z, 4))) % _M
+        local _s2 = (_bx(_sum, _y) + _bx(_k[_bx((_p - 1) % 4, _e) + 1], _z)) % _M
+        _y = (_v[_p] - _bx(_s1, _s2)) % _M
+        _v[_p] = _y
+        if _p % 65536 == 0 then _vd("D3 ronda " .. _rd .. " p=" .. _p) end
+        if _p % 2048 == 0 then _brk() end
+      end
+    else
+      for _p = _m, 2, -1 do
+        local _z = _v[_p - 1]
+        _y = (_v[_p] - _mxf(_sum, _y, _z, _p - 1, _e, _k)) % _M
+        _v[_p] = _y
+        if _p % 65536 == 0 then _vd("D3 ronda " .. _rd .. " p=" .. _p) end
+        if _p % 2048 == 0 then _brk() end
+      end
     end
     local _z2 = _v[_m]
     _y = (_v[1] - _mxf(_sum, _y, _z2, 0, _e, _k)) % _M

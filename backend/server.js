@@ -650,6 +650,8 @@ app.use((req, res, next) => {
   // /api/owner es lo que usa el panel de admin (servicio aparte, con token); si se bloquea,
   // el panel no puede ni apagar el mantenimiento. /api/version es solo el estado publico.
   if (req.path === '/admin' || req.path.startsWith('/api/admin')) return next();
+  // El login y el OAuth deben seguir alcanzables: si no, un admin sin sesion no puede entrar nunca.
+  if (req.path === '/login' || req.path.startsWith('/auth/')) return next();
   if (req.path.startsWith('/api/owner') || req.path === '/api/version') return next();
   // Los admins navegan el sitio aunque este en mantenimiento
   const _sess = getSession(req);

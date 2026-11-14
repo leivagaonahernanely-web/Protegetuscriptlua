@@ -1118,10 +1118,27 @@ end`;
   const DECR = `for _pass = 1, ${layers} do
   local parts = {}
   _S = _pass == 1 and _S0 or _S1
-  for i = 1, #_blob do
+  local _n = #_blob
+  local _full = _n - _n % 8
+  local _cnt = 0
+  for _i = 1, _full, 8 do
+    local b1, b2, b3, b4, b5, b6, b7, b8 = string.byte(_blob, _i, _i + 7)
+    _S = _S * 16807 % 2147483647; local k1 = _S % 256
+    _S = _S * 16807 % 2147483647; local k2 = _S % 256
+    _S = _S * 16807 % 2147483647; local k3 = _S % 256
+    _S = _S * 16807 % 2147483647; local k4 = _S % 256
+    _S = _S * 16807 % 2147483647; local k5 = _S % 256
+    _S = _S * 16807 % 2147483647; local k6 = _S % 256
+    _S = _S * 16807 % 2147483647; local k7 = _S % 256
+    _S = _S * 16807 % 2147483647; local k8 = _S % 256
+    _cnt = _cnt + 1
+    parts[_cnt] = string.char(_bx(b1, k1), _bx(b2, k2), _bx(b3, k3), _bx(b4, k4), _bx(b5, k5), _bx(b6, k6), _bx(b7, k7), _bx(b8, k8))
+    if _YLD and _cnt % 32768 == 0 then _YLD() end
+  end
+  for _i = _full + 1, _n do
     _S = _S * 16807 % 2147483647
-    parts[i] = string.char(_bx(string.byte(_blob, i), _S % 256))
-    if _YLD and i % 262144 == 0 then _YLD() end
+    _cnt = _cnt + 1
+    parts[_cnt] = string.char(_bx(string.byte(_blob, _i), _S % 256))
   end
   _blob = table.concat(parts)
 end`;

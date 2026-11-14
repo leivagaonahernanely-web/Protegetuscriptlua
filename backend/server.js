@@ -2938,10 +2938,13 @@ local function _vantDec5(_b64, _ckey, _chwid, _cexp)
     if _fast then
       -- ruta rapida: la mezcla va en linea (sin llamada por palabra), mismo calculo que _mx
       local _bx, _rs, _ls = _fast[1], _fast[2], _fast[3]
+      -- la clave por posicion depende solo de p%4 y de la ronda: se calcula una vez por ronda
+      local _kr = {}
+      for _j = 0, 3 do _kr[_j + 1] = _k[_bx(_j, _e) + 1] end
       for _p = _m, 2, -1 do
         local _z = _v[_p - 1]
         local _s1 = (_bx(_rs(_z, 5), _ls(_y, 2)) + _bx(_rs(_y, 3), _ls(_z, 4))) % _M
-        local _s2 = (_bx(_sum, _y) + _bx(_k[_bx((_p - 1) % 4, _e) + 1], _z)) % _M
+        local _s2 = (_bx(_sum, _y) + _bx(_kr[(_p - 1) % 4 + 1], _z)) % _M
         _y = (_v[_p] - _bx(_s1, _s2)) % _M
         _v[_p] = _y
         if _p % 65536 == 0 then _vd("D3 ronda " .. _rd .. " p=" .. _p) end

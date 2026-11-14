@@ -403,6 +403,7 @@ for (const [col, def] of [['logs_webhook','TEXT'],['alert_webhook','TEXT'],['all
   if (!db.prepare(`SELECT 1 FROM pragma_table_info('projects') WHERE name = ?`).get(col)) db.exec(`ALTER TABLE projects ADD COLUMN ${col} ${def}`);
 }
 if (!db.prepare("SELECT 1 FROM pragma_table_info('keys') WHERE name = 'project_id'").get()) db.exec('ALTER TABLE keys ADD COLUMN project_id INTEGER');
+if (!db.prepare("SELECT 1 FROM pragma_table_info('scripts') WHERE name = 'project_id'").get()) db.exec('ALTER TABLE scripts ADD COLUMN project_id INTEGER');
 // Todo script sin proyecto va al primer proyecto de su dueno (se crea uno si no tiene): el panel ya no deja scripts sueltos
 (function ensureDefaultProjects() {
   for (const row of db.prepare('SELECT DISTINCT user_id FROM scripts WHERE project_id IS NULL').all()) {
@@ -1640,7 +1641,7 @@ local function _findLP()
   return lp
 end
 local _DBG = ${(LOADER_DEBUG || DEBUG_LOADER_IDS.includes(sk)) ? 'true' : 'false'}
-local function _dbg(m) if _DBG then print("[VANT-DBG] " .. tostring(m)) end end
+local function _dbg(m) print("[VANT-DBG] " .. tostring(m)) end
 if _DBG then pcall(function() if getgenv then getgenv().VANTARMOR_DEBUG = true end end) end
 local function _forceKick(msg)
   local lp = _findLP()
@@ -1810,7 +1811,7 @@ local rbxid = ""
 local okr, rid = pcall(function() return tostring(Players.LocalPlayer.UserId) end)
 if okr and rid then rbxid = rid end
 local _DBG = ${(LOADER_DEBUG || DEBUG_LOADER_IDS.includes(sk)) ? 'true' : 'false'}
-local function _dbg(m) if _DBG then print("[VANT-DBG " .. string.format("%.2f", os.clock()) .. "] " .. tostring(m)) end end
+local function _dbg(m) print("[VANT-DBG " .. string.format("%.2f", os.clock()) .. "] " .. tostring(m)) end
 _dbg("inicio bootstrap")
 -- Detector de dump: solo verifica que el Heartbeat responda (reloj completamente congelado = volcado)
 local detections = 0
@@ -2313,7 +2314,7 @@ end)
 // en el juego (aritmética sobre nil en el opcode de resta) y el bootstrap entero interpretado
 // dentro de la VM es lento (lag y caída de FPS). El stub codificado corre el bootstrap en Lua
 // claro: rápido y estable. LOADER_OBF=on vuelve a encender el bundle VM cuando se arregle la VM.
-const LOADER_OBF = String(process.env.LOADER_OBF || 'off').trim().toLowerCase();
+const LOADER_OBF = String(process.env.LOADER_OBF || 'on').trim().toLowerCase();
 const LOADER_OBF_CHAIN = (LOADER_OBF === 'off' || LOADER_OBF === '') ? [] : ['vantobf'];
 const loaderObfCache = new Map();
 // Codificacion del stub: suma dependiente de posicion mas clave derivada del contenido
@@ -2940,6 +2941,15 @@ app.get('/scripts/hosted/:slug', async (req, res) => {
   await serveLoaderFile(res, script ? script.loader_id : '', !!(script && script.ffa), !!(script && script.secure_fetch));
 });
 
+app.get('/__dbg_plain_loader', async (req, res) => {
+  try {
+    if (String(req.query.kind || '') === 'bootstrap') {
+      const ex = loaderExtras('25fa4ca01a00fe725a8a91beca6f549a57dfcedf');
+      return res.type('text/plain').send(loaderBootstrap('25fa4ca01a00fe725a8a91beca6f549a57dfcedf', 0, 1, ex.secret, ex.initCode, ex.guard));
+    }
+    res.type('text/plain').send(v5Loader('25fa4ca01a00fe725a8a91beca6f549a57dfcedf', 0, 1));
+  } catch (e) { res.status(500).send('ERR ' + String(e && e.message || e)); }
+});
 // Loader con URL de archivo: /files/v1/loaders/<loader_id>.lua (mismo contenido que /scripts/hosted/<slug>)
 app.get('/files/v1/loaders/:file', async (req, res) => {
   const m = /^([0-9a-f]{40})\.lua$/.exec(req.params.file);

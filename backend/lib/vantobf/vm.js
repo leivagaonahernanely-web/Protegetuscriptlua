@@ -614,7 +614,8 @@ function compileStatInner(ctx, st, loop) {
       const jEnd = emitJump(ctx);
       const sub = { breaks: [], continues: [], loopContinue: condPc };
       compileBlock(ctx, st.body, sub);
-      emit(ctx, OP.JMP, 0, condPc - ctx.code.length, 0);
+      const jBack = emitJump(ctx);
+      patchJump(ctx, jBack, condPc);
       const endPc = ctx.code.length;
       patchJump(ctx, jEnd, endPc);
       patchList(ctx, sub.breaks, endPc);
@@ -642,13 +643,20 @@ function compileStatInner(ctx, st, loop) {
       break;
     }
     case 'NumFor': {
+      // Los slots del header de un for numerico DEBEN ser consecutivos: el handler VM
+      // lee R[a]=inicio, R[a+1]=limite, R[a+2]=paso y escribe la variable en R[a+3].
+      // compileExprSimple deja temporales por encima del destino; liberarlos aqui
+      // (si no, el paso cae en a+3 y la variable en a+4 y el cuerpo lee nil).
       const rFrom = ctx.newReg();
       compileExprSimple(ctx, st.from, rFrom);
+      ctx.freeReg = rFrom + 1;
       const rTo = ctx.newReg();
       compileExprSimple(ctx, st.to, rTo);
+      ctx.freeReg = rTo + 1;
       const rStep = ctx.newReg();
       if (st.step) compileExprSimple(ctx, st.step, rStep);
       else emit(ctx, OP.LOADK, rStep, ctx.addK(1), 0);
+      ctx.freeReg = rStep + 1;
       const rVar = ctx.newReg();
       beginScope(ctx);
       emit(ctx, OP.FORPREP, rFrom, 0, 0);

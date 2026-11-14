@@ -2661,7 +2661,7 @@ pcall(function() rbxid = tostring(Players.LocalPlayer.UserId) end)
 local function _reportTamper(why)
   pcall(function()
     local _r = request or http_request or (syn and syn.request)
-    if _r then _r({ Url = AURL, Method = "POST", Headers = { ["Content-Type"] = "application/json" }, Body = HttpService:JSONEncode({ s = SK, key = key, hwid = hwid, rbxid = rbxid, ver = 6, tamper = "1", why = why }) }) end
+    if _r then _r({ Url = AURL, Method = "POST", Headers = { ["Content-Type"] = "application/json" }, Body = HttpService:JSONEncode({ s = SK, key = key, hwid = hwid, rbxid = rbxid, ver = 7, tamper = "1", why = why }) }) end
   end)
 end
 local function nativeFn(f)
@@ -2730,7 +2730,7 @@ for _i = 1, 3 do
   do
     local _r = request or http_request or (syn and syn.request)
     if _r then
-      local _okp, _resp = pcall(_r, { Url = LURL, Method = "POST", Headers = { ["Content-Type"] = "application/json" }, Body = HttpService:JSONEncode({ s = SK, key = key, hwid = hwid, rbxid = rbxid, ver = 6, lt = _lowTrust and "1" or nil, ee = 1 }) })
+      local _okp, _resp = pcall(_r, { Url = LURL, Method = "POST", Headers = { ["Content-Type"] = "application/json" }, Body = HttpService:JSONEncode({ s = SK, key = key, hwid = hwid, rbxid = rbxid, ver = 7, lt = _lowTrust and "1" or nil, ee = 1 }) })
       if _okp and type(_resp) == "table" then
         local _b = _resp.Body or _resp.body
         if type(_b) == "string" and #_b > 0 then _raw = _b end
@@ -2742,6 +2742,14 @@ for _i = 1, 3 do
     if _okg and type(_gr) == "string" and #_gr > 0 then _raw = _gr end
   end
   if _raw then
+    if type(_raw) == "string" and _raw:sub(1, 11) == "!VANTARMOR:" then
+      _close()
+      local _code = _raw:sub(12)
+      local _em = MSG.NOT_AUTHORIZED
+      if _code:find("UPDATE_REQUIRED", 1, true) then _em = MSG.UPDATE_REQUIRED end
+      if _code:find("RATE_LIMITED", 1, true) then _em = MSG.RATE_LIMITED end
+      error(_em, 0)
+    end
     local _okj, _j = pcall(function() return HttpService:JSONDecode(_raw) end)
     if _okj and type(_j) == "table" then
       if _j.ok == true then _data = _j break end

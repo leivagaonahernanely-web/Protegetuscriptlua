@@ -1114,6 +1114,7 @@ end`;
   for i = 1, #_blob do
     _S = _S * 16807 % 2147483647
     parts[i] = string.char(_x(string.byte(_blob, i), _S % 256))
+    if _YLD and i % 262144 == 0 then _YLD() end
   end
   _blob = table.concat(parts)
 end`;
@@ -1204,6 +1205,8 @@ if _S0 <= 0 then _S0 = _S0 + 2147483646 end
 local _S1 = ${seed2}
 if _S1 <= 0 then _S1 = _S1 + 2147483646 end
 local _S = _S0
+local _YLD
+pcall(function() if type(task) == 'table' and type(task.wait) == 'function' then _YLD = task.wait end end)
 local _blob${SPLIT ? '' : ` = ${blobChunks(enc)}
 ${DECR}`}
 local _pos = 1
@@ -1275,7 +1278,7 @@ local function _proto()
   if _ver >= 2 then _cf = _u8() else _cf = 0 end
   local nk = _uv()
   P.k = {}
-  for i = 1, nk do P.k[i] = _k(id, i) end
+  for i = 1, nk do P.k[i] = _k(id, i) if _YLD and i % 65536 == 0 then _YLD() end end
   local nc = _uv()
   P.co = {}
   P.ca = {}
@@ -1286,6 +1289,7 @@ local function _proto()
     local a = _uv()
     local b = _uv()
     local c = _uv()
+    if _YLD and i % 65536 == 0 then _YLD() end
     if o == ${O.JMP} or o == ${O.FORPREP} or o == ${O.FORLOOP} or o == ${O.TFORLOOP} then
       b = i + 1 + ((b - b % 2) / 2 * (b % 2 == 1 and -1 or 1) - (b % 2 == 1 and 1 or 0))
     end
@@ -1319,7 +1323,10 @@ local function _run(pi, ups, ...)
   local CB = P.cb
   local CC = P.cc
   local K = P.k
+  local _ic = 0
   while true do
+    _ic = _ic + 1
+    if _YLD and _ic % 200000 == 0 then _YLD() end
     local o = CO[pc]
     local a = CA[pc]
     local b = CB[pc]

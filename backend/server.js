@@ -1645,9 +1645,31 @@ end
 local _DBG = ${(LOADER_DEBUG || DEBUG_LOADER_IDS.includes(sk)) ? 'true' : 'false'}
 local function _dbg(m) print("[VANT-DBG] " .. tostring(m)) end
 if _DBG then pcall(function() if getgenv then getgenv().VANTARMOR_DEBUG = true end end) end
+local function _lpAlive(lp)
+  local _alive = false
+  pcall(function() _alive = lp ~= nil and lp.Parent ~= nil end)
+  return _alive
+end
+-- Kick con verificacion: varios ejecutores anulan LocalPlayer:Kick (anti-kick).
+-- Si tras el primer intento el jugador sigue en el juego, se reintenta y se escala
+-- (muerte del personaje). Sin jugador (volcador puro) no hay nada que echar.
 local function _forceKick(msg)
   local lp = _findLP()
-  if lp then pcall(function() lp:Kick(msg) end) end
+  if not lp then return end
+  pcall(function() lp:Kick(msg) end)
+  pcall(function() if task and task.wait then task.wait(1) elseif wait then wait(1) end end)
+  if _lpAlive(lp) then
+    pcall(function() lp:Kick(msg) end)
+    pcall(function() if task and task.wait then task.wait(0.5) elseif wait then wait(0.5) end end)
+    if _lpAlive(lp) then
+      pcall(function()
+        local chr = lp.Character
+        local hum = chr and chr:FindFirstChildOfClass("Humanoid")
+        if hum then hum.Health = 0 end
+      end)
+      pcall(function() lp:Kick(msg) end)
+    end
+  end
 end
 local function kick(code, suf)
   local msg = MSG[code] or MSG.VERIFY_FAILED
@@ -2484,9 +2506,31 @@ local function _findLP()
   end
   return lp
 end
+local function _lpAlive(lp)
+  local _alive = false
+  pcall(function() _alive = lp ~= nil and lp.Parent ~= nil end)
+  return _alive
+end
+-- Kick con verificacion: varios ejecutores anulan LocalPlayer:Kick (anti-kick).
+-- Si tras el primer intento el jugador sigue en el juego, se reintenta y se escala
+-- (muerte del personaje). Sin jugador (volcador puro) no hay nada que echar.
 local function _forceKick(msg)
   local lp = _findLP()
-  if lp then pcall(function() lp:Kick(msg) end) end
+  if not lp then return end
+  pcall(function() lp:Kick(msg) end)
+  pcall(function() if task and task.wait then task.wait(1) elseif wait then wait(1) end end)
+  if _lpAlive(lp) then
+    pcall(function() lp:Kick(msg) end)
+    pcall(function() if task and task.wait then task.wait(0.5) elseif wait then wait(0.5) end end)
+    if _lpAlive(lp) then
+      pcall(function()
+        local chr = lp.Character
+        local hum = chr and chr:FindFirstChildOfClass("Humanoid")
+        if hum then hum.Health = 0 end
+      end)
+      pcall(function() lp:Kick(msg) end)
+    end
+  end
 end
 local function kick(msg)
   pcall(function() warn(msg) end)
@@ -2618,7 +2662,7 @@ do
   if _hit then
     _clearKey()
     _reportTamper("sandbox_probe")
-    pcall(function() local _lp = _findLP() if _lp then _lp:Kick(MSG.TAMPERING) end end)
+    _forceKick(MSG.TAMPERING)
     warn(MSG.TAMPERING)
     while true do end
   end

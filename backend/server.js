@@ -2842,10 +2842,10 @@ local function _vantDec5(_b64, _ckey, _chwid, _cexp)
   local _kb = _mix(_seed)
   local _b = (_b64 or ""):gsub("%s+", "")
   if #_b == 0 then return nil end
-  -- ceder el hilo solo si lleva mas de 0.2 s sin pausa (antes cedia cada 4096 vueltas: un frame por pausa)
+  -- ceder el hilo solo si lleva mas de 2 s sin pausa (antes cedia cada 4096 vueltas: un frame por pausa)
   local _sl = os.clock()
   local function _brk()
-    if task and os.clock() - _sl > 0.2 then _vd("D2 cede hilo") task.wait() _vd("D2b reanuda hilo") _sl = os.clock() end
+    if task and os.clock() - _sl > 2 then _vd("D2 cede hilo") task.wait() _vd("D2b reanuda hilo") _sl = os.clock() end
   end
   _vd("D0 inicio descifrado len_b64=" .. #(_b64 or ""))
   local _AL = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"

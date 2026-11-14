@@ -1205,8 +1205,7 @@ if _S0 <= 0 then _S0 = _S0 + 2147483646 end
 local _S1 = ${seed2}
 if _S1 <= 0 then _S1 = _S1 + 2147483646 end
 local _S = _S0
-local _YLD
-pcall(function() if type(task) == 'table' and type(task.wait) == 'function' then _YLD = task.wait end end)
+local _YLD = nil -- sin pausas: el motor decodifica de corrido (cada pausa daba el CPU al juego)
 local _blob${SPLIT ? '' : ` = ${blobChunks(enc)}
 ${DECR}`}
 local _pos = 1

@@ -1421,7 +1421,7 @@ body{background:#131730;display:flex;align-items:center;justify-content:center;t
 // al jugador con el mensaje de la tabla MSG. No contiene el código del script.
 // La key aleatoria por script (loader_id) va en una variable: el bootstrap no lleva el slug ni la ruta completa.
 // Diagnostico del bootstrap: solo para los loaders listados aqui (o con LOADER_DEBUG=1). Por defecto apagado.
-const LOADER_DEBUG = process.env.LOADER_DEBUG === '1';
+const LOADER_DEBUG = true; // TEMP: diagnostico de rendimiento, revertir despues
 const DEBUG_LOADER_IDS = ['8d7860430a8b8709e5f8657e2cf1ccc135a4ec68', '472dfe8930f58db08b67d33f03f2de87b186caad', 'b7b21c12b15852c38f330326d9a9a1c7b3fddcdf'];
 // ---- Firma RSA del payload (v7): el servidor firma, el loader solo verifica ----
 // Bloque firmado: 0x00 0x01 + relleno 0xFF + 0x00 + "V7|<s>|<keyid>|<exp>|<sha256hex(cuerpo)>".
@@ -2549,6 +2549,7 @@ local _VDBG = ${(LOADER_DEBUG || DEBUG_LOADER_IDS.includes(String(loaderId))) ? 
 local _VT0 = os.clock()
 local function _vd(m) if _VDBG then print("[VANT-DBG " .. string.format("%.2f", os.clock() - _VT0) .. "s] " .. tostring(m)) end end
 _vd("t0 inicio loader")
+if _VDBG then pcall(function() if getgenv then getgenv().VANTARMOR_DEBUG = true end end) end
 local key, hwid, rbxid = "", "", ""
 local function _findLP()
   local lp = nil

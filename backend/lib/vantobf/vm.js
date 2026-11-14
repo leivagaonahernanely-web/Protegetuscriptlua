@@ -1106,6 +1106,7 @@ end`;
   const DECR = `for _pass = 1, ${layers} do
   local parts = {}
   _S = _pass == 1 and _S0 or _S1
+  local _tp = os.clock()
   local _n = #_blob
   local _full = _n - _n % 8
   local _cnt = 0
@@ -1129,15 +1130,23 @@ end`;
     parts[_cnt] = string.char(_bx(string.byte(_blob, _i), _S % 256))
   end
   _blob = table.concat(parts)
+  if _VDG then _VDG('capa descifrado ' .. _pass, _tp) end
 end`;
   const ENTRY = `local function ${T.en}(_bld, ...)
 ${opts.guard ? GD + '\n' : ''}_blob = _bld
 _ARGV = (...)
 pcall(function() _EV = getfenv(1) end)
+local _tD = os.clock()
 ${DECR}
+if _VDG then _VDG('descifrado total', _tD) end
 _ver = _u8() -- version
+local _tP = os.clock()
 _proto()
-return _run(1, {}, ...)
+if _VDG then _VDG('parseo protos', _tP) end
+local _tR = os.clock()
+local _res = table.pack(_run(1, {}, ...))
+if _VDG then _VDG('ejecucion', _tR) end
+return table.unpack(_res, 1, _res.n)
 end
 pcall(function() _G["VANTARMOR_VM"] = ${T.en} end)
 pcall(function() if type(getgenv) == 'function' then rawset(getgenv(), "VANTARMOR_VM", ${T.en}) end end)`;
@@ -1160,6 +1169,10 @@ pcall(function()
     warn('[VANT-DBG] vmenv G=' .. _p(_G) .. ' E=' .. _p(_EV) .. ' V=' .. _p(_GVX) .. ' game=' .. _p(_EV and _EV.game) .. _p(_GVX and _GVX.game) .. ' unpack=' .. _p(_EV and _EV.unpack) .. _p(_GVX and _GVX.unpack) .. ' task=' .. _p(_EV and _EV.task) .. _p(_GVX and _GVX.task))
   end
 end)
+local _VDG = nil
+if _GVX and _GVX.VANTARMOR_DEBUG then
+  _VDG = function(n, t) print(string.format('[VANT-T] %s: %.3f s', tostring(n), os.clock() - (t or os.clock()))) end
+end
 local b32 = bit32
 local _bx = (b32 and b32.bxor) or _x -- XOR de bytes; igual que _x (solo mas rapido)
 local function _band(x, y)
@@ -1520,7 +1533,7 @@ local function _run(pi, ups, ...)
 end
 ${opts.antiEnv !== false ? AE + '\n' : ''}${!SPLIT && opts.guard ? GD + '\n' : ''}${SPLIT ? ENTRY : (typeof opts.loaderPrelude === 'string' && opts.loaderPrelude ? 'do\n' + opts.loaderPrelude + '\nend\n' : '') + 'return _run(1, {}, ...)'}
 `;
-  const DATA = SPLIT ? `-- [VantArmor] ${opts.tag || ''}\nlocal _b7 = ${blobLua(enc)}\nlocal _e7 = _G["VANTARMOR_VM"]\nif not _e7 then error("[VantArmor] loader desactualizado, descarga el loader de nuevo", 0) end\nreturn _e7(_b7, ...)` : null;
+  const DATA = SPLIT ? `-- [VantArmor] ${opts.tag || ''}\nlocal _b7\ndo\n  local _t0 = os.clock()\n  _b7 = ${blobLua(enc)}\n  pcall(function() if type(getgenv) == 'function' and getgenv().VANTARMOR_DEBUG then print(string.format('[VANT-T] b64 blob: %.3f s', os.clock() - _t0)) end end)\nend\nlocal _e7 = _G["VANTARMOR_VM"]\nif not _e7 then error("[VantArmor] loader desactualizado, descarga el loader de nuevo", 0) end\nreturn _e7(_b7, ...)` : null;
   if (opts.mangle !== false) {
     let out = lua;
     for (const n of ['_NX','_x','_S0','_S','_blob','_pos','_u8','_uv','_sv','_str','_de','_k','_P','_proto','_pack','_unpack','_band','_bor','_bxor','_shl','_shr','_run','_cf','_ver','_pass','_j1','_j2','_i','_exp','_v','b32']) {

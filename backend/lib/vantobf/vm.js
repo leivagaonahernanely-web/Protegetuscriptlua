@@ -939,9 +939,18 @@ function nibbleTableLiteral() {
 
 // Blob del VM en base64 (antes: un numero decimal por byte, ~3.6 caracteres por byte).
 // Se rellena con ceros a multiplo de 3 para no tener '=', y el decodificador recorta al largo real.
-function blobLua(data) {
+function b64Of(data) {
   const pad = (3 - (data.length % 3)) % 3;
-  const b64 = Buffer.from(data + '\0'.repeat(pad), 'latin1').toString('base64');
+  return Buffer.from(data + '\0'.repeat(pad), 'latin1').toString('base64');
+}
+
+function b64TableLiteral() {
+  const A = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+  return [...A].map((ch, i) => `[${ch.charCodeAt(0)}]=${i}`).join(',');
+}
+
+function blobLua(data) {
+  const b64 = b64Of(data);
   return "(function() local A='ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/' local M={} for i=1,64 do M[A:byte(i)]=i-1 end local o,n={},0 local s=[[" + b64 + "]] for i=1,#s,4 do local a,b,c,d=s:byte(i,i+3) local q=M[a]*262144+M[b]*4096+M[c]*64+M[d] n=n+1 o[n]=string.char(math.floor(q/65536),math.floor(q/256)%256,q%256) end return table.concat(o):sub(1," + data.length + ") end)()";
 }
 
@@ -1103,10 +1112,7 @@ end`;
   end
 end`;
   const SPLIT = !!opts.split;
-  const DECR = `for _pass = 1, ${layers} do
-  local parts = {}
-  _S = _pass == 1 and _S0 or _S1
-  local _tp = os.clock()
+  const STD_LOOP = `
   local _n = #_blob
   local _full = _n - _n % 8
   local _cnt = 0
@@ -1129,7 +1135,58 @@ end`;
     _cnt = _cnt + 1
     parts[_cnt] = string.char(_bx(string.byte(_blob, _i), _S % 256))
   end
-  _blob = table.concat(parts)
+  _blob = table.concat(parts)`;
+  const FUSED_LOOP = `
+  local _bln = #_blob
+  local _grp = _bln - _bln % 4
+  local _b16 = _grp - _grp % 16
+  local _cnt = 0
+  for _i = 1, _b16, 16 do
+    local c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13, c14, c15, c16 = string.byte(_blob, _i, _i + 15)
+    local q1 = _NB[c1] * 262144 + _NB[c2] * 4096 + _NB[c3] * 64 + _NB[c4]
+    local q2 = _NB[c5] * 262144 + _NB[c6] * 4096 + _NB[c7] * 64 + _NB[c8]
+    local q3 = _NB[c9] * 262144 + _NB[c10] * 4096 + _NB[c11] * 64 + _NB[c12]
+    local q4 = _NB[c13] * 262144 + _NB[c14] * 4096 + _NB[c15] * 64 + _NB[c16]
+    local o1 = math.floor(q1 / 65536); local o2 = math.floor(q1 / 256) % 256; local o3 = q1 % 256
+    local o4 = math.floor(q2 / 65536); local o5 = math.floor(q2 / 256) % 256; local o6 = q2 % 256
+    local o7 = math.floor(q3 / 65536); local o8 = math.floor(q3 / 256) % 256; local o9 = q3 % 256
+    local o10 = math.floor(q4 / 65536); local o11 = math.floor(q4 / 256) % 256; local o12 = q4 % 256
+    _S = _S * 16807 % 2147483647; local k1 = _S % 256
+    _S = _S * 16807 % 2147483647; local k2 = _S % 256
+    _S = _S * 16807 % 2147483647; local k3 = _S % 256
+    _S = _S * 16807 % 2147483647; local k4 = _S % 256
+    _S = _S * 16807 % 2147483647; local k5 = _S % 256
+    _S = _S * 16807 % 2147483647; local k6 = _S % 256
+    _S = _S * 16807 % 2147483647; local k7 = _S % 256
+    _S = _S * 16807 % 2147483647; local k8 = _S % 256
+    _S = _S * 16807 % 2147483647; local k9 = _S % 256
+    _S = _S * 16807 % 2147483647; local k10 = _S % 256
+    _S = _S * 16807 % 2147483647; local k11 = _S % 256
+    _S = _S * 16807 % 2147483647; local k12 = _S % 256
+    _cnt = _cnt + 1
+    parts[_cnt] = string.char(_bx(o1, k1), _bx(o2, k2), _bx(o3, k3), _bx(o4, k4), _bx(o5, k5), _bx(o6, k6), _bx(o7, k7), _bx(o8, k8), _bx(o9, k9), _bx(o10, k10), _bx(o11, k11), _bx(o12, k12))
+    if _YLD and _cnt % 32768 == 0 then _YLD() end
+  end
+  for _i = _b16 + 1, _grp, 4 do
+    local a, b, c, d = string.byte(_blob, _i, _i + 3)
+    local q = _NB[a] * 262144 + _NB[b] * 4096 + _NB[c] * 64 + _NB[d]
+    local o1 = math.floor(q / 65536); local o2 = math.floor(q / 256) % 256; local o3 = q % 256
+    _S = _S * 16807 % 2147483647; local k1 = _S % 256
+    _S = _S * 16807 % 2147483647; local k2 = _S % 256
+    _S = _S * 16807 % 2147483647; local k3 = _S % 256
+    _cnt = _cnt + 1
+    parts[_cnt] = string.char(_bx(o1, k1), _bx(o2, k2), _bx(o3, k3))
+  end
+  _blob = string.sub(table.concat(parts), 1, ${enc.length})`;
+  const DECR = `for _pass = 1, ${layers} do
+  local parts = {}
+  _S = _pass == 1 and _S0 or _S1
+  local _tp = os.clock()
+${SPLIT ? `  if _pass == 1 then
+${FUSED_LOOP}
+  else
+${STD_LOOP}
+  end` : STD_LOOP}
   if _VDG then _VDG('capa descifrado ' .. _pass, _tp) end
 end`;
   const ENTRY = `local function ${T.en}(_bld, ...)
@@ -1152,6 +1209,7 @@ pcall(function() _G["VANTARMOR_VM"] = ${T.en} end)
 pcall(function() if type(getgenv) == 'function' then rawset(getgenv(), "VANTARMOR_VM", ${T.en}) end end)`;
   const lua = `
 local _NX = {${nibbleTableLiteral()}}
+local _NB = {${b64TableLiteral()}}
 local _OPN = {${opnEntries}}
 local function _x(a, b)
   return _NX[(a - a % 16) / 16 * 16 + (b - b % 16) / 16 + 1] * 16 + _NX[a % 16 * 16 + b % 16 + 1]
@@ -1533,7 +1591,7 @@ local function _run(pi, ups, ...)
 end
 ${opts.antiEnv !== false ? AE + '\n' : ''}${!SPLIT && opts.guard ? GD + '\n' : ''}${SPLIT ? ENTRY : (typeof opts.loaderPrelude === 'string' && opts.loaderPrelude ? 'do\n' + opts.loaderPrelude + '\nend\n' : '') + 'return _run(1, {}, ...)'}
 `;
-  const DATA = SPLIT ? `-- [VantArmor] ${opts.tag || ''}\nlocal _b7\ndo\n  local _t0 = os.clock()\n  _b7 = ${blobLua(enc)}\n  pcall(function() if type(getgenv) == 'function' and getgenv().VANTARMOR_DEBUG then print(string.format('[VANT-T] b64 blob: %.3f s', os.clock() - _t0)) end end)\nend\nlocal _e7 = _G["VANTARMOR_VM"]\nif not _e7 then error("[VantArmor] loader desactualizado, descarga el loader de nuevo", 0) end\nreturn _e7(_b7, ...)` : null;
+  const DATA = SPLIT ? `-- [VantArmor] ${opts.tag || ''}\nlocal _b7\ndo\n  local _t0 = os.clock()\n  _b7 = [[${b64Of(enc)}]]\n  pcall(function() if type(getgenv) == 'function' and getgenv().VANTARMOR_DEBUG then print(string.format('[VANT-T] data chunk: %.3f s', os.clock() - _t0)) end end)\nend\nlocal _e7 = _G["VANTARMOR_VM"]\nif not _e7 then error("[VantArmor] loader desactualizado, descarga el loader de nuevo", 0) end\nreturn _e7(_b7, ...)` : null;
   if (opts.mangle !== false) {
     let out = lua;
     for (const n of ['_NX','_x','_S0','_S','_blob','_pos','_u8','_uv','_sv','_str','_de','_k','_P','_proto','_pack','_unpack','_band','_bor','_bxor','_shl','_shr','_run','_cf','_ver','_pass','_j1','_j2','_i','_exp','_v','b32']) {

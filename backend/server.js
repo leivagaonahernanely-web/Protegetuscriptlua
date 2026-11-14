@@ -2842,14 +2842,37 @@ local function _vantDec5(_b64, _ckey, _chwid, _cexp)
   local _kb = _mix(_seed)
   local _b = (_b64 or ""):gsub("%s+", "")
   if #_b == 0 then return nil end
+  -- ceder el hilo solo si lleva mas de 0.2 s sin pausa (antes cedia cada 4096 vueltas: un frame por pausa)
+  local _sl = os.clock()
+  local function _brk()
+    if task and os.clock() - _sl > 0.2 then task.wait() _sl = os.clock() end
+  end
   local _AL = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
   local _im = {}
   for _i = 1, 64 do _im[_AL:byte(_i)] = _i - 1 end
   local _bytes = {}
   local _bn = 0
+  local _n = #_b
+  local _i = 1
+  local _cnt = 0
+  -- bloques de 4 caracteres -> 3 bytes con enteros (4 veces menos iteraciones)
+  while _i + 3 <= _n do
+    local _d1, _d2 = _im[_b:byte(_i)], _im[_b:byte(_i + 1)]
+    local _d3, _d4 = _im[_b:byte(_i + 2)], _im[_b:byte(_i + 3)]
+    if not (_d1 and _d2 and _d3 and _d4) then break end
+    local _q = _d1 * 262144 + _d2 * 4096 + _d3 * 64 + _d4
+    _bytes[_bn + 1] = math.floor(_q / 65536)
+    _bytes[_bn + 2] = math.floor(_q / 256) % 256
+    _bytes[_bn + 3] = _q % 256
+    _bn = _bn + 3
+    _i = _i + 4
+    _cnt = _cnt + 1
+    if _cnt % 2048 == 0 then _brk() end
+  end
+  -- resto (padding o caracteres raros): mismo camino de bits de antes, desde donde paro el bloque rapido
   local _acc, _bts = 0, 0
-  for _i = 1, #_b do
-    local _d = _im[_b:byte(_i)]
+  for _j = _i, _n do
+    local _d = _im[_b:byte(_j)]
     if _d then
       _acc = _acc * 64 + _d
       _bts = _bts + 6
@@ -2888,6 +2911,18 @@ local function _vantDec5(_b64, _ckey, _chwid, _cexp)
     local _s2 = (_t3 + _t4) % _M
     return _xor(_s1, _s2)
   end
+  -- misma mezcla XXTEA; con bit32 nativo se evitan las funciones auxiliares (mismo resultado)
+  local _mxf = _mx
+  local _b32 = nil
+  pcall(function() _b32 = bit32 end)
+  if type(_b32) == "table" and type(_b32.bxor) == "function" and type(_b32.rshift) == "function" and type(_b32.lshift) == "function" then
+    local _bx, _rs, _ls = _b32.bxor, _b32.rshift, _b32.lshift
+    _mxf = function(sum, y, z, p0, e, k)
+      local _s1 = (_bx(_rs(z, 5), _ls(y, 2)) + _bx(_rs(y, 3), _ls(z, 4))) % _M
+      local _s2 = (_bx(sum, y) + _bx(k[_bx(p0 % 4, e) + 1], z)) % _M
+      return _bx(_s1, _s2)
+    end
+  end
   local _rounds = 6 + math.floor(52 / _m)
   local _sum = (_DL * _rounds) % _M
   local _y = _v[1]
@@ -2895,12 +2930,12 @@ local function _vantDec5(_b64, _ckey, _chwid, _cexp)
     local _e = math.floor(_sum / 4) % 4
     for _p = _m, 2, -1 do
       local _z = _v[_p - 1]
-      _y = (_v[_p] - _mx(_sum, _y, _z, _p - 1, _e, _k)) % _M
+      _y = (_v[_p] - _mxf(_sum, _y, _z, _p - 1, _e, _k)) % _M
       _v[_p] = _y
-      if _p % 4096 == 0 and task then task.wait() end
+      if _p % 2048 == 0 then _brk() end
     end
     local _z2 = _v[_m]
-    _y = (_v[1] - _mx(_sum, _y, _z2, 0, _e, _k)) % _M
+    _y = (_v[1] - _mxf(_sum, _y, _z2, 0, _e, _k)) % _M
     _v[1] = _y
     _sum = (_sum - _DL) % _M
   until _sum == 0

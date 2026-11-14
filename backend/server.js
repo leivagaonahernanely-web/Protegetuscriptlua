@@ -2844,9 +2844,9 @@ local function _vantDec5(_b64, _ckey, _chwid, _cexp)
   if #_b == 0 then return nil end
   -- ceder el hilo solo si lleva mas de 2 s sin pausa (antes cedia cada 4096 vueltas: un frame por pausa)
   local _sl = os.clock()
-  local function _brk()
-    if task and os.clock() - _sl > 2 then _vd("D2 cede hilo") task.wait() _vd("D2b reanuda hilo") _sl = os.clock() end
-  end
+  -- sin pausas: el descifrado corre de corrido. Cada pausa devolvia el hilo al juego y
+  -- el descifrado recibia muy poco CPU (minutos). Un bloqueo corto y unico es lo que se acepta.
+  local function _brk() end
   _vd("D0 inicio descifrado len_b64=" .. #(_b64 or ""))
   local _AL = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
   local _im = {}

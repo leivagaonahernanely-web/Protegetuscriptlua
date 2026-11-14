@@ -946,12 +946,12 @@ function b64Of(data) {
 
 function b64TableLiteral() {
   const A = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
-  return [...A].map((ch, i) => `[${ch.charCodeAt(0)}]=${i}`).join(',');
+  return [...A].map((ch, i) => `[${ch.charCodeAt(0)}]=${i}`).join(',') + ',[61]=0'; // [61]='=' padding: 0, los bytes de relleno se cortan con sub
 }
 
 function blobLua(data) {
   const b64 = b64Of(data);
-  return "(function() local A='ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/' local M={} for i=1,64 do M[A:byte(i)]=i-1 end local o,n={},0 local s=[[" + b64 + "]] for i=1,#s,4 do local a,b,c,d=s:byte(i,i+3) local q=M[a]*262144+M[b]*4096+M[c]*64+M[d] n=n+1 o[n]=string.char(math.floor(q/65536),math.floor(q/256)%256,q%256) end return table.concat(o):sub(1," + data.length + ") end)()";
+  return "(function() local A='ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/' local M={} for i=1,64 do M[A:byte(i)]=i-1 end M[61]=0 local o,n={},0 local s=[[" + b64 + "]] for i=1,#s,4 do local a,b,c,d=s:byte(i,i+3) local q=M[a]*262144+M[b]*4096+M[c]*64+M[d] n=n+1 o[n]=string.char(math.floor(q/65536),math.floor(q/256)%256,q%256) end return table.concat(o):sub(1," + data.length + ") end)()";
 }
 
 // PM: la misma aritmetica del runtime (exacta en doubles)
@@ -1140,6 +1140,16 @@ end`;
   local _bln = #_blob
   local _grp = _bln - _bln % 4
   local _b16 = _grp - _grp % 16
+  if _VDG then
+    -- Diagnostico: con debug activo, buscar el primer caracter fuera del alfabeto
+    -- base64 antes de decodificar (un blob de otro formato revienta justo aqui).
+    for _di = 1, _grp do
+      if not _NB[string.byte(_blob, _di)] then
+        print(string.format('[VANT-DBG] blob caracter invalido: pos=%d byte=%d', _di, string.byte(_blob, _di)))
+        break
+      end
+    end
+  end
   local _cnt = 0
   for _i = 1, _b16, 16 do
     local c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13, c14, c15, c16 = string.byte(_blob, _i, _i + 15)

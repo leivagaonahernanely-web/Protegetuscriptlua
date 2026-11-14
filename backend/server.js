@@ -2825,22 +2825,25 @@ local function _vantDec5(_b64, _ckey, _chwid, _cexp)
   for _i = 1, 64 do _im[_AL:byte(_i)] = _i - 1 end
   local _bytes, _bn = {}, 0
   local _n = #_b
+  -- Lectura bulk: una sola llamada C trae todos los bytes (el loop por caracter
+  -- con string.byte era el cuello de botella en ejecutores moviles).
+  local _bt = {(_b):byte(1, -1)}
   local _ci = 1
   while _ci + 3 <= _n do
-    local _d1, _d2 = _im[_b:byte(_ci)], _im[_b:byte(_ci + 1)]
-    local _d3, _d4 = _im[_b:byte(_ci + 2)], _im[_b:byte(_ci + 3)]
+    local _d1, _d2 = _im[_bt[_ci]], _im[_bt[_ci + 1]]
+    local _d3, _d4 = _im[_bt[_ci + 2]], _im[_bt[_ci + 3]]
     if not (_d1 and _d2 and _d3 and _d4) then break end
     local _q = _d1 * 262144 + _d2 * 4096 + _d3 * 64 + _d4
-    _bytes[_bn + 1] = math.floor(_q / 65536)
-    _bytes[_bn + 2] = math.floor(_q / 256) % 256
-    _bytes[_bn + 3] = _q % 256
     _bn = _bn + 3
+    _bytes[_bn] = _q % 256
+    _bytes[_bn - 1] = math.floor(_q / 256) % 256
+    _bytes[_bn - 2] = math.floor(_q / 65536)
     _ci = _ci + 4
   end
   -- resto (padding)
   local _acc, _bts = 0, 0
   for _j = _ci, _n do
-    local _d = _im[_b:byte(_j)]
+    local _d = _im[_bt[_j]]
     if _d then _acc = _acc * 64 + _d; _bts = _bts + 6; if _bts >= 8 then _bts = _bts - 8; _bn = _bn + 1; _bytes[_bn] = math.floor(_acc / 2^_bts) % 256; _acc = _acc % 2^_bts end end
   end
   _vd("D1 base64 listo bytes=" .. _bn)
@@ -2853,29 +2856,29 @@ local function _vantDec5(_b64, _ckey, _chwid, _cexp)
     _jj = (_jj + _S[_i] + _sbox[_i + 1]) % 256
     local _t = _S[_i]; _S[_i] = _S[_jj]; _S[_jj] = _t
   end
-  -- RC4 PRGA: descifrar bytes en bloques de 8 (string.char por lote)
+  -- RC4 PRGA: un byte por vuelta con swap inline. Los operandos son 0-255, asi que
+  -- bit32.bxor directo (sin modulos ni closure). Salida en lotes de 2048 con
+  -- string.char(unpack(...)) para no llamar string.char por byte.
   local _aa, _bb = 0, 0
+  local _up = unpack or table.unpack
+  local _out, _on = {}, 0
   local _parts, _pc = {}, 0
-  local _full = _bn - _bn % 8
-  local _bi = 1
-  while _bi <= _full do
-    local _c1, _c2, _c3, _c4, _c5, _c6, _c7, _c8 = _bytes[_bi], _bytes[_bi+1], _bytes[_bi+2], _bytes[_bi+3], _bytes[_bi+4], _bytes[_bi+5], _bytes[_bi+6], _bytes[_bi+7]
-    _aa = (_aa+1)%256; _bb = (_bb+_S[_aa])%256; local _t=_S[_aa]; _S[_aa]=_S[_bb]; _S[_bb]=_t; local _k1=_S[(_S[_aa]+_S[_bb])%256]
-    _aa = (_aa+1)%256; _bb = (_bb+_S[_aa])%256; _t=_S[_aa]; _S[_aa]=_S[_bb]; _S[_bb]=_t; local _k2=_S[(_S[_aa]+_S[_bb])%256]
-    _aa = (_aa+1)%256; _bb = (_bb+_S[_aa])%256; _t=_S[_aa]; _S[_aa]=_S[_bb]; _S[_bb]=_t; local _k3=_S[(_S[_aa]+_S[_bb])%256]
-    _aa = (_aa+1)%256; _bb = (_bb+_S[_aa])%256; _t=_S[_aa]; _S[_aa]=_S[_bb]; _S[_bb]=_t; local _k4=_S[(_S[_aa]+_S[_bb])%256]
-    _aa = (_aa+1)%256; _bb = (_bb+_S[_aa])%256; _t=_S[_aa]; _S[_aa]=_S[_bb]; _S[_bb]=_t; local _k5=_S[(_S[_aa]+_S[_bb])%256]
-    _aa = (_aa+1)%256; _bb = (_bb+_S[_aa])%256; _t=_S[_aa]; _S[_aa]=_S[_bb]; _S[_bb]=_t; local _k6=_S[(_S[_aa]+_S[_bb])%256]
-    _aa = (_aa+1)%256; _bb = (_bb+_S[_aa])%256; _t=_S[_aa]; _S[_aa]=_S[_bb]; _S[_bb]=_t; local _k7=_S[(_S[_aa]+_S[_bb])%256]
-    _aa = (_aa+1)%256; _bb = (_bb+_S[_aa])%256; _t=_S[_aa]; _S[_aa]=_S[_bb]; _S[_bb]=_t; local _k8=_S[(_S[_aa]+_S[_bb])%256]
-    _pc = _pc + 1
-    _parts[_pc] = string.char(_bx32(_c1,_k1), _bx32(_c2,_k2), _bx32(_c3,_k3), _bx32(_c4,_k4), _bx32(_c5,_k5), _bx32(_c6,_k6), _bx32(_c7,_k7), _bx32(_c8,_k8))
-    _bi = _bi + 8
+  local _bxor = _b32 and _b32.bxor or _bx32
+  for _bi = 1, _bn do
+    _aa = (_aa+1)%256; _bb = (_bb+_S[_aa])%256
+    local _t = _S[_aa]; _S[_aa] = _S[_bb]; _S[_bb] = _t
+    local _c = _bxor(_bytes[_bi], _S[(_S[_aa]+_S[_bb])%256])
+    _on = _on + 1
+    _out[_on] = _c
+    if _on == 2048 then
+      _pc = _pc + 1
+      _parts[_pc] = string.char(_up(_out, 1, 2048))
+      _on = 0
+    end
   end
-  while _bi <= _bn do
-    _aa = (_aa+1)%256; _bb = (_bb+_S[_aa])%256; local _t=_S[_aa]; _S[_aa]=_S[_bb]; _S[_bb]=_t
-    _pc = _pc + 1; _parts[_pc] = string.char(_bx32(_bytes[_bi], _S[(_S[_aa]+_S[_bb])%256]))
-    _bi = _bi + 1
+  if _on > 0 then
+    _pc = _pc + 1
+    _parts[_pc] = string.char(_up(_out, 1, _on))
   end
   _vd("D5 RC4 listo bytes=" .. _bn)
   return table.concat(_parts)
@@ -3629,9 +3632,17 @@ function protectedBase(script, plain) {
   // "No obf" (none): se sirve la fuente tal cual, sin el motor propio. El servidor igual cifra
   // el envio al loader, asi que el protocolo no cambia.
   if (script.obfuscator === 'none' && plain) return plain;
-  if (saved.includes('vm7:')) return saved;                  // payload vm7: solo datos, se sirve tal cual
-  const isPlain = !saved || (plain && variants.has(saved.trim())) || looksLikePlainSource(saved);
-  if (!isPlain) return saved;                                // copia ofuscada real
+  if (saved.includes('vm7:')) {
+    // Payload vm7: solo datos. Solo se sirve tal cual si trae el formato actual
+    // (blob en literal base64). Una copia guardada del formato viejo (blob numerico
+    // blobLua) con el motor actual revienta en el decodificador b64 (mul sobre nil),
+    // asi que las copias viejas se reconstruyen al vuelo con el motor de hoy.
+    if (saved.includes('_b7 = [[')) return saved;
+    // cae al rebuild de abajo
+  } else {
+    const isPlain = !saved || (plain && variants.has(saved.trim())) || looksLikePlainSource(saved);
+    if (!isPlain) return saved;                              // copia ofuscada real
+  }
   const k = crypto.createHash('sha1').update(plain).digest('hex');
   if (_plainGuardCache.has(k)) return _plainGuardCache.get(k);
   let out = null;

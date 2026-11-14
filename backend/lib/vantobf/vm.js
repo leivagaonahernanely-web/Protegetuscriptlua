@@ -937,6 +937,13 @@ function nibbleTableLiteral() {
   return t.join(',');
 }
 
+// Blob del VM en base64 (antes: un numero decimal por byte, ~3.6 caracteres por byte).
+// Se rellena con ceros a multiplo de 3 para no tener '=', y el decodificador recorta al largo real.
+function blobLua(data) {
+  const pad = (3 - (data.length % 3)) % 3;
+  const b64 = Buffer.from(data + '\0'.repeat(pad), 'latin1').toString('base64');
+  return "(function() local A='ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/' local M={} for i=1,64 do M[A:byte(i)]=i-1 end local o,n={},0 local s=[[" + b64 + "]] for i=1,#s,4 do local a,b,c,d=s:byte(i,i+3) local q=M[a]*262144+M[b]*4096+M[c]*64+M[d] n=n+1 o[n]=string.char(math.floor(q/65536),math.floor(q/256)%256,q%256) end return table.concat(o):sub(1," + data.length + ") end)()";
+}
 function blobChunks(data) {
   // data: cadena de chars 0..255 -> string.char(...) en tandas
   const parts = [];
@@ -1206,7 +1213,7 @@ local _S1 = ${seed2}
 if _S1 <= 0 then _S1 = _S1 + 2147483646 end
 local _S = _S0
 local _YLD = nil -- sin pausas: el motor decodifica de corrido (cada pausa daba el CPU al juego)
-local _blob${SPLIT ? '' : ` = ${blobChunks(enc)}
+local _blob${SPLIT ? '' : ` = ${blobLua(enc)}
 ${DECR}`}
 local _pos = 1
 local function _u8() local v = string.byte(_blob, _pos); _pos = _pos + 1; return v end
@@ -1507,7 +1514,7 @@ local function _run(pi, ups, ...)
 end
 ${opts.antiEnv !== false ? AE + '\n' : ''}${!SPLIT && opts.guard ? GD + '\n' : ''}${SPLIT ? ENTRY : (typeof opts.loaderPrelude === 'string' && opts.loaderPrelude ? 'do\n' + opts.loaderPrelude + '\nend\n' : '') + 'return _run(1, {}, ...)'}
 `;
-  const DATA = SPLIT ? `-- [VantArmor] ${opts.tag || ''}\nlocal _b7 = ${blobChunks(enc)}\nlocal _e7 = _G["VANTARMOR_VM"]\nif not _e7 then error("[VantArmor] loader desactualizado, descarga el loader de nuevo", 0) end\nreturn _e7(_b7, ...)` : null;
+  const DATA = SPLIT ? `-- [VantArmor] ${opts.tag || ''}\nlocal _b7 = ${blobLua(enc)}\nlocal _e7 = _G["VANTARMOR_VM"]\nif not _e7 then error("[VantArmor] loader desactualizado, descarga el loader de nuevo", 0) end\nreturn _e7(_b7, ...)` : null;
   if (opts.mangle !== false) {
     let out = lua;
     for (const n of ['_NX','_x','_S0','_S','_blob','_pos','_u8','_uv','_sv','_str','_de','_k','_P','_proto','_pack','_unpack','_band','_bor','_bxor','_shl','_shr','_run','_cf','_ver','_pass','_j1','_j2','_i','_exp','_v','b32']) {

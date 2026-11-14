@@ -2845,8 +2845,9 @@ local function _vantDec5(_b64, _ckey, _chwid, _cexp)
   -- ceder el hilo solo si lleva mas de 0.2 s sin pausa (antes cedia cada 4096 vueltas: un frame por pausa)
   local _sl = os.clock()
   local function _brk()
-    if task and os.clock() - _sl > 0.2 then task.wait() _sl = os.clock() end
+    if task and os.clock() - _sl > 0.2 then _vd("D2 cede hilo") task.wait() _vd("D2b reanuda hilo") _sl = os.clock() end
   end
+  _vd("D0 inicio descifrado len_b64=" .. #(_b64 or ""))
   local _AL = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
   local _im = {}
   for _i = 1, 64 do _im[_AL:byte(_i)] = _i - 1 end
@@ -2884,6 +2885,7 @@ local function _vantDec5(_b64, _ckey, _chwid, _cexp)
       end
     end
   end
+  _vd("D1 base64 listo bytes=" .. _bn)
   if _bn == 0 or _bn % 4 ~= 0 then return nil end
   local _DL = 2654435769
   local _m = _bn / 4
@@ -2926,12 +2928,16 @@ local function _vantDec5(_b64, _ckey, _chwid, _cexp)
   local _rounds = 6 + math.floor(52 / _m)
   local _sum = (_DL * _rounds) % _M
   local _y = _v[1]
+  local _rd = 0
   repeat
+    _rd = _rd + 1
+    _vd("D3 ronda " .. _rd .. " de " .. _rounds .. " inicio")
     local _e = math.floor(_sum / 4) % 4
     for _p = _m, 2, -1 do
       local _z = _v[_p - 1]
       _y = (_v[_p] - _mxf(_sum, _y, _z, _p - 1, _e, _k)) % _M
       _v[_p] = _y
+      if _p % 65536 == 0 then _vd("D3 ronda " .. _rd .. " p=" .. _p) end
       if _p % 2048 == 0 then _brk() end
     end
     local _z2 = _v[_m]
@@ -2944,6 +2950,7 @@ local function _vantDec5(_b64, _ckey, _chwid, _cexp)
     local _w = _v[_i]
     _parts[_i] = string.char(_w % 256, math.floor(_w / 256) % 256, math.floor(_w / 65536) % 256, math.floor(_w / 16777216) % 256)
   end
+  _vd("D5 empaquetado listo palabras=" .. _m)
   local _pt = table.concat(_parts)
   local _len = #_pt
   while _len > 0 and _pt:byte(_len) == 0 do _len = _len - 1 end

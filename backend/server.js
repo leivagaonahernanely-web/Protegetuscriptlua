@@ -2736,7 +2736,7 @@ for _i = 1, 3 do
   do
     local _r = request or http_request or (syn and syn.request)
     if _r then
-      local _okp, _resp = pcall(_r, { Url = LURL, Method = "POST", Headers = { ["Content-Type"] = "application/json" }, Body = HttpService:JSONEncode({ s = SK, key = key, hwid = hwid, rbxid = rbxid, ver = 7, lt = _lowTrust and "1" or nil, ee = 1 }) })
+      local _okp, _resp = pcall(_r, { Url = LURL, Method = "POST", Headers = { ["Content-Type"] = "application/json" }, Body = HttpService:JSONEncode({ s = SK, key = key, hwid = hwid, rbxid = rbxid, ver = 7, lt = _lowTrust and "1" or nil, ee = 1, rc = 1 }) })
       if _okp and type(_resp) == "table" then
         local _b = _resp.Body or _resp.body
         if type(_b) == "string" and #_b > 0 then _raw = _b end
@@ -2744,7 +2744,7 @@ for _i = 1, 3 do
     end
   end
   if not _raw then
-    local _okg, _gr = pcall(function() return game:HttpGet(LURL .. "?s=" .. enc(SK) .. "&key=" .. enc(key) .. "&hwid=" .. enc(hwid) .. "&rbxid=" .. enc(rbxid) .. "&ee=1&ver=7") end)
+    local _okg, _gr = pcall(function() return game:HttpGet(LURL .. "?s=" .. enc(SK) .. "&key=" .. enc(key) .. "&hwid=" .. enc(hwid) .. "&rbxid=" .. enc(rbxid) .. "&ee=1&rc=1&ver=7") end)
     if _okg and type(_gr) == "string" and #_gr > 0 then _raw = _gr end
   end
   if _raw then
@@ -2776,269 +2776,103 @@ end
 -- Vigencia: exp en segundos Unix, maximo 10 minutos desde la emision
 local _exp = tonumber(_data.exp) or 0
 if os.time() > _exp then _close() error(MSG.EXPIRED, 0) end
--- Descifrado v5: la entrega cifrada (ee=1) manda ciphertext; la clave se deriva en ambos
--- lados de datos que ya viajan (secreto, key, hwid, exp). Rutina identica a la del servidor.
+-- Descifrado v5 RC4: stream cipher, una sola pasada lineal (sin rondas).
+-- La clave de 256 bytes se deriva del mismo seed key|hwid|exp|v6 con FNV-1a,
+-- identica derivacion en servidor (JS) y cliente (Lua). Solo requiere bit32.bxor.
 local function _vantDec5(_b64, _ckey, _chwid, _cexp)
-  local _M = 4294967296
-  local _XN = {}
-  for _a = 0, 15 do
-    for _b = 0, 15 do
-      local _x, _p, _aa, _bb = 0, 1, _a, _b
-      for _ = 1, 4 do
-        if _aa % 2 ~= _bb % 2 then _x = _x + _p end
-        _p = _p * 2
-        _aa = math.floor(_aa / 2)
-        _bb = math.floor(_bb / 2)
-      end
-      _XN[_a * 16 + _b] = _x
-    end
-  end
-  local _bits = nil
-  do
-    local _ok, _bt = pcall(function() return bit32 end)
-    if _ok and type(_bt) == "table" and type(_bt.bxor) == "function" then _bits = _bt end
-  end
-  if not _bits then
-    local _ok, _bt = pcall(function() return bit end)
-    if _ok and type(_bt) == "table" and type(_bt.bxor) == "function" and type(_bt.band) == "function" then _bits = _bt end
-  end
-  local function _xor(a, b)
-    if _bits then
-      local r = _bits.bxor(math.floor(a) % 4294967296, math.floor(b) % 4294967296)
-      if r < 0 then r = r + 4294967296 end
-      return r
-    end
-    local _r, _p = 0, 1
-    for _ = 1, 8 do
-      _r = _r + _XN[(a % 16) * 16 + (b % 16)] * _p
-      a = math.floor(a / 16)
-      b = math.floor(b / 16)
-      _p = _p * 16
-    end
-    return _r
-  end
-  local function _xs(h)
-    h = (h * 8192) % _M
-    h = _xor(h, math.floor(h / 131072))
-    h = (h * 32) % _M
-    return h
-  end
-  local function _mix(_seed)
-    local _h1, _h2 = 374761393, 668265263
-    for _i = 1, #_seed do
-      _h1 = (_h1 + _seed:byte(_i) * 31 + 7) % _M
-      _h1 = _xs(_h1)
-      _h2 = (_h2 + _h1) % _M
-      _h2 = _xs(_h2)
-    end
-    local _kb = {}
-    for _i = 1, 16 do
-      _h1 = _xs(_h1)
-      _h2 = _xs(_h2)
-      _kb[_i] = _xor(_h1, _h2) % 256
-    end
-    return _kb
-  end
-  local _seed = tostring(_ckey or ""):sub(1, 64) .. "|" .. tostring(_chwid or ""):sub(1, 128) .. "|" .. string.format("%.0f", _cexp or 0) .. "|v6"
-  local _kb = _mix(_seed)
+  _vd("D0 inicio descifrado RC4 len_b64=" .. #(_b64 or ""))
   local _b = (_b64 or ""):gsub("%s+", "")
   if #_b == 0 then return nil end
-  -- ceder el hilo solo si lleva mas de 2 s sin pausa (antes cedia cada 4096 vueltas: un frame por pausa)
-  local _sl = os.clock()
-  -- sin pausas: el descifrado corre de corrido. Cada pausa devolvia el hilo al juego y
-  -- el descifrado recibia muy poco CPU (minutos). Un bloqueo corto y unico es lo que se acepta.
-  local function _brk() end
-  _vd("D0 inicio descifrado len_b64=" .. #(_b64 or ""))
+  -- Derivar clave de 256 bytes con FNV-1a (igual que servidor)
+  local _seed = tostring(_ckey or ""):sub(1, 64) .. "|" .. tostring(_chwid or ""):sub(1, 128) .. "|" .. string.format("%.0f", _cexp or 0) .. "|v6"
+  local _b32 = nil
+  pcall(function() if type(bit32) == "table" then _b32 = bit32 end end)
+  local function _bx32(a, b)
+    if _b32 then return _b32.bxor(a % 4294967296, b % 4294967296) end
+    -- fallback nibble (lento pero correcto)
+    local _r, _p = 0, 1
+    local _XN = {[0]=0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15, 1,0,3,2,5,4,7,6,9,8,11,10,13,12,15,14, 2,3,0,1,6,7,4,5,10,11,8,9,14,15,12,13, 3,2,1,0,7,6,5,4,11,10,9,8,15,14,13,12, 4,5,6,7,0,1,2,3,12,13,14,15,8,9,10,11, 5,4,7,6,1,0,3,2,13,12,15,14,9,8,11,10, 6,7,4,5,2,3,0,1,14,15,12,13,10,11,8,9, 7,6,5,4,3,2,1,0,15,14,13,12,11,10,9,8, 8,9,10,11,12,13,14,15,0,1,2,3,4,5,6,7, 9,8,11,10,13,12,15,14,1,0,3,2,5,4,7,6, 10,11,8,9,14,15,12,13,2,3,0,1,6,7,4,5, 11,10,9,8,15,14,13,12,3,2,1,0,7,6,5,4, 12,13,14,15,8,9,10,11,4,5,6,7,0,1,2,3, 13,12,15,14,9,8,11,10,5,4,7,6,1,0,3,2, 14,15,12,13,10,11,8,9,6,7,4,5,2,3,0,1, 15,14,13,12,11,10,9,8,7,6,5,4,3,2,1,0}
+    for _ = 1, 8 do _r = _r + _XN[a % 16 * 16 + b % 16] * _p; a = math.floor(a/16); b = math.floor(b/16); _p = _p * 16 end
+    return _r
+  end
+  -- FNV-1a 32-bit sobre string
+  local function _fnv32(s)
+    local h = 2166136261
+    for _i = 1, #s do
+      h = _bx32(h, s:byte(_i))
+      h = (h * 16777619) % 4294967296
+    end
+    return h
+  end
+  -- Derivar S-box RC4 de 256 bytes: igual que rc4DeriveKey256 en server.js
+  local _h1 = _fnv32(_seed)
+  local _h2 = _fnv32(_seed .. "|rc4")
+  local _sbox = {}
+  for _i = 0, 255 do
+    _h1 = (_bx32(_h1, (_i * 2654435769) % 4294967296) * 16777619) % 4294967296
+    _h2 = (_bx32(_h2, _bx32(_h1, _i)) * 2246822519) % 4294967296
+    _sbox[_i + 1] = _bx32(_h1, _h2) % 256
+  end
+  -- Decodificar base64 -> bytes
   local _AL = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
   local _im = {}
   for _i = 1, 64 do _im[_AL:byte(_i)] = _i - 1 end
-  local _bytes = {}
-  local _bn = 0
+  local _bytes, _bn = {}, 0
   local _n = #_b
-  local _i = 1
-  local _cnt = 0
-  -- bloques de 4 caracteres -> 3 bytes con enteros (4 veces menos iteraciones)
-  while _i + 3 <= _n do
-    local _d1, _d2 = _im[_b:byte(_i)], _im[_b:byte(_i + 1)]
-    local _d3, _d4 = _im[_b:byte(_i + 2)], _im[_b:byte(_i + 3)]
+  local _ci = 1
+  while _ci + 3 <= _n do
+    local _d1, _d2 = _im[_b:byte(_ci)], _im[_b:byte(_ci + 1)]
+    local _d3, _d4 = _im[_b:byte(_ci + 2)], _im[_b:byte(_ci + 3)]
     if not (_d1 and _d2 and _d3 and _d4) then break end
     local _q = _d1 * 262144 + _d2 * 4096 + _d3 * 64 + _d4
     _bytes[_bn + 1] = math.floor(_q / 65536)
     _bytes[_bn + 2] = math.floor(_q / 256) % 256
     _bytes[_bn + 3] = _q % 256
     _bn = _bn + 3
-    _i = _i + 4
-    _cnt = _cnt + 1
-    if _cnt % 2048 == 0 then _brk() end
+    _ci = _ci + 4
   end
-  -- resto (padding o caracteres raros): mismo camino de bits de antes, desde donde paro el bloque rapido
+  -- resto (padding)
   local _acc, _bts = 0, 0
-  for _j = _i, _n do
+  for _j = _ci, _n do
     local _d = _im[_b:byte(_j)]
-    if _d then
-      _acc = _acc * 64 + _d
-      _bts = _bts + 6
-      if _bts >= 8 then
-        _bts = _bts - 8
-        _bn = _bn + 1
-        _bytes[_bn] = math.floor(_acc / 2 ^ _bts) % 256
-        _acc = _acc % 2 ^ _bts
-      end
-    end
+    if _d then _acc = _acc * 64 + _d; _bts = _bts + 6; if _bts >= 8 then _bts = _bts - 8; _bn = _bn + 1; _bytes[_bn] = math.floor(_acc / 2^_bts) % 256; _acc = _acc % 2^_bts end end
   end
   _vd("D1 base64 listo bytes=" .. _bn)
-  if _bn == 0 or _bn % 4 ~= 0 then return nil end
-  local _DL = 2654435769
-  local _m = _bn / 4
-  if _m < 2 then return nil end
-  local _k = {}
-  for _j = 0, 3 do
-    local _w = 0
-    for _i = 0, 3 do
-      local _p = _j * 4 + _i
-      _w = _w + _kb[_p + 1] * 256 ^ _i
-    end
-    _k[_j + 1] = _w
+  if _bn == 0 then return nil end
+  -- RC4 KSA
+  local _S = {}
+  for _i = 0, 255 do _S[_i] = _i end
+  local _jj = 0
+  for _i = 0, 255 do
+    _jj = (_jj + _S[_i] + _sbox[_i + 1]) % 256
+    local _t = _S[_i]; _S[_i] = _S[_jj]; _S[_jj] = _t
   end
-  local _v = {}
-  for _i = 1, _m do
-    local _o = (_i - 1) * 4
-    _v[_i] = _bytes[_o + 1] + _bytes[_o + 2] * 256 + _bytes[_o + 3] * 65536 + _bytes[_o + 4] * 16777216
+  -- RC4 PRGA: descifrar bytes en bloques de 8 (string.char por lote)
+  local _aa, _bb = 0, 0
+  local _parts, _pc = {}, 0
+  local _full = _bn - _bn % 8
+  local _bi = 1
+  while _bi <= _full do
+    local _c1, _c2, _c3, _c4, _c5, _c6, _c7, _c8 = _bytes[_bi], _bytes[_bi+1], _bytes[_bi+2], _bytes[_bi+3], _bytes[_bi+4], _bytes[_bi+5], _bytes[_bi+6], _bytes[_bi+7]
+    _aa = (_aa+1)%256; _bb = (_bb+_S[_aa])%256; local _t=_S[_aa]; _S[_aa]=_S[_bb]; _S[_bb]=_t; local _k1=_S[(_S[_aa]+_S[_bb])%256]
+    _aa = (_aa+1)%256; _bb = (_bb+_S[_aa])%256; _t=_S[_aa]; _S[_aa]=_S[_bb]; _S[_bb]=_t; local _k2=_S[(_S[_aa]+_S[_bb])%256]
+    _aa = (_aa+1)%256; _bb = (_bb+_S[_aa])%256; _t=_S[_aa]; _S[_aa]=_S[_bb]; _S[_bb]=_t; local _k3=_S[(_S[_aa]+_S[_bb])%256]
+    _aa = (_aa+1)%256; _bb = (_bb+_S[_aa])%256; _t=_S[_aa]; _S[_aa]=_S[_bb]; _S[_bb]=_t; local _k4=_S[(_S[_aa]+_S[_bb])%256]
+    _aa = (_aa+1)%256; _bb = (_bb+_S[_aa])%256; _t=_S[_aa]; _S[_aa]=_S[_bb]; _S[_bb]=_t; local _k5=_S[(_S[_aa]+_S[_bb])%256]
+    _aa = (_aa+1)%256; _bb = (_bb+_S[_aa])%256; _t=_S[_aa]; _S[_aa]=_S[_bb]; _S[_bb]=_t; local _k6=_S[(_S[_aa]+_S[_bb])%256]
+    _aa = (_aa+1)%256; _bb = (_bb+_S[_aa])%256; _t=_S[_aa]; _S[_aa]=_S[_bb]; _S[_bb]=_t; local _k7=_S[(_S[_aa]+_S[_bb])%256]
+    _aa = (_aa+1)%256; _bb = (_bb+_S[_aa])%256; _t=_S[_aa]; _S[_aa]=_S[_bb]; _S[_bb]=_t; local _k8=_S[(_S[_aa]+_S[_bb])%256]
+    _pc = _pc + 1
+    _parts[_pc] = string.char(_bx32(_c1,_k1), _bx32(_c2,_k2), _bx32(_c3,_k3), _bx32(_c4,_k4), _bx32(_c5,_k5), _bx32(_c6,_k6), _bx32(_c7,_k7), _bx32(_c8,_k8))
+    _bi = _bi + 8
   end
-  local function _mx(sum, y, z, p0, e, k)
-    local _t1 = _xor(math.floor(z / 32), (y * 4) % _M)
-    local _t2 = _xor(math.floor(y / 8), (z * 16) % _M)
-    local _s1 = (_t1 + _t2) % _M
-    local _t3 = _xor(sum, y)
-    local _t4 = _xor(k[_xor(p0 % 4, e) + 1], z)
-    local _s2 = (_t3 + _t4) % _M
-    return _xor(_s1, _s2)
+  while _bi <= _bn do
+    _aa = (_aa+1)%256; _bb = (_bb+_S[_aa])%256; local _t=_S[_aa]; _S[_aa]=_S[_bb]; _S[_bb]=_t
+    _pc = _pc + 1; _parts[_pc] = string.char(_bx32(_bytes[_bi], _S[(_S[_aa]+_S[_bb])%256]))
+    _bi = _bi + 1
   end
-  -- misma mezcla XXTEA; con bit32 nativo se evitan las funciones auxiliares (mismo resultado)
-  local _mxf = _mx
-  local _fast = nil
-  local _b32 = nil
-  pcall(function() _b32 = bit32 end)
-  if type(_b32) == "table" and type(_b32.bxor) == "function" and type(_b32.rshift) == "function" and type(_b32.lshift) == "function" then
-    local _bx, _rs, _ls = _b32.bxor, _b32.rshift, _b32.lshift
-    _fast = { _bx, _rs, _ls }
-    _mxf = function(sum, y, z, p0, e, k)
-      local _s1 = (_bx(_rs(z, 5), _ls(y, 2)) + _bx(_rs(y, 3), _ls(z, 4))) % _M
-      local _s2 = (_bx(sum, y) + _bx(k[_bx(p0 % 4, e) + 1], z)) % _M
-      return _bx(_s1, _s2)
-    end
-  end
-  local _rounds = 6 + math.floor(52 / _m)
-  local _sum = (_DL * _rounds) % _M
-  local _y = _v[1]
-  local _rd = 0
-  repeat
-    _rd = _rd + 1
-    _vd("D3 ronda " .. _rd .. " de " .. _rounds .. " inicio")
-    local _e = math.floor(_sum / 4) % 4
-    if _fast then
-      -- ruta rapida: la mezcla va en linea (sin llamada por palabra), mismo calculo que _mx
-      local _bx, _rs, _ls = _fast[1], _fast[2], _fast[3]
-      -- la clave por posicion depende solo de p%4 y de la ronda: se calcula una vez por ronda
-      local _kr = {}
-      for _j = 0, 3 do _kr[_j + 1] = _k[_bx(_j, _e) + 1] end
-      -- 8 pasos por grupo (mismo orden que el bucle simple; el sobrante va al final)
-      local _p = _m
-      while _p - 7 >= 2 do
-        do
-          local _z = _v[_p - 0 - 1]
-          local _s1 = (_bx(_rs(_z, 5), _ls(_y, 2)) + _bx(_rs(_y, 3), _ls(_z, 4))) % _M
-          local _s2 = (_bx(_sum, _y) + _bx(_kr[(_p - 0 - 1) % 4 + 1], _z)) % _M
-          _y = (_v[_p - 0] - _bx(_s1, _s2)) % _M
-          _v[_p - 0] = _y
-        end
-        do
-          local _z = _v[_p - 1 - 1]
-          local _s1 = (_bx(_rs(_z, 5), _ls(_y, 2)) + _bx(_rs(_y, 3), _ls(_z, 4))) % _M
-          local _s2 = (_bx(_sum, _y) + _bx(_kr[(_p - 1 - 1) % 4 + 1], _z)) % _M
-          _y = (_v[_p - 1] - _bx(_s1, _s2)) % _M
-          _v[_p - 1] = _y
-        end
-        do
-          local _z = _v[_p - 2 - 1]
-          local _s1 = (_bx(_rs(_z, 5), _ls(_y, 2)) + _bx(_rs(_y, 3), _ls(_z, 4))) % _M
-          local _s2 = (_bx(_sum, _y) + _bx(_kr[(_p - 2 - 1) % 4 + 1], _z)) % _M
-          _y = (_v[_p - 2] - _bx(_s1, _s2)) % _M
-          _v[_p - 2] = _y
-        end
-        do
-          local _z = _v[_p - 3 - 1]
-          local _s1 = (_bx(_rs(_z, 5), _ls(_y, 2)) + _bx(_rs(_y, 3), _ls(_z, 4))) % _M
-          local _s2 = (_bx(_sum, _y) + _bx(_kr[(_p - 3 - 1) % 4 + 1], _z)) % _M
-          _y = (_v[_p - 3] - _bx(_s1, _s2)) % _M
-          _v[_p - 3] = _y
-        end
-        do
-          local _z = _v[_p - 4 - 1]
-          local _s1 = (_bx(_rs(_z, 5), _ls(_y, 2)) + _bx(_rs(_y, 3), _ls(_z, 4))) % _M
-          local _s2 = (_bx(_sum, _y) + _bx(_kr[(_p - 4 - 1) % 4 + 1], _z)) % _M
-          _y = (_v[_p - 4] - _bx(_s1, _s2)) % _M
-          _v[_p - 4] = _y
-        end
-        do
-          local _z = _v[_p - 5 - 1]
-          local _s1 = (_bx(_rs(_z, 5), _ls(_y, 2)) + _bx(_rs(_y, 3), _ls(_z, 4))) % _M
-          local _s2 = (_bx(_sum, _y) + _bx(_kr[(_p - 5 - 1) % 4 + 1], _z)) % _M
-          _y = (_v[_p - 5] - _bx(_s1, _s2)) % _M
-          _v[_p - 5] = _y
-        end
-        do
-          local _z = _v[_p - 6 - 1]
-          local _s1 = (_bx(_rs(_z, 5), _ls(_y, 2)) + _bx(_rs(_y, 3), _ls(_z, 4))) % _M
-          local _s2 = (_bx(_sum, _y) + _bx(_kr[(_p - 6 - 1) % 4 + 1], _z)) % _M
-          _y = (_v[_p - 6] - _bx(_s1, _s2)) % _M
-          _v[_p - 6] = _y
-        end
-        do
-          local _z = _v[_p - 7 - 1]
-          local _s1 = (_bx(_rs(_z, 5), _ls(_y, 2)) + _bx(_rs(_y, 3), _ls(_z, 4))) % _M
-          local _s2 = (_bx(_sum, _y) + _bx(_kr[(_p - 7 - 1) % 4 + 1], _z)) % _M
-          _y = (_v[_p - 7] - _bx(_s1, _s2)) % _M
-          _v[_p - 7] = _y
-        end
-        _p = _p - 8
-        if _p % 65536 < 8 then _vd("D3 ronda " .. _rd .. " p=" .. _p) end
-        if _p % 2048 < 8 then _brk() end
-      end
-      while _p >= 2 do
-        do
-          local _z = _v[_p - 1]
-          local _s1 = (_bx(_rs(_z, 5), _ls(_y, 2)) + _bx(_rs(_y, 3), _ls(_z, 4))) % _M
-          local _s2 = (_bx(_sum, _y) + _bx(_kr[(_p - 1) % 4 + 1], _z)) % _M
-          _y = (_v[_p] - _bx(_s1, _s2)) % _M
-          _v[_p] = _y
-        end
-        _p = _p - 1
-      end
-    else
-      for _p = _m, 2, -1 do
-        local _z = _v[_p - 1]
-        _y = (_v[_p] - _mxf(_sum, _y, _z, _p - 1, _e, _k)) % _M
-        _v[_p] = _y
-        if _p % 65536 == 0 then _vd("D3 ronda " .. _rd .. " p=" .. _p) end
-        if _p % 2048 == 0 then _brk() end
-      end
-    end
-    local _z2 = _v[_m]
-    _y = (_v[1] - _mxf(_sum, _y, _z2, 0, _e, _k)) % _M
-    _v[1] = _y
-    _sum = (_sum - _DL) % _M
-  until _sum == 0
-  local _parts = {}
-  for _i = 1, _m do
-    local _w = _v[_i]
-    _parts[_i] = string.char(_w % 256, math.floor(_w / 256) % 256, math.floor(_w / 65536) % 256, math.floor(_w / 16777216) % 256)
-  end
-  _vd("D5 empaquetado listo palabras=" .. _m)
-  local _pt = table.concat(_parts)
-  local _len = #_pt
-  while _len > 0 and _pt:byte(_len) == 0 do _len = _len - 1 end
-  return _pt:sub(1, _len)
+  _vd("D5 RC4 listo bytes=" .. _bn)
+  return table.concat(_parts)
 end
 -- v6: el cliente ya no guarda ningun secreto del servidor, asi que no puede verificar la
 -- firma HMAC (esa era la puerta por la que el secreto viajaba a cada loader). La
@@ -3424,6 +3258,13 @@ const v1lHandler = async (req, res) => {
     const kSeed = qver >= 6
       ? `${execKey || ''}|${rawHwid}|${exp}|v6`
       : `${scriptAuthSecret(script)}|${execKey || ''}|${rawHwid}|${exp}|v5`;
+    // rc=1: loader soporta RC4 (stream cipher, 6-10x mas rapido que XXTEA para payloads grandes)
+    if (String(q.rc || '') === '1') {
+      const k256 = rc4DeriveKey256(kSeed);
+      const enc = rc4Encrypt(body, k256).toString('base64');
+      const esig = crypto.createHmac('sha256', scriptAuthSecret(script)).update(`${s}|${execKey || ''}|${exp}|rc4|${enc}`).digest('hex');
+      return res.json({ ok: true, exp, sig: esig, enc, rc: 1 });
+    }
     const k16 = deriveKey16(kSeed);
     const enc = xxteaEncrypt(body, k16).toString('base64');
     const esig = crypto.createHmac('sha256', scriptAuthSecret(script)).update(`${s}|${execKey || ''}|${exp}|${enc}`).digest('hex');
@@ -3908,6 +3749,47 @@ function xxteaEncrypt(plain, key16) {
     z = v[n - 1] = (v[n - 1] + xxteaMx(sum, y0, z, n - 1, e, k)) >>> 0;
   }
   return xxteaWordsToBuf(v);
+}
+// RC4: cifrado de transporte rapido (stream cipher, una sola pasada lineal).
+// Reemplaza XXTEA para loaders v5+ que envien rc=1; los loaders viejos siguen con XXTEA.
+// La clave de 256 bytes se deriva del mismo seed que la clave XXTEA: misma seguridad de
+// autenticacion (la respuesta solo descifra si key|hwid|exp son correctos).
+function rc4DeriveKey256(seed) {
+  // FNV-1a de 32 bits: simple, sin convergencia a 0, facil de replicar en Lua con bit32
+  const fnv1a32 = (buf) => {
+    let h = 2166136261 >>> 0;
+    for (let i = 0; i < buf.length; i++) { h ^= buf[i]; h = Math.imul(h, 16777619) >>> 0; }
+    return h;
+  };
+  const s = Buffer.from(String(seed), 'utf8');
+  let h1 = fnv1a32(s);
+  let h2 = fnv1a32(Buffer.concat([s, Buffer.from('|rc4')]));
+  const out = Buffer.alloc(256);
+  for (let i = 0; i < 256; i++) {
+    h1 = Math.imul((h1 ^ (Math.imul(i, 2654435769) >>> 0)) >>> 0, 16777619) >>> 0;
+    h2 = Math.imul((h2 ^ ((h1 ^ i) >>> 0)) >>> 0, 2246822519) >>> 0;
+    out[i] = ((h1 ^ h2) >>> 0) & 0xff;
+  }
+  return out;
+}
+function rc4Encrypt(plain, key256) {
+  const bytes = Buffer.isBuffer(plain) ? plain : Buffer.from(String(plain), 'utf8');
+  const S = new Uint8Array(256);
+  for (let i = 0; i < 256; i++) S[i] = i;
+  let j = 0;
+  for (let i = 0; i < 256; i++) {
+    j = (j + S[i] + key256[i]) & 0xff;
+    const t = S[i]; S[i] = S[j]; S[j] = t;
+  }
+  const out = Buffer.alloc(bytes.length);
+  let a = 0, b = 0;
+  for (let i = 0; i < bytes.length; i++) {
+    a = (a + 1) & 0xff;
+    b = (b + S[a]) & 0xff;
+    const t = S[a]; S[a] = S[b]; S[b] = t;
+    out[i] = bytes[i] ^ S[(S[a] + S[b]) & 0xff];
+  }
+  return out;
 }
 // Entrega el código al ejecutor: texto plano (loaders viejos) o cifrado (loader v2)
 function sendExecutorCode(req, res, script, opts, enc, keySeed) {

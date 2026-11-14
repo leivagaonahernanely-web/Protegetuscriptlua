@@ -126,7 +126,7 @@ export function computeCaptures2(ast) {
 // Acepta niveles en espanol o ingles: bajo/low, medio/medium, alto/high, extremo/extreme.
 const MACRO_ALIASES = { low: 'bajo', bajo: 'bajo', medium: 'medio', medio: 'medio', high: 'alto', alto: 'alto', extreme: 'extremo', extremo: 'extremo' };
 
-function scanVantMacros(srcText) {
+export function scanVantMacros(srcText) {
   const out = [];
   const lines = srcText.split('\n');
   const fnRe = /^(?:\s*)(?:local\s+)?function\s+([\w.:]+)\s*\(|^(?:\s*)(?:local\s+)?([\w.]+)\s*=\s*function\s*\(/;
@@ -147,7 +147,7 @@ function scanVantMacros(srcText) {
 
 // Anota cada Func del arbol con el nivel de su macro (solo funciones con nombre, igual que el picker de la web).
 // "extremo" se hereda a las funciones anidadas que no tienen macro propia.
-function annotateMacros(ast, wanted) {
+export function annotateMacros(ast, wanted) {
   if (!wanted.length) return;
   const map = new Map();
   for (const w of wanted) map.set(w.name, w.level);
@@ -177,7 +177,7 @@ function annotateMacros(ast, wanted) {
 // Expande cosas de Luau que el nucleo Lua 5.1 no tiene, antes del lexer:
 //  - strings interpoladas `hola {nombre}` -> ("hola " .. tostring(nombre) .. "")
 //  - atributos @native / @checked -> linea descartada
-function expandLuau(src) {
+export function expandLuau(src) {
   let out = '';
   let i = 0, line = 1;
   const n = src.length;

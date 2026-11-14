@@ -944,18 +944,6 @@ function blobLua(data) {
   const b64 = Buffer.from(data + '\0'.repeat(pad), 'latin1').toString('base64');
   return "(function() local A='ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/' local M={} for i=1,64 do M[A:byte(i)]=i-1 end local o,n={},0 local s=[[" + b64 + "]] for i=1,#s,4 do local a,b,c,d=s:byte(i,i+3) local q=M[a]*262144+M[b]*4096+M[c]*64+M[d] n=n+1 o[n]=string.char(math.floor(q/65536),math.floor(q/256)%256,q%256) end return table.concat(o):sub(1," + data.length + ") end)()";
 }
-function blobChunks(data) {
-  // data: cadena de chars 0..255 -> string.char(...) en tandas
-  const parts = [];
-  const B = 200;
-  for (let i = 0; i < data.length; i += B) {
-    const chunk = [];
-    for (let j = i; j < Math.min(i + B, data.length); j++) chunk.push(data.charCodeAt(j));
-    parts.push('string.char(' + chunk.join(',') + ')');
-  }
-  if (!parts.length) return "''";
-  return 'table.concat({' + parts.join(',') + '})';
-}
 
 // PM: la misma aritmetica del runtime (exacta en doubles)
 function keystreamBytes(seed, n) {

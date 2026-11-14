@@ -2795,12 +2795,18 @@ local function _vantDec5(_b64, _ckey, _chwid, _cexp)
     for _ = 1, 8 do _r = _r + _XN[a % 16 * 16 + b % 16] * _p; a = math.floor(a/16); b = math.floor(b/16); _p = _p * 16 end
     return _r
   end
-  -- FNV-1a 32-bit sobre string
+  -- mul32(a,b): (a*b) mod 2^32 sin overflow de float (todos los terminos < 2^49 < 2^53)
+  -- Identico a Math.imul en JS; replicable en Lua float sin bit ops de 32 bits.
+  local function _mul32(a, b)
+    local _ah = math.floor(a / 65536); local _al = a % 65536
+    local _bh = math.floor(b / 65536); local _bl = b % 65536
+    return ((_al * _bh + _ah * _bl) % 65536 * 65536 + _al * _bl) % 4294967296
+  end
+  -- FNV-1a 32-bit sobre string (con mul32 para no hacer overflow en Lua float)
   local function _fnv32(s)
     local h = 2166136261
     for _i = 1, #s do
-      h = _bx32(h, s:byte(_i))
-      h = (h * 16777619) % 4294967296
+      h = _mul32(_bx32(h, s:byte(_i)), 16777619)
     end
     return h
   end
@@ -2809,8 +2815,8 @@ local function _vantDec5(_b64, _ckey, _chwid, _cexp)
   local _h2 = _fnv32(_seed .. "|rc4")
   local _sbox = {}
   for _i = 0, 255 do
-    _h1 = (_bx32(_h1, (_i * 2654435769) % 4294967296) * 16777619) % 4294967296
-    _h2 = (_bx32(_h2, _bx32(_h1, _i)) * 2246822519) % 4294967296
+    _h1 = _mul32(_bx32(_h1, _mul32(_i, 2654435769)), 16777619)
+    _h2 = _mul32(_bx32(_h2, _bx32(_h1, _i)), 2246822519)
     _sbox[_i + 1] = _bx32(_h1, _h2) % 256
   end
   -- Decodificar base64 -> bytes
@@ -3755,10 +3761,18 @@ function xxteaEncrypt(plain, key16) {
 // La clave de 256 bytes se deriva del mismo seed que la clave XXTEA: misma seguridad de
 // autenticacion (la respuesta solo descifra si key|hwid|exp son correctos).
 function rc4DeriveKey256(seed) {
-  // FNV-1a de 32 bits: simple, sin convergencia a 0, facil de replicar en Lua con bit32
+  // FNV-1a de 32 bits con multiplicacion en dos mitades de 16 bits (mul32).
+  // mul32 replica exactamente Math.imul pero sin overflow de float en Lua:
+  //   a*b mod 2^32 = ((a_hi*b_lo + a_lo*b_hi) mod 65536)*65536 + a_lo*b_lo) mod 2^32
+  // Todos los terminos < 2^33, suma < 2^49 < 2^53 (limite de float IEEE-754). OK en Lua.
+  const mul32 = (a, b) => {
+    const ah = Math.floor(a / 65536), al = a % 65536;
+    const bh = Math.floor(b / 65536), bl = b % 65536;
+    return (((al * bh + ah * bl) % 65536) * 65536 + al * bl) % 4294967296 >>> 0;
+  };
   const fnv1a32 = (buf) => {
     let h = 2166136261 >>> 0;
-    for (let i = 0; i < buf.length; i++) { h ^= buf[i]; h = Math.imul(h, 16777619) >>> 0; }
+    for (let i = 0; i < buf.length; i++) { h = mul32(h ^ buf[i], 16777619); }
     return h;
   };
   const s = Buffer.from(String(seed), 'utf8');
@@ -3766,8 +3780,8 @@ function rc4DeriveKey256(seed) {
   let h2 = fnv1a32(Buffer.concat([s, Buffer.from('|rc4')]));
   const out = Buffer.alloc(256);
   for (let i = 0; i < 256; i++) {
-    h1 = Math.imul((h1 ^ (Math.imul(i, 2654435769) >>> 0)) >>> 0, 16777619) >>> 0;
-    h2 = Math.imul((h2 ^ ((h1 ^ i) >>> 0)) >>> 0, 2246822519) >>> 0;
+    h1 = mul32((h1 ^ mul32(i, 2654435769)) >>> 0, 16777619);
+    h2 = mul32((h2 ^ ((h1 ^ i) >>> 0)) >>> 0, 2246822519);
     out[i] = ((h1 ^ h2) >>> 0) & 0xff;
   }
   return out;

@@ -339,7 +339,14 @@ export function buildVantObf(source, seed, opts = {}) {
       junk: mode === 'high',
       guard: typeof opts.guard === 'string' && /^[0-9a-f]{32}$/.test(opts.guard) ? opts.guard : '',
       antiEnv: opts.antiEnv !== false,
+      split: !!opts.split,
+      tag: opts.split ? `vm7:${seed}:${mode}` : '',
+      loaderPrelude: typeof opts.loaderPrelude === 'string' ? opts.loaderPrelude : '',
     });
+    if (opts.split) {
+      if (!code || !code.engine || !code.data) throw new BuildError('La build VM (motor/datos) salio vacia');
+      return { engine: code.engine, data: code.data, stats: { protos: countProtos(root), instrs: countInstrs(root), bytes: data.length, mode } };
+    }
     return { code, stats: { protos: countProtos(root), instrs: countInstrs(root), bytes: data.length, mode } };
   } catch (err) {
     if (err instanceof BuildError) throw err;

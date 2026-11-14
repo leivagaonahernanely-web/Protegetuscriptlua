@@ -989,7 +989,7 @@ export function emitRuntime(data, seed, ops, opts = {}) {
   const usedToks = new Set(['_NX','_x','_S0','_S','_blob','_pos','_u8','_uv','_sv','_str','_de','_k','_P','_proto','_pack','_unpack','_band','_bor','_bxor','_shl','_shr','_run','_cf','_ver','_pass','_j1','_j2','_i','_exp','_v','b32']);
   const newTok = () => { let t; do { t = '_' + (trnd() % 2176782336).toString(36); } while (usedToks.has(t)); usedToks.add(t); return t; };
   const T = {};
-  for (const b of ['st','mk','pc','gp','ck','ex','gv']) T[b] = newTok();
+  for (const b of ['st','mk','pc','gp','ck','ex','gv','en']) T[b] = newTok();
   const VX = 2 + (seed % 5), VY = -3 - (seed % 7), VZ = 4 + (seed % 3);
   const WX = -1 - (seed % 4), WY = 5, WZ = 2 + (seed % 5);
   const SX = VX + WX, DZ = VZ - WZ, DOT = VX * WX + VY * WY + VZ * WZ;
@@ -1107,15 +1107,36 @@ end`;
     return
   end
 end`;
+  const SPLIT = !!opts.split;
+  const DECR = `for _pass = 1, ${layers} do
+  local parts = {}
+  _S = _pass == 1 and _S0 or _S1
+  for i = 1, #_blob do
+    _S = _S * 16807 % 2147483647
+    parts[i] = string.char(_x(string.byte(_blob, i), _S % 256))
+  end
+  _blob = table.concat(parts)
+end`;
+  const ENTRY = `local function ${T.en}(_bld, ...)
+${opts.guard ? GD + '\n' : ''}_blob = _bld
+_ARGV = (...)
+pcall(function() _EV = getfenv(1) end)
+${DECR}
+_ver = _u8() -- version
+_proto()
+return _run(1, {}, ...)
+end
+pcall(function() _G["VANTARMOR_VM"] = ${T.en} end)
+pcall(function() if type(getgenv) == 'function' then rawset(getgenv(), "VANTARMOR_VM", ${T.en}) end end)`;
   const lua = `
 local _NX = {${nibbleTableLiteral()}}
 local _OPN = {${opnEntries}}
 local function _x(a, b)
   return _NX[(a - a % 16) / 16 * 16 + (b - b % 16) / 16 + 1] * 16 + _NX[a % 16 * 16 + b % 16 + 1]
 end
-local _ARGV = (...)
-local _EV
-pcall(function() _EV = getfenv(1) end)
+local _ARGV${SPLIT ? '' : ' = (...)'}
+local _EV${SPLIT ? '' : `
+pcall(function() _EV = getfenv(1) end)`}
 local _GVX
 pcall(function() if type(getgenv) == 'function' then _GVX = getgenv() end end)
 local _LGN
@@ -1183,16 +1204,8 @@ if _S0 <= 0 then _S0 = _S0 + 2147483646 end
 local _S1 = ${seed2}
 if _S1 <= 0 then _S1 = _S1 + 2147483646 end
 local _S = _S0
-local _blob = ${blobChunks(enc)}
-for _pass = 1, ${layers} do
-  local parts = {}
-  _S = _pass == 1 and _S0 or _S1
-  for i = 1, #_blob do
-    _S = _S * 16807 % 2147483647
-    parts[i] = string.char(_x(string.byte(_blob, i), _S % 256))
-  end
-  _blob = table.concat(parts)
-end
+local _blob${SPLIT ? '' : ` = ${blobChunks(enc)}
+${DECR}`}
 local _pos = 1
 local function _u8() local v = string.byte(_blob, _pos); _pos = _pos + 1; return v end
 local function _uv()
@@ -1244,8 +1257,8 @@ local function _k(pid, idx)
   if tag == 3 then return _u8() == 1 end
   return nil
 end
-local _P = {}
-_ver = _u8() -- version
+local _P = {}${SPLIT ? '' : `
+_ver = _u8() -- version`}
 local function _proto()
   local P = {}
   local id = #_P + 1
@@ -1282,8 +1295,8 @@ local function _proto()
   P.p = {}
   for i = 1, np2 do P.p[i] = _proto() end
   return P
-end
-_proto()
+end${SPLIT ? '' : `
+_proto()`}
 local _pack = table.pack or function(...) local t = {...}; t.n = select('#', ...); return t end
 local _unpack = unpack or table.unpack
 local function _run(pi, ups, ...)
@@ -1486,14 +1499,15 @@ local function _run(pi, ups, ...)
       error(${E('vantobf: opcode desconocido ')} .. tostring(o), 0)
     end  end
 end
-${opts.antiEnv !== false ? AE + '\n' : ''}${opts.guard ? GD + '\n' : ''}return _run(1, {}, ...)
+${opts.antiEnv !== false ? AE + '\n' : ''}${!SPLIT && opts.guard ? GD + '\n' : ''}${SPLIT ? ENTRY : (typeof opts.loaderPrelude === 'string' && opts.loaderPrelude ? 'do\n' + opts.loaderPrelude + '\nend\n' : '') + 'return _run(1, {}, ...)'}
 `;
+  const DATA = SPLIT ? `-- [VantArmor] ${opts.tag || ''}\nlocal _b7 = ${blobChunks(enc)}\nlocal _e7 = _G["VANTARMOR_VM"]\nif not _e7 then error("[VantArmor] loader desactualizado, descarga el loader de nuevo", 0) end\nreturn _e7(_b7, ...)` : null;
   if (opts.mangle !== false) {
     let out = lua;
     for (const n of ['_NX','_x','_S0','_S','_blob','_pos','_u8','_uv','_sv','_str','_de','_k','_P','_proto','_pack','_unpack','_band','_bor','_bxor','_shl','_shr','_run','_cf','_ver','_pass','_j1','_j2','_i','_exp','_v','b32']) {
       out = out.replace(new RegExp('\\b' + n + '\\b', 'g'), newTok());
     }
-    return out;
+    return SPLIT ? { engine: out, data: DATA } : out;
   }
-  return lua;
+  return SPLIT ? { engine: lua, data: DATA } : lua;
 }

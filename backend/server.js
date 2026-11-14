@@ -2941,14 +2941,78 @@ local function _vantDec5(_b64, _ckey, _chwid, _cexp)
       -- la clave por posicion depende solo de p%4 y de la ronda: se calcula una vez por ronda
       local _kr = {}
       for _j = 0, 3 do _kr[_j + 1] = _k[_bx(_j, _e) + 1] end
-      for _p = _m, 2, -1 do
-        local _z = _v[_p - 1]
-        local _s1 = (_bx(_rs(_z, 5), _ls(_y, 2)) + _bx(_rs(_y, 3), _ls(_z, 4))) % _M
-        local _s2 = (_bx(_sum, _y) + _bx(_kr[(_p - 1) % 4 + 1], _z)) % _M
-        _y = (_v[_p] - _bx(_s1, _s2)) % _M
-        _v[_p] = _y
-        if _p % 65536 == 0 then _vd("D3 ronda " .. _rd .. " p=" .. _p) end
-        if _p % 2048 == 0 then _brk() end
+      -- 8 pasos por grupo (mismo orden que el bucle simple; el sobrante va al final)
+      local _p = _m
+      while _p - 7 >= 2 do
+        do
+          local _z = _v[_p - 0 - 1]
+          local _s1 = (_bx(_rs(_z, 5), _ls(_y, 2)) + _bx(_rs(_y, 3), _ls(_z, 4))) % _M
+          local _s2 = (_bx(_sum, _y) + _bx(_kr[(_p - 0 - 1) % 4 + 1], _z)) % _M
+          _y = (_v[_p - 0] - _bx(_s1, _s2)) % _M
+          _v[_p - 0] = _y
+        end
+        do
+          local _z = _v[_p - 1 - 1]
+          local _s1 = (_bx(_rs(_z, 5), _ls(_y, 2)) + _bx(_rs(_y, 3), _ls(_z, 4))) % _M
+          local _s2 = (_bx(_sum, _y) + _bx(_kr[(_p - 1 - 1) % 4 + 1], _z)) % _M
+          _y = (_v[_p - 1] - _bx(_s1, _s2)) % _M
+          _v[_p - 1] = _y
+        end
+        do
+          local _z = _v[_p - 2 - 1]
+          local _s1 = (_bx(_rs(_z, 5), _ls(_y, 2)) + _bx(_rs(_y, 3), _ls(_z, 4))) % _M
+          local _s2 = (_bx(_sum, _y) + _bx(_kr[(_p - 2 - 1) % 4 + 1], _z)) % _M
+          _y = (_v[_p - 2] - _bx(_s1, _s2)) % _M
+          _v[_p - 2] = _y
+        end
+        do
+          local _z = _v[_p - 3 - 1]
+          local _s1 = (_bx(_rs(_z, 5), _ls(_y, 2)) + _bx(_rs(_y, 3), _ls(_z, 4))) % _M
+          local _s2 = (_bx(_sum, _y) + _bx(_kr[(_p - 3 - 1) % 4 + 1], _z)) % _M
+          _y = (_v[_p - 3] - _bx(_s1, _s2)) % _M
+          _v[_p - 3] = _y
+        end
+        do
+          local _z = _v[_p - 4 - 1]
+          local _s1 = (_bx(_rs(_z, 5), _ls(_y, 2)) + _bx(_rs(_y, 3), _ls(_z, 4))) % _M
+          local _s2 = (_bx(_sum, _y) + _bx(_kr[(_p - 4 - 1) % 4 + 1], _z)) % _M
+          _y = (_v[_p - 4] - _bx(_s1, _s2)) % _M
+          _v[_p - 4] = _y
+        end
+        do
+          local _z = _v[_p - 5 - 1]
+          local _s1 = (_bx(_rs(_z, 5), _ls(_y, 2)) + _bx(_rs(_y, 3), _ls(_z, 4))) % _M
+          local _s2 = (_bx(_sum, _y) + _bx(_kr[(_p - 5 - 1) % 4 + 1], _z)) % _M
+          _y = (_v[_p - 5] - _bx(_s1, _s2)) % _M
+          _v[_p - 5] = _y
+        end
+        do
+          local _z = _v[_p - 6 - 1]
+          local _s1 = (_bx(_rs(_z, 5), _ls(_y, 2)) + _bx(_rs(_y, 3), _ls(_z, 4))) % _M
+          local _s2 = (_bx(_sum, _y) + _bx(_kr[(_p - 6 - 1) % 4 + 1], _z)) % _M
+          _y = (_v[_p - 6] - _bx(_s1, _s2)) % _M
+          _v[_p - 6] = _y
+        end
+        do
+          local _z = _v[_p - 7 - 1]
+          local _s1 = (_bx(_rs(_z, 5), _ls(_y, 2)) + _bx(_rs(_y, 3), _ls(_z, 4))) % _M
+          local _s2 = (_bx(_sum, _y) + _bx(_kr[(_p - 7 - 1) % 4 + 1], _z)) % _M
+          _y = (_v[_p - 7] - _bx(_s1, _s2)) % _M
+          _v[_p - 7] = _y
+        end
+        _p = _p - 8
+        if _p % 65536 < 8 then _vd("D3 ronda " .. _rd .. " p=" .. _p) end
+        if _p % 2048 < 8 then _brk() end
+      end
+      while _p >= 2 do
+        do
+          local _z = _v[_p - 1]
+          local _s1 = (_bx(_rs(_z, 5), _ls(_y, 2)) + _bx(_rs(_y, 3), _ls(_z, 4))) % _M
+          local _s2 = (_bx(_sum, _y) + _bx(_kr[(_p - 1) % 4 + 1], _z)) % _M
+          _y = (_v[_p] - _bx(_s1, _s2)) % _M
+          _v[_p] = _y
+        end
+        _p = _p - 1
       end
     else
       for _p = _m, 2, -1 do

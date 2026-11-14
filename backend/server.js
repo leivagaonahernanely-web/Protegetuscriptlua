@@ -3642,6 +3642,9 @@ function protectedBase(script, plain) {
   // La copia ofuscada guardada se sirve tal cual: los crashes "aritmética sobre nil" del
   // juego salían del bundle VM del LOADER (loader v6), no de las copias guardadas. Si la
   // copia falta o es fuente en claro, el guard la protege al vuelo como siempre.
+  // "No obf" (none): se sirve la fuente tal cual, sin el motor propio. El servidor igual cifra
+  // el envio al loader, asi que el protocolo no cambia.
+  if (script.obfuscator === 'none' && plain) return plain;
   if (saved.includes('vm7:')) return saved;                  // payload vm7: solo datos, se sirve tal cual
   const isPlain = !saved || (plain && variants.has(saved.trim())) || looksLikePlainSource(saved);
   if (!isPlain) return saved;                                // copia ofuscada real

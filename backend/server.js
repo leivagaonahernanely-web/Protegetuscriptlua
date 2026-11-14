@@ -1422,7 +1422,7 @@ body{background:#131730;display:flex;align-items:center;justify-content:center;t
 // La key aleatoria por script (loader_id) va en una variable: el bootstrap no lleva el slug ni la ruta completa.
 // Diagnostico del bootstrap: solo para los loaders listados aqui (o con LOADER_DEBUG=1). Por defecto apagado.
 const LOADER_DEBUG = process.env.LOADER_DEBUG === '1';
-const DEBUG_LOADER_IDS = ['8d7860430a8b8709e5f8657e2cf1ccc135a4ec68', '472dfe8930f58db08b67d33f03f2de87b186caad'];
+const DEBUG_LOADER_IDS = ['8d7860430a8b8709e5f8657e2cf1ccc135a4ec68', '472dfe8930f58db08b67d33f03f2de87b186caad', 'b7b21c12b15852c38f330326d9a9a1c7b3fddcdf'];
 // ---- Firma RSA del payload (v7): el servidor firma, el loader solo verifica ----
 // Bloque firmado: 0x00 0x01 + relleno 0xFF + 0x00 + "V7|<s>|<keyid>|<exp>|<sha256hex(cuerpo)>".
 // keyid = primeros 16 hex de sha256(key). El loader lleva solo la clave publica (modulo + R y R2
@@ -2545,6 +2545,10 @@ local VANT_RSA_NP = ${rsaConsts().np}
 ${LUA_SHA256_CORE}
 local Players = game:GetService("Players")
 local HttpService = game:GetService("HttpService")
+local _VDBG = ${(LOADER_DEBUG || DEBUG_LOADER_IDS.includes(String(loaderId))) ? 'true' : 'false'}
+local _VT0 = os.clock()
+local function _vd(m) if _VDBG then print("[VANT-DBG " .. string.format("%.2f", os.clock() - _VT0) .. "s] " .. tostring(m)) end end
+_vd("t0 inicio loader")
 local key, hwid, rbxid = "", "", ""
 local function _findLP()
   local lp = nil
@@ -2724,6 +2728,7 @@ ${ex.initCode ? `-- [Pre-Auth] Codigo del dueño (equivale a LRM_INIT_SCRIPT): c
 ${ex.initCode}
 ` : ''}-- Pide el payload firmado: POST JSON (la key no viaja en la URL); GET de reserva.
 -- Error del servidor (401/429) = corte inmediato con su mensaje; fallo de red = 3 reintentos.
+_vd("t1 pidiendo /v1/l")
 local _data = nil
 for _i = 1, 3 do
   local _raw = nil
@@ -2913,9 +2918,11 @@ end
 -- firma HMAC (esa era la puerta por la que el secreto viajaba a cada loader). La
 -- autenticidad va por construccion: solo una respuesta real del servidor descifra a texto
 -- que compila, porque la clave depende de key|hwid|exp y la vigencia acota el replay.
+_vd("t2 respuesta recibida enc_len=" .. tostring(type(_data.enc) == "string" and #_data.enc or 0))
 local _pay = nil
 if type(_data.enc) == "string" and #_data.enc > 0 then
   _pay = _vantDec5(_data.enc, key, hwid, _exp)
+  _vd("t3 descifrado largo=" .. tostring(type(_pay) == "string" and #_pay or "nil"))
 elseif type(_data.body) == "string" and #_data.body > 0 then
   _pay = _data.body
 end
@@ -2977,12 +2984,16 @@ pcall(function()
 end)
 if type(_lf5.loadstring) ~= "function" and type(loadstring) == "function" then _lf5.loadstring = loadstring end
 if type(_lf5._G) ~= "table" then _lf5._G = _lf5 end
+_vd("t4 compilando payload len=" .. tostring(#_data.body))
 local _fn, _ferr = loadstring(_data.body, "=VantArmor", _lf5)
+_vd("t5 compilado ok=" .. tostring(_fn ~= nil))
 if not _fn then _close() pcall(function() warn(tostring(_ferr)) end) error(MSG.PAYLOAD_LOAD_FAILED, 0) end
 pcall(function() if setfenv and type(_lf5) == "table" then setfenv(_fn, _lf5) end end)
 local _perr = nil
 task.spawn(function()
+  _vd("t6 payload arranca")
   local _rok, _rerr = pcall(_fn, _lf5)
+  _vd("t7 payload termino ok=" .. tostring(_rok))
   if not _rok and _rerr then
     _perr = tostring(_rerr)
     pcall(function() warn(_perr) end)

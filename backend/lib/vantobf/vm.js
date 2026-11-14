@@ -1120,7 +1120,7 @@ end`;
   _S = _pass == 1 and _S0 or _S1
   for i = 1, #_blob do
     _S = _S * 16807 % 2147483647
-    parts[i] = string.char(_x(string.byte(_blob, i), _S % 256))
+    parts[i] = string.char(_bx(string.byte(_blob, i), _S % 256))
     if _YLD and i % 262144 == 0 then _YLD() end
   end
   _blob = table.concat(parts)
@@ -1156,6 +1156,7 @@ pcall(function()
   end
 end)
 local b32 = bit32
+local _bx = (b32 and b32.bxor) or _x -- XOR de bytes; igual que _x (solo mas rapido)
 local function _band(x, y)
   if b32 then return b32.band(x, y) end
   local r, bv = 0, 1
